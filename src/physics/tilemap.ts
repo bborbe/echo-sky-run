@@ -1,7 +1,11 @@
+import { TILE } from './constants.ts'
+
 /** Level tiles are one character each, so a level is a list of equal-length strings. */
 export const EMPTY = '.'
 export const SOLID = '#'
 export const ONEWAY = '='
+export const GOAL = 'F'
+export const SPAWN = 'S'
 
 export interface TileMap {
   readonly cols: number
@@ -30,5 +34,14 @@ export function isSolid(ch: string): boolean {
 /** A one-way tile blocks only a fall from above; it is ignored when rising or moving sideways. */
 export function isOneWay(ch: string): boolean {
   return ch === ONEWAY
+}
+
+/** The top-left corner of the first tile matching a character, or null when the level has none. */
+export function findTile(map: TileMap, ch: string): { x: number; y: number } | null {
+  for (let row = 0; row < map.rows; row++) {
+    const col = map.tiles[row].indexOf(ch)
+    if (col >= 0) return { x: col * TILE, y: row * TILE }
+  }
+  return null
 }
 
