@@ -1,7 +1,9 @@
 import { isBlinking, type Echo } from '../echo/echo.ts'
+import type { Enemy } from '../game/enemies.ts'
+import type { Mushroom } from '../game/power.ts'
 import { PLAYER_H, PLAYER_W, TILE } from '../physics/constants.ts'
 import type { PlayerState } from '../physics/player.ts'
-import { GOAL, isOneWay, isSolid, tileAt, type TileMap } from '../physics/tilemap.ts'
+import { CHECKPOINT, GOAL, isOneWay, isSolid, QUESTION, SIGN, tileAt, type TileMap } from '../physics/tilemap.ts'
 
 /**
  * The logical view height is fixed at 14 tiles. The scale is `window height / VIEW_H` and may be
@@ -25,6 +27,16 @@ const FLAG_POLE = '#8a8a8a'
 const PIP_BODY = '#e8663c'
 const PIP_VISOR = '#2b3a4a'
 const ECHO_BODY = 'rgba(120, 220, 255, 0.55)'
+const GOOMBA_BODY = '#8c4a2f'
+const GOOMBA_EYE = '#f2f2f2'
+const TURTLE_BODY = '#2f7a4a'
+const SHELL_BODY = '#c9a227'
+const QUESTION_BLOCK = '#c9a227'
+const USED_BLOCK = '#8a6f1e'
+const MUSHROOM_CAP = '#d94a2b'
+const MUSHROOM_STEM = '#f2e8d0'
+const CHECKPOINT_POLE = '#8a8a8a'
+const CHECKPOINT_FLAG = '#5dbb63'
 
 /**
  * The renderer's palette. Exported so the browser check asserts these colours instead of repeating
@@ -49,6 +61,14 @@ export interface RenderState {
   readonly prevX: number
   readonly prevY: number
   readonly echoes: readonly Echo[]
+  readonly enemies: readonly Enemy[]
+  readonly mushrooms: readonly Mushroom[]
+  /** ? blocks already emptied, keyed "col,row". */
+  readonly usedBlocks: ReadonlySet<string>
+  readonly goalReached: boolean
+  readonly runSeconds: number
+  /** The best time from localStorage, or null before the first finish. */
+  readonly bestSeconds: number | null
   readonly tick: number
   /** Blend factor between the last two fixed steps. */
   readonly alpha: number
@@ -58,6 +78,8 @@ export class Renderer {
   private readonly canvas: HTMLCanvasElement
   private readonly ctx: CanvasRenderingContext2D
   private viewW = VIEW_H
+  /** Set from the frame's state, because the tile pass needs it to draw an emptied ? block. */
+  private usedBlocks: ReadonlySet<string> = new Set()
   private camX = 0
   private camY = 0
 
@@ -100,6 +122,7 @@ export class Renderer {
     const py = state.prevY + (state.player.y - state.prevY) * state.alpha
 
     this.updateCamera(state.map, px, py)
+    this.usedBlocks = state.usedBlocks
 
     const sky = ctx.createLinearGradient(0, 0, 0, VIEW_H)
     sky.addColorStop(0, SKY)
@@ -111,8 +134,30 @@ export class Renderer {
     ctx.translate(-Math.round(this.camX), -Math.round(this.camY))
     this.drawTiles(state.map)
     for (const echo of state.echoes) this.drawEcho(echo, state.tick)
-    this.drawPlayer(px, py)
+    for (const enemy of state.enemies) this.drawEnemy(enemy)
+    for (const mushroom of state.mushrooms) this.drawMushroom(mushroom)
+    this.drawPlayer(px, py, state.player.h)
     ctx.restore()
+
+    if (state.goalReached) this.drawTally(state.runSeconds, state.bestSeconds)
+  }
+
+  /** The level-clear tally: this run's time and the best time, in screen space over the level. */
+  private drawTally(runSeconds: number, bestSeconds: number | null): void {
+    const ctx = this.ctx
+    const w = Math.min(this.viewW - 32, 200)
+    const h = 64
+    const x = Math.round((this.viewW - w) / 2)
+    const y = Math.round((VIEW_H - h) / 2)
+
+    ctx.fillStyle = 'rgba(20, 30, 40, 0.85)'
+    ctx.fillRect(x, y, w, h)
+    ctx.fillStyle = FLAG
+    ctx.font = '10px monospace'
+    ctx.textAlign = 'center'
+    ctx.fillText('LEVEL CLEAR', x + w / 2, y + 18)
+    ctx.fillText(`TIME ${formatTime(runSeconds)}`, x + w / 2, y + 34)
+    ctx.fillText(bestSeconds === null ? 'BEST --' : `BEST ${formatTime(bestSeconds)}`, x + w / 2, y + 50)
   }
 
   /** Horizontal deadzone around the view centre, plus the vertical edge margins, clamped to the level. */
@@ -148,7 +193,15 @@ export class Renderer {
         const x = col * TILE
         const y = row * TILE
 
-        if (isSolid(ch)) {
+        if (ch === QUESTION) {
+          // Drawn before the solid branch, because a ? block is solid and would otherwise be a wall.
+          ctx.fillStyle = this.usedBlocks.has(`${col},${row}`) ? USED_BLOCK : QUESTION_BLOCK
+          ctx.fillRect(x, y, TILE, TILE)
+          if (!this.usedBlocks.has(`${col},${row}`)) {
+            ctx.fillStyle = PIP_VISOR
+            ctx.fillRect(x + 6, y + 4, 4, 8)
+          }
+        } else if (isSolid(ch)) {
           ctx.fillStyle = GROUND
           ctx.fillRect(x, y, TILE, TILE)
           if (!isSolid(tileAt(map, col, row - 1))) {
@@ -158,6 +211,21 @@ export class Renderer {
         } else if (isOneWay(ch)) {
           ctx.fillStyle = PLANK
           ctx.fillRect(x, y, TILE, 4)
+        } else if (ch === SIGN) {
+          // A post with a plate showing the Echo key. It is the level's only instruction.
+          ctx.fillStyle = CHECKPOINT_POLE
+          ctx.fillRect(x + 7, y - TILE, 2, TILE * 2)
+          ctx.fillStyle = PLANK
+          ctx.fillRect(x + 1, y - TILE, 14, 10)
+          ctx.fillStyle = PIP_VISOR
+          ctx.font = '8px monospace'
+          ctx.textAlign = 'center'
+          ctx.fillText('C', x + 8, y - TILE + 8)
+        } else if (ch === CHECKPOINT) {
+          ctx.fillStyle = CHECKPOINT_POLE
+          ctx.fillRect(x + 7, y - TILE * 2, 2, TILE * 3)
+          ctx.fillStyle = CHECKPOINT_FLAG
+          ctx.fillRect(x + 9, y - TILE * 2, 9, 7)
         } else if (ch === GOAL) {
           ctx.fillStyle = FLAG_POLE
           ctx.fillRect(x + 7, y - TILE * 2, 2, TILE * 3)
@@ -185,12 +253,52 @@ export class Renderer {
     this.ctx.fillRect(x, y, PLAYER_W, 4)
   }
 
-  private drawPlayer(x: number, y: number): void {
+  private drawEnemy(enemy: Enemy): void {
+    const ctx = this.ctx
+    const x = Math.round(enemy.x)
+    const y = Math.round(enemy.y)
+
+    if (enemy.kind === 'gear-goomba') {
+      ctx.fillStyle = GOOMBA_BODY
+      ctx.fillRect(x, y, enemy.w, enemy.h)
+      ctx.fillStyle = GOOMBA_EYE
+      ctx.fillRect(x + 3, y + 4, 3, 3)
+      ctx.fillRect(x + enemy.w - 6, y + 4, 3, 3)
+      return
+    }
+
+    // A shell is the same object once stomped, so it is drawn from its current box rather than a
+    // separate sprite — the shrink to SHELL_H is what reads as "it went into its shell".
+    if (enemy.mode === 'walk') {
+      ctx.fillStyle = TURTLE_BODY
+      ctx.fillRect(x, y, enemy.w, enemy.h)
+      ctx.fillStyle = SHELL_BODY
+      ctx.fillRect(x + 1, y + enemy.h - 10, enemy.w - 2, 8)
+      return
+    }
+
+    ctx.fillStyle = SHELL_BODY
+    ctx.fillRect(x, y, enemy.w, enemy.h)
+    ctx.fillStyle = TURTLE_BODY
+    ctx.fillRect(x + 2, y + 3, enemy.w - 4, enemy.h - 6)
+  }
+
+  private drawMushroom(mushroom: Mushroom): void {
+    const ctx = this.ctx
+    const x = Math.round(mushroom.x)
+    const y = Math.round(mushroom.y)
+    ctx.fillStyle = MUSHROOM_STEM
+    ctx.fillRect(x + 3, y + 8, 10, 8)
+    ctx.fillStyle = MUSHROOM_CAP
+    ctx.fillRect(x, y, 16, 8)
+  }
+
+  private drawPlayer(x: number, y: number, h: number): void {
     const ctx = this.ctx
     const px = Math.round(x)
     const py = Math.round(y)
     ctx.fillStyle = PIP_BODY
-    ctx.fillRect(px, py, PLAYER_W, PLAYER_H)
+    ctx.fillRect(px, py, PLAYER_W, h)
     ctx.fillStyle = PIP_VISOR
     ctx.fillRect(px + 2, py + 3, PLAYER_W - 4, 5)
   }
@@ -198,4 +306,14 @@ export class Renderer {
 
 function clamp(value: number, low: number, high: number): number {
   return Math.max(low, Math.min(value, high))
+}
+
+/** A run time as `M:SS.t` — the shape the spec's HUD shows. Integer maths throughout, because a
+ *  float remainder truncates: 5.1 seconds renders `0:05.0` if you take `(rest - whole) * 10`. */
+export function formatTime(seconds: number): string {
+  const tenths = Math.floor(seconds * 10)
+  const minutes = Math.floor(tenths / 600)
+  const whole = Math.floor((tenths % 600) / 10)
+  const tenth = tenths % 10
+  return `${minutes}:${String(whole).padStart(2, '0')}.${tenth}`
 }

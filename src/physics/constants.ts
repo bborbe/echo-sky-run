@@ -8,9 +8,15 @@ export const DT = 1 / 60
 /** Tile edge in logical pixels. The canvas is 256x224, i.e. 16x14 tiles. */
 export const TILE = 16
 
-/** Player hitbox in logical pixels. */
+/** Player hitbox in logical pixels. The default is the tierless box the physics tests use. */
 export const PLAYER_W = 12
 export const PLAYER_H = 16
+
+/** Pip's hitbox by power tier, from the game description § 4. */
+export const SMALL_W = 12
+export const SMALL_H = 14
+export const SUPER_W = 12
+export const SUPER_H = 26
 
 export const WALK_MAX = 1.25
 export const RUN_MAX = 2.25
