@@ -89,7 +89,7 @@ export class Renderer {
   private viewW = VIEW_H
   /** Set from the frame's state, because the tile pass needs it to draw an emptied ? block. */
   private usedBlocks: ReadonlySet<string> = new Set()
-  /** Scroll offset and look-ahead, in its own pure module so the budget is a unit test. */
+  /** Scroll offset, in its own pure module so the framing is a unit test. */
   private readonly camera = new Camera()
 
   constructor(canvas: HTMLCanvasElement) {
@@ -131,7 +131,7 @@ export class Renderer {
     const px = state.prevX + (state.player.x - state.prevX) * state.alpha
     const py = state.prevY + (state.player.y - state.prevY) * state.alpha
 
-    this.camera.update(px, py, state.player.h, state.player.vx, state.map.cols * TILE, state.map.rows * TILE)
+    this.camera.update(px, py, state.player.h, state.map.cols * TILE, state.map.rows * TILE)
     this.usedBlocks = state.usedBlocks
 
     const sky = ctx.createLinearGradient(0, 0, 0, VIEW_H)
