@@ -8,6 +8,37 @@ import { Renderer, PALETTE } from './render/renderer.ts'
 const canvas = document.querySelector<HTMLCanvasElement>('#game')
 if (!canvas) throw new Error('missing #game canvas')
 
+/** The spec's storage key. It holds the best time today; unlocked levels and relics join it later. */
+const STORAGE_KEY = 'echo-sky-run.v1'
+
+interface Save {
+  bestSeconds?: number
+}
+
+/**
+ * The best time, or null when there is none. Every access is guarded: a browser in private mode, or
+ * one with storage disabled, throws on the first read, and a level that cannot start is worse than
+ * one that forgets its record.
+ */
+function loadBest(): number | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (raw === null) return null
+    const parsed = JSON.parse(raw) as Save
+    return typeof parsed.bestSeconds === 'number' ? parsed.bestSeconds : null
+  } catch {
+    return null
+  }
+}
+
+function saveBest(seconds: number): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ bestSeconds: seconds } satisfies Save))
+  } catch {
+    // Storage unavailable: the run still counts, it just is not remembered.
+  }
+}
+
 const map = parseLevel(LEVEL_1_1_ROWS)
 const renderer = new Renderer(canvas)
 window.addEventListener('resize', () => renderer.fit())
@@ -18,6 +49,9 @@ let prevX = sim.player.x
 let prevY = sim.player.y
 let paused = false
 let tick = 0
+/** Set once the tally for this run has been recorded, so a finished level is not saved every frame. */
+let recorded = false
+let bestSeconds: number | null = loadBest()
 
 const held = new Set<string>()
 const edge = { jump: false, echo: false }
@@ -54,6 +88,7 @@ function resetGame(): void {
   edge.jump = false
   edge.echo = false
   tick = 0
+  recorded = false
   stepper.reset()
 }
 
@@ -95,7 +130,12 @@ function releaseAll(): void {
 }
 window.addEventListener('blur', releaseAll)
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) releaseAll()
+  // The spec pauses on a hidden tab. Without this a player who switches away comes back to a run
+  // that carried on without him — and a run timer that kept counting.
+  if (document.hidden) {
+    releaseAll()
+    paused = true
+  }
 })
 
 let last = performance.now()
@@ -116,6 +156,16 @@ function frame(now: number): void {
     })
   }
 
+  // Record the run once it is finished: the first finish, and every faster one after it.
+  if (sim.goalReached && !recorded) {
+    recorded = true
+    const seconds = sim.frames / 60
+    if (bestSeconds === null || seconds < bestSeconds) {
+      bestSeconds = seconds
+      saveBest(seconds)
+    }
+  }
+
   renderer.draw({
     map,
     player: sim.player,
@@ -125,6 +175,9 @@ function frame(now: number): void {
     enemies: sim.enemies.enemies,
     mushrooms: sim.powers.mushrooms,
     usedBlocks: sim.usedBlocks,
+    goalReached: sim.goalReached,
+    runSeconds: sim.frames / 60,
+    bestSeconds,
     tick,
     // A seam-driven step has no stepper phase, so it draws the current state rather than blending
     // back towards the previous one.

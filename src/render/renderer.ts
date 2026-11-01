@@ -65,6 +65,10 @@ export interface RenderState {
   readonly mushrooms: readonly Mushroom[]
   /** ? blocks already emptied, keyed "col,row". */
   readonly usedBlocks: ReadonlySet<string>
+  readonly goalReached: boolean
+  readonly runSeconds: number
+  /** The best time from localStorage, or null before the first finish. */
+  readonly bestSeconds: number | null
   readonly tick: number
   /** Blend factor between the last two fixed steps. */
   readonly alpha: number
@@ -134,6 +138,26 @@ export class Renderer {
     for (const mushroom of state.mushrooms) this.drawMushroom(mushroom)
     this.drawPlayer(px, py, state.player.h)
     ctx.restore()
+
+    if (state.goalReached) this.drawTally(state.runSeconds, state.bestSeconds)
+  }
+
+  /** The level-clear tally: this run's time and the best time, in screen space over the level. */
+  private drawTally(runSeconds: number, bestSeconds: number | null): void {
+    const ctx = this.ctx
+    const w = Math.min(this.viewW - 32, 200)
+    const h = 64
+    const x = Math.round((this.viewW - w) / 2)
+    const y = Math.round((VIEW_H - h) / 2)
+
+    ctx.fillStyle = 'rgba(20, 30, 40, 0.85)'
+    ctx.fillRect(x, y, w, h)
+    ctx.fillStyle = FLAG
+    ctx.font = '10px monospace'
+    ctx.textAlign = 'center'
+    ctx.fillText('LEVEL CLEAR', x + w / 2, y + 18)
+    ctx.fillText(`TIME ${formatTime(runSeconds)}`, x + w / 2, y + 34)
+    ctx.fillText(bestSeconds === null ? 'BEST --' : `BEST ${formatTime(bestSeconds)}`, x + w / 2, y + 50)
   }
 
   /** Horizontal deadzone around the view centre, plus the vertical edge margins, clamped to the level. */
@@ -272,4 +296,13 @@ export class Renderer {
 
 function clamp(value: number, low: number, high: number): number {
   return Math.max(low, Math.min(value, high))
+}
+
+/** A run time as `M:SS.t` — the shape the spec's HUD shows. */
+export function formatTime(seconds: number): string {
+  const minutes = Math.floor(seconds / 60)
+  const rest = seconds - minutes * 60
+  const whole = Math.floor(rest)
+  const tenth = Math.floor((rest - whole) * 10)
+  return `${minutes}:${String(whole).padStart(2, '0')}.${tenth}`
 }

@@ -19,6 +19,8 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 - feat: the ? block is solid and releases a Mushroom when hit from below, once; collecting it turns Small into Super
 - feat: a hit while Super drops Pip to Small with 90 f of invincibility; a hit while Small is death and respawns at the checkpoint
 - feat: the checkpoint flag grants Super if Pip is still Small, so the second half is played with the tier the first half earned
+- feat: a level-clear tally shows the run time and the best time, and the best time persists in `localStorage` under `echo-sky-run.v1`
+- feat: the game pauses when the tab is hidden, so a player who switches away does not come back to a run that carried on without him
 
 ## v0.3.0
 

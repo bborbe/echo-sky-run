@@ -56,6 +56,8 @@ export interface SimState {
   /** ? blocks already emptied, keyed "col,row" so the renderer can draw them flat. */
   readonly usedBlocks: Set<string>
   goalReached: boolean
+  /** Fixed steps since the run began. The tally shows it as a time; a death does not reset it. */
+  frames: number
   /** Deaths this run — the tally shows it, and a test asserts the respawn happened. */
   deaths: number
   /** Consecutive stomps without landing. Resets on any landing, including on an Echo. */
@@ -112,6 +114,7 @@ export function createSim(map: TileMap): SimState {
     invuln: 0,
     usedBlocks: new Set<string>(),
     goalReached: false,
+    frames: 0,
     deaths: 0,
     combo: 0,
     score: 0,
@@ -166,6 +169,7 @@ function hitBlocks(sim: SimState): void {
  */
 export function stepSim(sim: SimState, input: SimInput): void {
   const map = sim.map
+  sim.frames += 1
 
   // Place before the step, so a mid-air Echo can catch the player on the very frame it appears.
   if (input.echoPressed) placeEcho(sim.field, playerBox(sim.player), map)
