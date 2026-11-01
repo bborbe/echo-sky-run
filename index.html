@@ -4,7 +4,8 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="commit" content="%VITE_COMMIT_SHA%" />
+    <!-- The commit tag is injected by the live-commit-sha plugin in vite.config.ts, so a dev page
+         reports HEAD on every load instead of the SHA the server happened to start on. -->
     <title>Echo Sky Run</title>
     <style>
       /* The game fills the window: no margin, no scrollbar, no letterbox bars. */
