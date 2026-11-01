@@ -70,6 +70,7 @@ export function missingGlyphs(text: string): string[] {
 export const OVERLAY_TEXT = {
   paused: 'PAUSED',
   pausedHint: 'ESC / P / START: RESUME',
+  pausedControls: 'H: CONTROLS',
   clear: 'LEVEL CLEAR',
   time: 'TIME',
   best: 'BEST',

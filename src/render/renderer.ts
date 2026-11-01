@@ -175,6 +175,7 @@ export class Renderer {
     ctx.restore()
 
     this.overlayBox = null
+    this.overlayLines.length = 0
     if (state.goalReached) this.drawTally(state.runSeconds, state.bestSeconds)
     else if (state.paused) this.drawPaused()
   }
@@ -404,6 +405,7 @@ export class Renderer {
 
   /** A line of pixel text centred on `cx`. */
   private centred(line: string, cx: number, y: number, ink: InkName): void {
+    this.overlayLines.push(line)
     this.text(line, Math.round(cx - textWidth(line) / 2), y, ink)
   }
 
@@ -418,17 +420,24 @@ export class Renderer {
 
   /** The overlay panel's box, for the browser check's text probe. Null when no overlay is up. */
   overlayBox: { x: number; y: number; w: number; h: number } | null = null
+  /** The lines the overlay drew this frame, for the browser check. */
+  readonly overlayLines: string[] = []
 
-  /** A pause has to look like one, or a player cannot tell a stopped game from a broken one. */
+  /**
+   * A pause has to look like one, or a player cannot tell a stopped game from a broken one. It also
+   * names the way back to the controls card (play gate 1: "esc ... where is not option to show
+   * keybind again"); H opens the card from here and dismissing it returns to the pause.
+   */
   private drawPaused(): void {
     const w = textWidth(OVERLAY_TEXT.pausedHint) + 20
-    const h = 36
+    const h = 46
     const x = Math.round((this.viewW - w) / 2)
     const y = Math.round((VIEW_H - h) / 2)
     this.panel(x, y, w, h)
     this.overlayBox = { x, y, w, h }
     this.centred(OVERLAY_TEXT.paused, x + w / 2, y + 8, 'brassLight')
     this.centred(OVERLAY_TEXT.pausedHint, x + w / 2, y + 21, 'echo')
+    this.centred(OVERLAY_TEXT.pausedControls, x + w / 2, y + 32, 'echo')
   }
 
   /**

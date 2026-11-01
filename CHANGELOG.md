@@ -15,6 +15,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 - test: the style-C e2e probes now see what they claim. The placement scan reads the full canvas height, so a sprite sunk into the ground fails. The running-flicker check compares every pixel and channel. Death-to-control is measured, from the death step to the first step that moves Pip. The Echo's timer ring is read off the canvas as it drains. Each parallax layer must paint at least 20 000 pixels.
 - fix: Pip stops running when the level is cleared. A finished run is frozen with his last speed still in it, and the pose animator kept reading that speed as a run cycle (play gate 1: "the char animation does not stop at level end"). He now stands idle, facing the way he finished.
 - fix: the level-clear and pause text is a 5×7 pixel font in palette colours, on an opaque brass-rimmed panel, with the hint line in bright cyan. It was a system font on the 224 px canvas, so its anti-aliased greys were scaled up into soft blocks (play gate 1: "the quali of the text is not very good readable"). The e2e asserts the panel holds palette inks only.
+- fix: the pause panel names the way back to the controls with "H: CONTROLS". H opens the card from the pause, and closing the card returns to the pause (play gate 1: "esc ... where is not option to show keybind again"). The pad has no controls button: spec § 6 gives Select to dropping the reserve item.
 
 ## v0.5.1
 
