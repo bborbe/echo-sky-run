@@ -1,4 +1,4 @@
-.PHONY: install run test test-all build e2e shots
+.PHONY: install run test test-unit test-all build e2e shots
 
 node_modules: package.json package-lock.json
 	npm install
@@ -9,7 +9,14 @@ install: node_modules
 run: node_modules
 	npm run dev
 
-test: node_modules
+# The level toolkit's two required checks (Platformer Level Rating Guide § Required on Every Level
+# Change), on every run: the fast tier — which carries the autopilot clear, the no-Echo bypass search
+# and the blind-jump check — and the browser playthrough against the production build. Either half
+# going red fails this target. Slower than the tier alone, and deliberately so: these are the checks
+# that caught a goal flag triggering over one tile and a level too short to land on.
+test: test-unit e2e
+
+test-unit: node_modules
 	npm test
 
 test-all: node_modules

@@ -1155,22 +1155,34 @@ try {
       if (prev) {
         const d = cam - prev.cam
         if (d !== 0) moved++
-        // Every pixel of the overlap, every channel.
-        for (let y = 0; y < 32; y++) {
-          for (let x = Math.max(0, -d); x < Math.min(W, W - d); x++) {
-            const a = (y * W + x + d) * 4
-            const b = (y * W + x) * 4
-            compared++
-            if (
-              prev.data[a] !== data[b] ||
-              prev.data[a + 1] !== data[b + 1] ||
-              prev.data[a + 2] !== data[b + 2] ||
-              prev.data[a + 3] !== data[b + 3]
-            ) {
-              mismatched++
+        // Every pixel of the overlap, every channel. `cameraX()` is the scroll rounded to whole
+        // pixels, while the frame is drawn at the camera's unrounded position, so the band's true
+        // shift between two drawn frames can be `d` or one pixel either side of it. Take the best of
+        // the three: a build that repaints the ground for any other reason — the flicker this check
+        // exists to catch — still mismatches on all three shifts.
+        let best = Infinity
+        for (const shift of [d - 1, d, d + 1]) {
+          let bad = 0
+          let n = 0
+          for (let y = 0; y < 32; y++) {
+            for (let x = Math.max(0, -shift); x < Math.min(W, W - shift); x++) {
+              const a = (y * W + x + shift) * 4
+              const b = (y * W + x) * 4
+              n++
+              if (
+                prev.data[a] !== data[b] ||
+                prev.data[a + 1] !== data[b + 1] ||
+                prev.data[a + 2] !== data[b + 2] ||
+                prev.data[a + 3] !== data[b + 3]
+              ) {
+                bad++
+              }
             }
           }
+          if (shift === d) compared += n
+          if (bad < best) best = bad
         }
+        mismatched += best
       }
       prev = { cam, data }
     }
@@ -1213,15 +1225,20 @@ try {
     // off his respawn spot. Counted in fixed steps — simulated ones plus held ones — from the death.
     const atDeath = api.state()
     const heldAtDeath = api.juice().heldSteps
-    let shakeFrames = 0
+    let shakeSteps = 0
     let peak = 0
     let controlSteps = -1
     let held = 0
     // Sample until Pip answers the stick, then let go at once — held any longer, he walks back into
     // the pit. The shake (8 steps) falls entirely inside the hold, so it is counted in this window.
+    //
+    // The shake is a *fixed-step* effect, so its length is read as steps remaining, never as rAF
+    // samples: a slow frame runs two fixed steps and a fast one runs none, so counting samples made
+    // this check read 7, 8 or 9 on one unchanged build. The count is bounded above by the juice's
+    // own SHAKE_F whatever the sampling does, which is what makes it a stable assertion.
     for (let i = 0; i < 60 && controlSteps < 0; i++) {
       const j = api.juice()
-      if (j.shakeX !== 0 || j.shakeY !== 0) shakeFrames++
+      shakeSteps = Math.max(shakeSteps, j.shakeX !== 0 || j.shakeY !== 0 ? j.shake : 0)
       peak = Math.max(peak, Math.abs(j.shakeX), Math.abs(j.shakeY))
       const s = api.state()
       if (s.x > atDeath.x + 0.01) {
@@ -1231,11 +1248,11 @@ try {
       await new Promise((r) => requestAnimationFrame(r))
     }
     window.dispatchEvent(new KeyboardEvent('keyup', { code: 'ArrowRight', bubbles: true }))
-    return { deaths: api.state().deaths, held, shakeFrames, peak, controlSteps }
+    return { deaths: api.state().deaths, held, shakeSteps, peak, controlSteps }
   })
   check(
-    death.deaths === 1 && death.shakeFrames >= 1 && death.shakeFrames <= 8 && death.peak <= 2,
-    'a death shakes the screen for 1–8 frames, at most 2 px',
+    death.deaths === 1 && death.shakeSteps >= 1 && death.shakeSteps <= 8 && death.peak <= 2,
+    'a death shakes the screen for 1–8 steps, at most 2 px',
     JSON.stringify(death),
   )
   check(
