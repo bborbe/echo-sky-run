@@ -216,6 +216,17 @@ try {
     let echoesPlaced = 0
     let previousEchoes = game.state().echoes
 
+    // Every sim-derived overlay field, sampled each step: a hardcoded readout shows one value only,
+    // so a field that never changes across a whole clear is a field that is not reading the game.
+    const watched = ['vx', 'vy', 'grounded', 'power', 'charge', 'timer', 'checkpoint', 'state']
+    const seen = Object.fromEntries(watched.map((k) => [k, new Set()]))
+    const note = () => {
+      const f = game.debug().fields
+      for (const k of watched) seen[k].add(f[k])
+    }
+    const summarize = () => Object.fromEntries(watched.map((k) => [k, seen[k].size]))
+    note()
+
     for (let i = 0; i < 3000; i++) {
       const s = game.state()
       // Jump from the lip and over the walkers, the way a player who can see what is coming plays.
@@ -240,16 +251,30 @@ try {
       // Count Echoes that actually appeared, not placements the driver asked for.
       if (next.echoes > previousEchoes) echoesPlaced += 1
       previousEchoes = next.echoes
+      note()
 
-      if (next.goalReached) return { won: true, frames: i + 1, echoesPlaced, x: next.x }
+      if (next.goalReached) {
+        return { won: true, frames: i + 1, echoesPlaced, x: next.x, transitions: summarize() }
+      }
       // A pit now respawns Pip at the checkpoint rather than letting him leave the world, so a
       // death — not a runaway y — is what says the run failed.
-      if (next.deaths > 0) return { won: false, died: true, frames: i + 1, x: next.x }
+      if (next.deaths > 0) return { won: false, died: true, frames: i + 1, x: next.x, transitions: summarize() }
     }
-    return { won: false, timedOut: true }
+    return { won: false, timedOut: true, transitions: summarize() }
   })
 
   check(run.won, 'level 1-1 is cleared', JSON.stringify(run))
+
+  // The overlay's readout is only worth a screenshot if the numbers move with the game. A field that
+  // held one value across a whole clear is a constant wearing a field name.
+  const staticFields = Object.entries(run.transitions ?? {})
+    .filter(([, n]) => n < 2)
+    .map(([k]) => k)
+  check(
+    staticFields.length === 0,
+    'every sim-derived overlay field changes during the run',
+    `static=${staticFields.join(',')} ${JSON.stringify(run.transitions)}`,
+  )
 
   // Play gate 1: "the char animation does not stop at level end". After the flag, Pip stands idle
   // even with right still held — the frozen run must not keep animating a stride.
@@ -504,12 +529,22 @@ try {
   const debugOn = await page.evaluate(() => window.__echoSkyRun.debug())
   check(debugOn.visible, '?debug=1 shows the overlay')
 
-  // Every field the task names renders a label and a number; p99 in particular must be a real one.
-  const REQUIRED_FIELDS = ['fps', 'frame', 'p99', 'steps', 'pose', 'speed', 'echo', 'commit']
+  // Every field the task names renders. The numeric check is per field rather than universal: the
+  // run state, the power tier and the level id are text by design, and requiring a digit of them
+  // would force the executor to fake a number.
+  const REQUIRED_FIELDS = [
+    'version', 'commit', 'level', 'checkpoint', 'state',
+    'fps', 'frame', 'p99', 'steps',
+    'x', 'y', 'vx', 'vy',
+    'grounded', 'power', 'charge', 'timer', 'speed',
+  ]
+  const TEXT_FIELDS = ['version', 'commit', 'level', 'checkpoint', 'state', 'grounded', 'power']
   const missing = REQUIRED_FIELDS.filter((field) => !(field in debugOn.fields))
   check(missing.length === 0, 'the overlay renders every field', `missing=${missing.join(',')}`)
-  const nonNumeric = REQUIRED_FIELDS.filter((field) => !/-?\d/.test(debugOn.fields[field] ?? ''))
-  check(nonNumeric.length === 0, 'every field carries a numeric value', `not-numeric=${nonNumeric.join(',')}`)
+  const nonNumeric = REQUIRED_FIELDS.filter((field) => !TEXT_FIELDS.includes(field)).filter(
+    (field) => !/-?\d/.test(debugOn.fields[field] ?? ''),
+  )
+  check(nonNumeric.length === 0, 'every numeric field carries a numeric value', `not-numeric=${nonNumeric.join(',')}`)
   check(/-?\d/.test(debugOn.fields.p99 ?? ''), 'the p99 frame time is present', debugOn.fields.p99)
 
   const toggled = await page.evaluate(async () => {
@@ -526,7 +561,49 @@ try {
   })
   check(!toggled.off && toggled.backOn, 'backtick toggles the overlay', JSON.stringify(toggled))
 
-  // P copies the current spot as a spawn URL. The clipboard is the product path; the overlay's own
+  // The readout follows live state, not a constant. Two pinned spawns 40 px apart on both axes: a
+  // hardcoded value cannot produce a 40 px delta on both.
+  const fieldsAt = async (query) => {
+    await page.goto(`${URL}${query}`, { waitUntil: 'load' })
+    await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+    await page.waitForTimeout(200)
+    return page.evaluate(() => window.__echoSkyRun.debug().fields)
+  }
+  const atA = await fieldsAt('?debug=1&freeze=1&x=100&y=200')
+  const atB = await fieldsAt('?debug=1&freeze=1&x=140&y=160')
+  check(
+    Number(atB.x) - Number(atA.x) === 40 && Number(atA.y) - Number(atB.y) === 40,
+    'x and y follow the pinned spawn',
+    `${atA.x},${atA.y} -> ${atB.x},${atB.y}`,
+  )
+
+  // The overlay is on by default in the dev build, so a copy bound to P would take pause away exactly
+  // where the level is played. P must still pause with the overlay up — only the hidden case was
+  // covered before.
+  const pauseWithOverlayUp = await page.evaluate(async () => {
+    const api = window.__echoSkyRun
+    // The controls card is up on a fresh load and swallows the first key.
+    api.hideControls()
+    api.resume()
+    const before = api.paused()
+    const press = () => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyP', bubbles: true }))
+    press()
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    const during = api.paused()
+    press()
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    return { visible: api.debug().visible, before, during, after: api.paused() }
+  })
+  check(
+    pauseWithOverlayUp.visible &&
+      !pauseWithOverlayUp.before &&
+      pauseWithOverlayUp.during &&
+      !pauseWithOverlayUp.after,
+    'P pauses and resumes while the overlay is visible',
+    JSON.stringify(pauseWithOverlayUp),
+  )
+
+  // O copies the current spot as a spawn URL. The clipboard is the product path; the overlay's own
   // record is the fallback, because a headless browser may refuse the clipboard outright.
   // `URL` here is the page URL string, so the origin is built with the global constructor.
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new globalThis.URL(URL).origin })
@@ -535,7 +612,7 @@ try {
   await page.evaluate(() => {
     for (let i = 0; i < 40; i++) window.__echoSkyRun.step({ right: true })
   })
-  await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyP', bubbles: true })))
+  await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyO', bubbles: true })))
   await page.waitForTimeout(150)
   const spawn = await page.evaluate(async () => ({
     copied: window.__echoSkyRun.debug().spawnUrl,
@@ -544,12 +621,12 @@ try {
   }))
   check(
     /\?level=1-1&x=-?\d+&y=-?\d+/.test(spawn.copied ?? ''),
-    'P builds a debug-spawn URL',
+    'O builds a debug-spawn URL',
     String(spawn.copied),
   )
   check(
     spawn.clipboard === spawn.copied,
-    'P copies that URL to the clipboard',
+    'O copies that URL to the clipboard',
     `${spawn.clipboard} vs ${spawn.copied}`,
   )
 
