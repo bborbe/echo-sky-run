@@ -53,6 +53,8 @@ export const FONT: Readonly<Record<string, Mask>> = {
   '/': ['....#', '....#', '...#.', '..#..', '.#...', '#....', '#....'],
   '-': ['.....', '.....', '.....', '#####', '.....', '.....', '.....'],
   '·': ['.....', '.....', '.....', '..#..', '.....', '.....', '.....'],
+  '<': ['...#.', '..#..', '.#...', '#....', '.#...', '..#..', '...#.'],
+  '>': ['.#...', '..#..', '...#.', '....#', '...#.', '..#..', '.#...'],
   ' ': ['.....', '.....', '.....', '.....', '.....', '.....', '.....'],
 }
 
@@ -71,6 +73,9 @@ export const OVERLAY_TEXT = {
   paused: 'PAUSED',
   pausedHint: 'ESC / P / START: RESUME',
   pausedControls: 'H: CONTROLS',
+  music: 'MUSIC',
+  effects: 'EFFECTS',
+  volumeHint: 'SPACE / A: ROW · < >: VOLUME',
   clear: 'LEVEL CLEAR',
   time: 'TIME',
   best: 'BEST',

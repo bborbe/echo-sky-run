@@ -71,7 +71,21 @@ export interface RenderState {
   readonly poseFrame: number
   readonly facing: -1 | 1
   readonly juice: Juice
+  /** The volume rows, shown on the pause panel when the player paused; null hides them. */
+  readonly volumeMenu?: VolumeMenuView | null
 }
+
+/** What the pause panel's volume rows show: two 0..1 levels and the selected row. */
+export interface VolumeMenuView {
+  readonly music: number
+  readonly effects: number
+  readonly row: 'music' | 'effects'
+}
+
+/** Segments in a volume bar, one per slider step. */
+const BAR_SEGMENTS = 10
+const SEGMENT_W = 4
+const SEGMENT_H = 5
 
 /** Draw-ready frames for every animation, both facings. */
 type Atlas = ReadonlyMap<string, Baked>
@@ -177,7 +191,7 @@ export class Renderer {
     this.overlayBox = null
     this.overlayLines.length = 0
     if (state.goalReached) this.drawTally(state.runSeconds, state.bestSeconds)
-    else if (state.paused) this.drawPaused()
+    else if (state.paused) this.drawPaused(state.volumeMenu ?? null)
   }
 
   /** A frame of a catalogue animation, for a facing. */
@@ -428,9 +442,9 @@ export class Renderer {
    * names the way back to the controls card (play gate 1: "esc ... where is not option to show
    * keybind again"); H opens the card from here and dismissing it returns to the pause.
    */
-  private drawPaused(): void {
-    const w = textWidth(OVERLAY_TEXT.pausedHint) + 20
-    const h = 46
+  private drawPaused(menu: VolumeMenuView | null): void {
+    const w = Math.max(textWidth(OVERLAY_TEXT.pausedHint), menu ? textWidth(OVERLAY_TEXT.volumeHint) : 0) + 20
+    const h = menu ? 86 : 46
     const x = Math.round((this.viewW - w) / 2)
     const y = Math.round((VIEW_H - h) / 2)
     this.panel(x, y, w, h)
@@ -438,6 +452,36 @@ export class Renderer {
     this.centred(OVERLAY_TEXT.paused, x + w / 2, y + 8, 'brassLight')
     this.centred(OVERLAY_TEXT.pausedHint, x + w / 2, y + 21, 'echo')
     this.centred(OVERLAY_TEXT.pausedControls, x + w / 2, y + 32, 'echo')
+    if (menu) {
+      this.volumeRow(OVERLAY_TEXT.music, menu.music, menu.row === 'music', x + w / 2, y + 47)
+      this.volumeRow(OVERLAY_TEXT.effects, menu.effects, menu.row === 'effects', x + w / 2, y + 58)
+      this.centred(OVERLAY_TEXT.volumeHint, x + w / 2, y + 72, 'echo')
+    }
+  }
+
+  /**
+   * One slider: a marker on the selected row, the label, a 10-segment bar and the level as a number.
+   * The drawn line is recorded as `MUSIC 50` so the browser check reads exactly what is on screen.
+   */
+  private volumeRow(label: string, level: number, selected: boolean, cx: number, y: number): void {
+    const labelW = textWidth(OVERLAY_TEXT.effects)
+    const barW = BAR_SEGMENTS * (SEGMENT_W + 1) - 1
+    const number = String(Math.round(level * 100))
+    const rowW = textWidth('>') + 4 + labelW + 6 + barW + 6 + textWidth('100')
+    let gx = Math.round(cx - rowW / 2)
+    if (selected) this.text('>', gx, y, 'brassLight')
+    gx += textWidth('>') + 4
+    this.text(label, gx, y, selected ? 'brassLight' : 'cream')
+    gx += labelW + 6
+    const lit = Math.round(level * BAR_SEGMENTS)
+    for (let i = 0; i < BAR_SEGMENTS; i++) {
+      this.ctx.fillStyle = i < lit ? INK.brassLight : INK.brass
+      const segH = i < lit ? SEGMENT_H : 1
+      this.ctx.fillRect(gx + i * (SEGMENT_W + 1), y + 1 + SEGMENT_H - segH, SEGMENT_W, segH)
+    }
+    gx += barW + 6
+    this.text(number, gx, y, 'cream')
+    this.overlayLines.push(`${label} ${number}`)
   }
 
   /**
