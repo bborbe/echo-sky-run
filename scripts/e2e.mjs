@@ -122,6 +122,20 @@ try {
   })
   check(blurReleased, 'a key held at focus loss is released')
 
+  // The seam drives the simulation deterministically; this proves the shipped frame loop plus
+  // readInput actually moves the player, so the level is exercised through the live path too.
+  await page.evaluate(() => {
+    window.__echoSkyRun.reset()
+    window.__echoSkyRun.resume()
+  })
+  await page.waitForTimeout(150)
+  const x0 = await page.evaluate(() => window.__echoSkyRun.state().x)
+  await page.keyboard.down('ArrowRight')
+  await page.waitForTimeout(600)
+  await page.keyboard.up('ArrowRight')
+  const x1 = await page.evaluate(() => window.__echoSkyRun.state().x)
+  check(x1 > x0 + 5, 'the live frame loop advances the simulation', `x ${x0.toFixed(1)} -> ${x1.toFixed(1)}`)
+
   // ---- the level itself, driven deterministically ------------------------------------------
   const run = await page.evaluate(() => {
     const game = window.__echoSkyRun
@@ -173,12 +187,20 @@ try {
     const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
     const seen = new Set()
     for (let i = 0; i < data.length; i += 4) seen.add(`${data[i]},${data[i + 1]},${data[i + 2]}`)
-    // A distinct-colour count passes on the sky gradient alone, so assert the actual palette.
+
+    // Read the palette from the page rather than repeating the literals: a colour tweak must not
+    // fail this check for the wrong reason. A distinct-colour count passes on the sky gradient
+    // alone, so assert the actual palette.
+    const rgb = (hex) => {
+      const n = parseInt(hex.slice(1), 16)
+      return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`
+    }
+    const palette = window.__echoSkyRun.palette
     return {
       colours: seen.size,
-      sky: seen.has('127,196,232'),
-      ground: seen.has('63,122,58'),
-      player: seen.has('232,102,60'),
+      sky: seen.has(rgb(palette.sky)),
+      ground: seen.has(rgb(palette.ground)),
+      player: seen.has(rgb(palette.pip)),
     }
   })
   check(

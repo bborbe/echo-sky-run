@@ -3,7 +3,7 @@ import { createSim, stepSim, type SimInput, type SimState } from './game/sim.ts'
 import { LEVEL_1_1_ECHO_AT_X, LEVEL_1_1_ROWS } from './levels/level1-1.ts'
 import { FixedStepper } from './physics/loop.ts'
 import { parseLevel } from './physics/tilemap.ts'
-import { Renderer } from './render/renderer.ts'
+import { Renderer, PALETTE } from './render/renderer.ts'
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game')
 if (!canvas) throw new Error('missing #game canvas')
@@ -21,6 +21,8 @@ let tick = 0
 
 const held = new Set<string>()
 const edge = { jump: false, echo: false }
+/** Set while a test-seam step is driving; null means the renderer uses the stepper's own alpha. */
+let renderAlpha: number | null = null
 
 // Only the game's own keys are captured. A modified key is never a game key: Ctrl+R must reload the
 // page rather than reset the run, and preventDefault on every keydown would swallow it.
@@ -45,7 +47,10 @@ function resetGame(): void {
   sim = createSim(map)
   prevX = sim.player.x
   prevY = sim.player.y
-  held.clear()
+  // `held` mirrors the physical keyboard, not the game, and is deliberately left alone: a key still
+  // down after R keeps the player moving, which is what the player is asking for. Clearing it would
+  // strand that key, because the browser only re-sends repeat events for keys it still holds and the
+  // handler ignores repeats.
   edge.jump = false
   edge.echo = false
   tick = 0
@@ -118,7 +123,9 @@ function frame(now: number): void {
     prevY,
     echoes: sim.field.echoes,
     tick,
-    alpha: stepper.alpha,
+    // A seam-driven step has no stepper phase, so it draws the current state rather than blending
+    // back towards the previous one.
+    alpha: renderAlpha ?? stepper.alpha,
   })
   requestAnimationFrame(frame)
 }
@@ -148,7 +155,9 @@ function snapshot() {
  */
 interface EchoSkyRunTestApi {
   readonly echoAtX: number
+  readonly palette: typeof PALETTE
   pause(): void
+  resume(): void
   reset(): void
   step(input: Partial<SimInput>): ReturnType<typeof snapshot>
   state(): ReturnType<typeof snapshot>
@@ -156,13 +165,23 @@ interface EchoSkyRunTestApi {
 
 const api: EchoSkyRunTestApi = {
   echoAtX: LEVEL_1_1_ECHO_AT_X,
+  palette: PALETTE,
   pause() {
     paused = true
+    renderAlpha = 1
+  },
+  resume() {
+    paused = false
+    renderAlpha = null
   },
   reset() {
     resetGame()
+    renderAlpha = null
   },
   step(input) {
+    // Take over the simulation: a seam step must not race the live frame loop.
+    paused = true
+    renderAlpha = 1
     prevX = sim.player.x
     prevY = sim.player.y
     stepSim(sim, {

@@ -27,10 +27,9 @@ Use the Makefile targets; each installs dependencies first when `node_modules` i
 |---|---|
 | `src/physics/` | Fixed-timestep simulation: the 60 Hz accumulator loop, player movement and tile collision. Pure TypeScript. |
 | `src/echo/` | Ghost Echo rules: mid-air placement, the air charge, the 240 f lifetime, the one-way top, the wall refusal. Pure and tested. |
-| `src/render/` | Canvas renderer at 256×224, scaled by an integer factor with `imageSmoothingEnabled = false`. The only place that touches the DOM or a canvas context. |
-| `src/levels/` | Level tile strings, one character per tile. |
-| `src/game/sim.ts` | The whole-game fixed step: places the Echo, steps the player, ages the Echoes, refreshes the air charge and checks the goal. Deterministic — the level's test and the browser check both drive it. |
+| `src/render/` | Canvas renderer filling the browser window: a fixed 224 px logical height, a logical width derived from the window's aspect, and a fractional nearest-neighbour scale. The only place that touches the DOM or a canvas context. |
 | `src/levels/` | Level tile strings, one character per tile, plus the level's own playthrough tests. |
+| `src/game/sim.ts` | The whole-game fixed step: places the Echo, steps the player, ages the Echoes, refreshes the air charge and checks the goal. Deterministic — the level's test and the browser check both drive it. |
 | `scripts/` | `e2e.mjs`, the browser playthrough check (`npm run e2e`, `make e2e`). |
 | `src/main.ts` | Browser shell: wires input → simulation → renderer, and owns the `requestAnimationFrame` loop. |
 | `src/build-info.ts` | Build label (short SHA · build time · version), fed by `define` in `vite.config.ts` — the same value as `<meta name="commit">`. |

@@ -26,6 +26,22 @@ const PIP_BODY = '#e8663c'
 const PIP_VISOR = '#2b3a4a'
 const ECHO_BODY = 'rgba(120, 220, 255, 0.55)'
 
+/**
+ * The renderer's palette. Exported so the browser check asserts these colours instead of repeating
+ * the literals — a colour tweak then cannot fail the check for the wrong reason.
+ */
+export const PALETTE = {
+  sky: SKY,
+  skyLow: SKY_LOW,
+  ground: GROUND,
+  groundTop: GROUND_TOP,
+  plank: PLANK,
+  flag: FLAG,
+  flagPole: FLAG_POLE,
+  pip: PIP_BODY,
+  visor: PIP_VISOR,
+} as const
+
 export interface RenderState {
   readonly map: TileMap
   readonly player: PlayerState

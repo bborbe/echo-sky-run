@@ -15,6 +15,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 - feat: the renderer blends the last two fixed steps by the stepper's alpha, so a display faster than 60 Hz does not judder
 - fix: the Echo's top edge now sits exactly at the player's feet instead of one Echo-height above them, so a mid-air Echo actually catches the player instead of being fallen through
 - fix: the game no longer swallows browser shortcuts, `ArrowUp` and `W` start a jump instead of only holding one, and a key still down when the tab loses focus is released
+- fix: pressing `R` while holding a direction no longer strands that key — the held-key set mirrors the physical keyboard and survives a reset, so the player keeps moving
 - test: an end-to-end check drives the real page in a muted browser — real key events for the input layer, then a 1-1 playthrough through the same fixed-step simulation that must cross the gap on exactly one mid-air Echo, with no console error
 
 ## v0.2.0

@@ -54,8 +54,20 @@ jobs:
       - name: Play level 1-1 in a real browser
         run: |
           npx vite preview --port 4187 --strictPort &
+          ready=0
           for i in $(seq 1 30); do
-            curl -sf -o /dev/null "http://localhost:4187/echo-sky-run/" && break
+            if curl -sf -o /dev/null "http://localhost:4187/echo-sky-run/"; then ready=1; break; fi
             sleep 1
           done
-          E2E_URL=http://localhost:4187/echo-sky-run/ SHOT_PATH=/tmp/echo-sky-run-1-1.png npm run e2e
+          if [ "$ready" != 1 ]; then
+            echo "::error::vite preview never bound port 4187"
+            exit 1
+          fi
+          E2E_URL=http://localhost:4187/echo-sky-run/ SHOT_PATH=echo-sky-run-1-1.png npm run e2e
+      - name: Upload the screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshot
+          path: echo-sky-run-1-1.png
+          if-no-files-found: ignore
