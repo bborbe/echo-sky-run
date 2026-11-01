@@ -609,7 +609,7 @@ try {
   check(layers.order, 'the painted #sky canvas sits under the pixel #game canvas', JSON.stringify(layers.order))
   check(layers.pixelated === 'pixelated', 'the play canvas keeps image-rendering: pixelated', layers.pixelated)
   check(
-    layers.coverage.length === 3 && layers.coverage.every((l) => l.above > 1000 && l.below === 0),
+    layers.coverage.length === 3 && layers.coverage.every((l) => l.above >= 20000 && l.below === 0),
     'three parallax layers paint, and none of them below the haze line',
     JSON.stringify(layers.coverage),
   )
@@ -642,7 +642,9 @@ try {
   check(seams.checked > 1000 && seams.holes === 0, 'no seams: every solid tile pixel is opaque', JSON.stringify(seams))
 
   // Drawn into a tile: Pip and the Gear-Goomba, standing, have their lowest outline row on the
-  // ground's top row minus one (y = 191) — never inside the tile.
+  // ground's top row minus one (y = 191) — never inside the tile. The scan runs the full height:
+  // ground tiles carry no outline ink (only an open underside does, and 1-1's ground runs off the
+  // bottom), so any outline pixel at y ≥ 192 in these columns is a sprite drawn into the ground.
   const feet = await page.evaluate(() => {
     const api = window.__echoSkyRun
     const game = document.querySelector('#game')
@@ -653,7 +655,7 @@ try {
       for (let y = 0; y < game.height; y++) {
         for (let x = Math.max(0, Math.floor(e.x - camX) - 2); x < Math.min(game.width, Math.ceil(e.x + e.w - camX) + 2); x++) {
           const i = (y * game.width + x) * 4
-          if (data[i] === 0x2a && data[i + 1] === 0x1e && data[i + 2] === 0x14 && y < 192) lowest = Math.max(lowest, y)
+          if (data[i] === 0x2a && data[i + 1] === 0x1e && data[i + 2] === 0x14) lowest = Math.max(lowest, y)
         }
       }
       return lowest
@@ -733,12 +735,20 @@ try {
       if (prev) {
         const d = cam - prev.cam
         if (d !== 0) moved++
-        for (let y = 0; y < 32; y += 3) {
-          for (let x = Math.max(0, -d); x < Math.min(W, W - d); x += 3) {
+        // Every pixel of the overlap, every channel.
+        for (let y = 0; y < 32; y++) {
+          for (let x = Math.max(0, -d); x < Math.min(W, W - d); x++) {
             const a = (y * W + x + d) * 4
             const b = (y * W + x) * 4
             compared++
-            if (prev.data[a] !== data[b] || prev.data[a + 3] !== data[b + 3]) mismatched++
+            if (
+              prev.data[a] !== data[b] ||
+              prev.data[a + 1] !== data[b + 1] ||
+              prev.data[a + 2] !== data[b + 2] ||
+              prev.data[a + 3] !== data[b + 3]
+            ) {
+              mismatched++
+            }
           }
         }
       }
@@ -779,16 +789,29 @@ try {
     api.resume()
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ArrowRight', bubbles: true }))
     for (let i = 0; i < 240 && api.state().deaths === 0; i++) await new Promise((r) => requestAnimationFrame(r))
-    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'ArrowRight', bubbles: true }))
+    // Right stays held through the death: control is back on the first fixed step that moves Pip
+    // off his respawn spot. Counted in fixed steps — simulated ones plus held ones — from the death.
+    const atDeath = api.state()
+    const heldAtDeath = api.juice().heldSteps
     let shakeFrames = 0
     let peak = 0
-    for (let i = 0; i < 40; i++) {
+    let controlSteps = -1
+    let held = 0
+    // Sample until Pip answers the stick, then let go at once — held any longer, he walks back into
+    // the pit. The shake (8 steps) falls entirely inside the hold, so it is counted in this window.
+    for (let i = 0; i < 60 && controlSteps < 0; i++) {
       const j = api.juice()
       if (j.shakeX !== 0 || j.shakeY !== 0) shakeFrames++
       peak = Math.max(peak, Math.abs(j.shakeX), Math.abs(j.shakeY))
+      const s = api.state()
+      if (s.x > atDeath.x + 0.01) {
+        controlSteps = s.frames - atDeath.frames + (j.heldSteps - heldAtDeath)
+        held = j.heldSteps - before
+      }
       await new Promise((r) => requestAnimationFrame(r))
     }
-    return { deaths: api.state().deaths, held: api.juice().heldSteps - before, shakeFrames, peak }
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'ArrowRight', bubbles: true }))
+    return { deaths: api.state().deaths, held, shakeFrames, peak, controlSteps }
   })
   check(
     death.deaths === 1 && death.shakeFrames >= 1 && death.shakeFrames <= 8 && death.peak <= 2,
@@ -796,9 +819,37 @@ try {
     JSON.stringify(death),
   )
   check(
-    death.held > 0 && death.held <= 16 && death.held + 2 <= 18,
-    'the death pop holds ≤ 16 steps, so control is back within 18',
+    death.held > 0 && death.held <= 16 && death.controlSteps > 0 && death.controlSteps <= 18,
+    'the death pop holds ≤ 16 steps, and Pip answers the stick within 18 steps of dying',
     JSON.stringify(death),
+  )
+
+  // The timer ring is drawn and drains: its bright segments at placement against 120 steps later.
+  await openFrozen('?level=1-1&x=760&y=178&echo=880,100')
+  const ring = await page.evaluate(() => {
+    const api = window.__echoSkyRun
+    const game = document.querySelector('#game')
+    const ctx = game.getContext('2d')
+    const lit = () => {
+      const box = api.elements().find((e) => e.name === 'echo-ring')
+      if (!box) return -1
+      const camX = api.cameraX()
+      const { data } = ctx.getImageData(Math.round(box.x - camX), Math.round(box.y), box.w, box.h)
+      let n = 0
+      for (let i = 0; i < data.length; i += 4) if (data[i] === 0xe9 && data[i + 1] === 0xfb && data[i + 2] === 0xff) n++
+      return n
+    }
+    const full = lit()
+    for (let i = 0; i < 120; i++) api.step({})
+    api.hold()
+    return new Promise((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve({ full, half: lit() }))),
+    )
+  })
+  check(
+    ring.full > 0 && ring.half > 0 && ring.half / ring.full >= 0.3 && ring.half / ring.full <= 0.7,
+    'the Echo timer ring is drawn and halves as the Echo ages 120 of its 240 frames',
+    JSON.stringify(ring),
   )
 
   // Squash, stretch and dust, through the same advance() the loop uses.
