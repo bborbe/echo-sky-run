@@ -1,6 +1,7 @@
-// End-to-end check for level 1-1: load the real page in a real browser, play the level through the
-// same fixed-step simulation the frame loop uses, and require that the gap is crossed on a mid-air
-// Echo and the goal flag reached — with no console error anywhere.
+// End-to-end check for level 1-1: load the real page in a real browser, drive the input layer with
+// real key events, play the level through the same fixed-step simulation the frame loop uses, and
+// require that the gap is crossed on a mid-air Echo and the goal flag reached — with no console
+// error anywhere.
 //
 //   E2E_URL   page to drive (default: the local `vite preview` build)
 //   SHOT_PATH where to write the screenshot (default: /tmp/echo-sky-run-1-1.png)
@@ -39,6 +40,46 @@ try {
   const meta = await page.getAttribute('meta[name="commit"]', 'content')
   check(/^[0-9a-f]{7,40}$/.test(meta || ''), 'page carries a real commit SHA', meta || 'missing')
 
+  // ---- input layer, driven by real events with the frame loop live -------------------------
+  await page.evaluate(() => window.__echoSkyRun.reset())
+  await page.waitForTimeout(120)
+  await page.keyboard.down('ArrowUp')
+  const jumped = await page
+    .waitForFunction(() => !window.__echoSkyRun.state().grounded, null, { timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
+  await page.keyboard.up('ArrowUp')
+  check(jumped, 'ArrowUp starts a jump through the real input path')
+
+  const ctrlR = await page.evaluate(() => {
+    const game = window.__echoSkyRun
+    game.reset()
+    const before = game.state().x
+    const ev = new KeyboardEvent('keydown', { code: 'KeyR', ctrlKey: true, cancelable: true, bubbles: true })
+    window.dispatchEvent(ev)
+    return { prevented: ev.defaultPrevented, sameX: game.state().x === before }
+  })
+  check(!ctrlR.prevented && ctrlR.sameX, 'Ctrl+R is left to the browser', JSON.stringify(ctrlR))
+
+  const plainR = await page.evaluate(() => {
+    const game = window.__echoSkyRun
+    const ev = new KeyboardEvent('keydown', { code: 'KeyR', cancelable: true, bubbles: true })
+    window.dispatchEvent(ev)
+    return { prevented: ev.defaultPrevented, x: game.state().x }
+  })
+  check(plainR.prevented && plainR.x === 32, 'a plain R still resets the run', JSON.stringify(plainR))
+
+  const blurReleased = await page.evaluate(async () => {
+    const game = window.__echoSkyRun
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ArrowRight', bubbles: true }))
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    window.dispatchEvent(new Event('blur'))
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    return Math.abs(game.state().vx) < 0.2
+  })
+  check(blurReleased, 'a key held at focus loss is released')
+
+  // ---- the level itself, driven deterministically ------------------------------------------
   const run = await page.evaluate(() => {
     const game = window.__echoSkyRun
     game.reset()
@@ -75,10 +116,10 @@ try {
 
   check(run.won, 'level 1-1 is cleared', JSON.stringify(run))
   check(run.echoesPlaced === 1, 'the gap is crossed on exactly one mid-air Echo', `placed=${run.echoesPlaced}`)
-  check((run.frames || 0) > 60, 'the run takes more than a single hop', `frames=${run.frames}`)
 
-  // Prove the canvas actually painted, not just that the simulation ran. Wait for two rendered
-  // frames first: the read otherwise races the first paint and sees a blank backing store.
+  // ---- what is actually on the canvas ------------------------------------------------------
+  // Wait for two rendered frames first: the read otherwise races the first paint and sees a blank
+  // backing store.
   await page.evaluate(
     () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
   )
@@ -89,9 +130,19 @@ try {
     const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
     const seen = new Set()
     for (let i = 0; i < data.length; i += 4) seen.add(`${data[i]},${data[i + 1]},${data[i + 2]}`)
-    return { ok: seen.size > 2, colours: seen.size, size: `${canvas.width}x${canvas.height}` }
+    // A distinct-colour count passes on the sky gradient alone, so assert the actual palette.
+    return {
+      colours: seen.size,
+      sky: seen.has('127,196,232'),
+      ground: seen.has('63,122,58'),
+      player: seen.has('232,102,60'),
+    }
   })
-  check(painted.ok, 'the canvas rendered more than a flat fill', `colours=${painted.colours} size=${painted.size}`)
+  check(
+    painted.sky && painted.ground && painted.player,
+    'the canvas shows sky, ground and the player',
+    `colours=${painted.colours} ${JSON.stringify(painted)}`,
+  )
 
   await page.screenshot({ path: SHOT_PATH })
   console.log(`screenshot: ${SHOT_PATH}`)

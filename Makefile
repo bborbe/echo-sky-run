@@ -22,6 +22,4 @@ build: node_modules
 # `npx playwright install chromium`.
 e2e: node_modules
 	npm run build
-	@npx vite preview --port 4187 --strictPort > /tmp/echo-e2e-preview.log 2>&1 & echo $$! > /tmp/echo-e2e-preview.pid
-	@sleep 3
-	@E2E_URL=http://localhost:4187/echo-sky-run/ npm run e2e; status=$$?; kill $$(cat /tmp/echo-e2e-preview.pid) 2>/dev/null; rm -f /tmp/echo-e2e-preview.pid; exit $$status
+	@npx vite preview --port 4187 --strictPort > /tmp/echo-e2e-preview.log 2>&1 & pid=$$!; trap "kill $$pid 2>/dev/null" EXIT INT TERM; for i in $$(seq 1 30); do curl -sf -o /dev/null http://localhost:4187/echo-sky-run/ && break; sleep 1; done; E2E_URL=http://localhost:4187/echo-sky-run/ npm run e2e

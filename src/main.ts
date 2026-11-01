@@ -15,6 +15,8 @@ window.addEventListener('resize', () => renderer.fit())
 
 const stepper = new FixedStepper()
 let sim: SimState = createSim(map)
+let prevX = sim.player.x
+let prevY = sim.player.y
 let paused = false
 let tick = 0
 
@@ -42,6 +44,8 @@ const JUMP_KEYS = new Set(['Space', 'ArrowUp', 'KeyW'])
 
 function resetGame(): void {
   sim = createSim(map)
+  prevX = sim.player.x
+  prevY = sim.player.y
   held.clear()
   edge.jump = false
   edge.echo = false
@@ -98,6 +102,8 @@ function frame(now: number): void {
 
   if (!paused) {
     stepper.advance(elapsed, () => {
+      prevX = sim.player.x
+      prevY = sim.player.y
       stepSim(sim, readInput())
       // An edge is consumed by the first fixed step that sees it.
       edge.jump = false
@@ -106,7 +112,15 @@ function frame(now: number): void {
     })
   }
 
-  renderer.draw(map, sim.player, sim.field.echoes, tick)
+  renderer.draw({
+    map,
+    player: sim.player,
+    prevX,
+    prevY,
+    echoes: sim.field.echoes,
+    tick,
+    alpha: stepper.alpha,
+  })
   requestAnimationFrame(frame)
 }
 
@@ -150,6 +164,8 @@ const api: EchoSkyRunTestApi = {
     resetGame()
   },
   step(input) {
+    prevX = sim.player.x
+    prevY = sim.player.y
     stepSim(sim, {
       left: false,
       right: false,

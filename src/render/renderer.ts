@@ -18,6 +18,18 @@ const PIP_BODY = '#e8663c'
 const PIP_VISOR = '#2b3a4a'
 const ECHO_BODY = 'rgba(120, 220, 255, 0.55)'
 
+export interface RenderState {
+  readonly map: TileMap
+  readonly player: PlayerState
+  /** The player's position at the previous fixed step, blended with the current one by `alpha`. */
+  readonly prevX: number
+  readonly prevY: number
+  readonly echoes: readonly Echo[]
+  readonly tick: number
+  /** Blend factor between the last two fixed steps. */
+  readonly alpha: number
+}
+
 export class Renderer {
   private readonly canvas: HTMLCanvasElement
   private readonly ctx: CanvasRenderingContext2D
@@ -46,9 +58,12 @@ export class Renderer {
     return scale
   }
 
-  draw(map: TileMap, player: PlayerState, echoes: readonly Echo[], tick: number): void {
+  draw(state: RenderState): void {
     const ctx = this.ctx
-    const camX = this.cameraX(map, player)
+    // Draw between the last two fixed steps, so a display faster than 60 Hz does not judder.
+    const px = state.prevX + (state.player.x - state.prevX) * state.alpha
+    const py = state.prevY + (state.player.y - state.prevY) * state.alpha
+    const camX = this.cameraX(state.map, px)
 
     const sky = ctx.createLinearGradient(0, 0, 0, VIEW_H)
     sky.addColorStop(0, SKY)
@@ -58,16 +73,16 @@ export class Renderer {
 
     ctx.save()
     ctx.translate(-Math.round(camX), 0)
-    this.drawTiles(map, camX)
-    for (const echo of echoes) this.drawEcho(echo, tick)
-    this.drawPlayer(player)
+    this.drawTiles(state.map, camX)
+    for (const echo of state.echoes) this.drawEcho(echo, state.tick)
+    this.drawPlayer(px, py)
     ctx.restore()
   }
 
-  private cameraX(map: TileMap, player: PlayerState): number {
+  private cameraX(map: TileMap, playerX: number): number {
     const worldW = map.cols * TILE
     if (worldW <= VIEW_W) return 0
-    const want = player.x + PLAYER_W / 2 - VIEW_W / 2
+    const want = playerX + PLAYER_W / 2 - VIEW_W / 2
     return Math.max(0, Math.min(want, worldW - VIEW_W))
   }
 
@@ -110,19 +125,22 @@ export class Renderer {
   private drawEcho(echo: Echo, tick: number): void {
     // Blink for the last ECHO_BLINK_F frames, so its expiry is readable.
     if (isBlinking(echo) && Math.floor(tick / 4) % 2 === 0) return
+    // Echoes never move once placed, so they need no interpolation — but they are rounded like the
+    // player, or fillRect antialiases them against a pixel-perfect canvas.
+    const x = Math.round(echo.x)
+    const y = Math.round(echo.y)
     this.ctx.fillStyle = ECHO_BODY
-    // The ghost body stands on the platform top, which is the Echo's own y.
-    this.ctx.fillRect(echo.x, echo.y - PLAYER_H, PLAYER_W, PLAYER_H)
-    this.ctx.fillRect(echo.x, echo.y, PLAYER_W, 4)
+    this.ctx.fillRect(x, y - PLAYER_H, PLAYER_W, PLAYER_H)
+    this.ctx.fillRect(x, y, PLAYER_W, 4)
   }
 
-  private drawPlayer(player: PlayerState): void {
+  private drawPlayer(x: number, y: number): void {
     const ctx = this.ctx
-    const x = Math.round(player.x)
-    const y = Math.round(player.y)
+    const px = Math.round(x)
+    const py = Math.round(y)
     ctx.fillStyle = PIP_BODY
-    ctx.fillRect(x, y, PLAYER_W, PLAYER_H)
+    ctx.fillRect(px, py, PLAYER_W, PLAYER_H)
     ctx.fillStyle = PIP_VISOR
-    ctx.fillRect(x + 2, y + 3, PLAYER_W - 4, 5)
+    ctx.fillRect(px + 2, py + 3, PLAYER_W - 4, 5)
   }
 }
