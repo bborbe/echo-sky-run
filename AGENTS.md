@@ -34,7 +34,7 @@ P copies the current spot as that URL.
 | `src/physics/` | Fixed-timestep simulation: the 60 Hz accumulator loop, player movement and tile collision. Pure TypeScript. |
 | `src/echo/` | Ghost Echo rules: mid-air placement, the air charge, the 240 f lifetime, the one-way top, the wall refusal. Pure and tested. |
 | `src/render/` | Canvas renderer filling the browser window: a fixed 224 px logical height, a logical width derived from the window's aspect, and a fractional nearest-neighbour scale. The only place that touches the DOM or a canvas context. |
-| `src/render/camera.ts` | The camera as a pure value — scroll offset, deadzone and speed-proportional look-ahead. DOM-free, so the look-ahead budget is a unit test. |
+| `src/render/camera.ts` | The camera as a pure value — scroll offset and deadzone, with no velocity term. DOM-free, so the framing is a unit test. |
 | `src/levels/` | Level tile strings, one character per tile, plus the level's own playthrough tests. |
 | `src/game/sim.ts` | The whole-game fixed step: places the Echo, steps the player, ages the Echoes, refreshes the air charge and checks the goal. Deterministic — the level's test and the browser check both drive it. |
 | `scripts/` | `e2e.mjs`, the browser playthrough check (`npm run e2e`, `make e2e`), and `shots.mjs`, the screenshot tool (`npm run shots`, `make shots`). |
@@ -69,13 +69,13 @@ a test, not a note — a regression fails `make test` or `make e2e` instead of s
 |---|---|---|
 | Input-to-frame | ≤ 3 frames | `src/physics/input-latency.test.ts` (fixed-step sampling, 30–165 Hz), and a real key press measured in `make e2e` |
 | Corner correction | ≤ 4 px | `src/physics/corner.test.ts` — a rising jump that clips a ceiling corner slips past; a 6 px overlap still stops |
-| Camera look-ahead | ≥ 60% of the view ahead above 75% of max speed | `src/render/camera.test.ts`, over view widths 224–1200 px |
+| Camera framing | No lead in the direction of travel — Pip stays within the dead zone of the view centre | `src/render/camera.test.ts`, over view widths 224–800 px at 1 px and 3 px steps |
 | Frame time | p99 < 18 ms | `make e2e` — the live `requestAnimationFrame` loop's own p99 over a 120-frame window |
 | Heap allocations | zero per frame in the fixed step | `src/game/alloc.test.ts` — asserts the per-frame scratch objects and arrays keep their identity |
 | Golden replay | frame-exact | `src/levels/level1-1.replay.test.ts` — a recorded 1-1 run must land on the same frame, position and velocity |
 
 **A budget is met by retuning a constant, never by loosening a test.** If the camera misses the
-look-ahead bar, change `CAMERA_LOOKAHEAD`; if a jump clips a corner it should not, change
+dead zone, change `CAMERA_DEADZONE_X`; if a jump clips a corner it should not, change
 `CORNER_CORRECTION_PX`. Widening a threshold moves the bar the guide set.
 
 **The allocation budget is enforced structurally, not by a heap measurement.** V8 optimises
