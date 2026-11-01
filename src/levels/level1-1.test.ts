@@ -171,6 +171,8 @@ describe('level 1-1', () => {
 
     expect(sim.deaths).toBe(0)
     expect(sim.respawn.x).toBe(checkpoint!.x)
+    // The flag also grants Super, so the second half is played with the tier the first half earned.
+    expect(sim.power).toBe('super')
   })
 
   it('respawns at the level start after a pit death, on the same frame and with no key press', () => {

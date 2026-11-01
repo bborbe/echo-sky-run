@@ -208,9 +208,12 @@ export function stepSim(sim: SimState, input: SimInput): void {
   tickEchoes(sim.field)
   refreshAirCharges(sim.field, playerBox(sim.player), map, echoPlatforms(sim.field))
 
-  // The checkpoint claims the respawn point the first time Pip reaches it, and keeps it thereafter.
+  // The checkpoint claims the respawn point the first time Pip reaches it, keeps it thereafter, and
+  // grants Super if he is still Small — the spec's rule, so the second half of the level is played
+  // with the tier the first half earned.
   if (sim.checkpoint !== null && overlapsTile(sim.player, sim.checkpoint)) {
     sim.respawn = { x: sim.checkpoint.x, y: sim.checkpoint.y }
+    if (sim.power === 'small') setTier(sim, 'super')
   }
 
   // A pit kills regardless of tier, and puts Pip back with no key press — on the same frame, which

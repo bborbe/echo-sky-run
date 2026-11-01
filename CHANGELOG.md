@@ -18,6 +18,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 - feat: Pip has two tiers — Small at 12x14 and Super at 12x26 — and the hitbox height follows the tier, so he grows upward from his feet instead of into the floor
 - feat: the ? block is solid and releases a Mushroom when hit from below, once; collecting it turns Small into Super
 - feat: a hit while Super drops Pip to Small with 90 f of invincibility; a hit while Small is death and respawns at the checkpoint
+- feat: the checkpoint flag grants Super if Pip is still Small, so the second half is played with the tier the first half earned
 
 ## v0.3.0
 

@@ -108,4 +108,30 @@ describe('tier transitions', () => {
     expect(sim.invuln).toBeGreaterThan(0)
     expect(sim.invuln).toBeLessThanOrEqual(INVULN_F)
   })
+
+  it('a hit while Small is death and respawns Pip at the level start', () => {
+    const sim = createSim(BLOCK_MAP)
+    expect(sim.power).toBe('small')
+    const startX = sim.player.x
+    const startY = sim.player.y
+
+    sim.enemies.enemies.push({
+      kind: 'gear-goomba',
+      x: sim.player.x,
+      y: sim.player.y + sim.player.h - 16,
+      vx: 0,
+      vy: 0,
+      w: 16,
+      h: 16,
+      mode: 'walk',
+      dead: false,
+    })
+
+    stepSim(sim, IDLE)
+
+    expect(sim.deaths).toBe(1)
+    expect(sim.player.x).toBe(startX)
+    expect(sim.player.y).toBe(startY)
+    expect(sim.power).toBe('small')
+  })
 })
