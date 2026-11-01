@@ -3,16 +3,20 @@ import { readFileSync } from 'node:fs'
 import type { Plugin } from 'vite'
 import { defineConfig } from 'vitest/config'
 
-// One source for the build identity: CI sets VITE_COMMIT_SHA (pages.yml), local builds fall back to git.
+// One source for the build identity: CI pins VITE_COMMIT_SHA (pages.yml), local runs read git.
+// The pin is captured once and never written back — assigning the resolved SHA to
+// process.env.VITE_COMMIT_SHA made every later call return that first value, which is exactly the
+// staleness the live plugin below exists to remove.
+const PINNED_COMMIT_SHA: string = process.env.VITE_COMMIT_SHA ?? ''
+
 function commitSha(): string {
-  if (process.env.VITE_COMMIT_SHA) return process.env.VITE_COMMIT_SHA
+  if (PINNED_COMMIT_SHA !== '') return PINNED_COMMIT_SHA
   try {
     return execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim()
   } catch {
     return 'unknown'
   }
 }
-process.env.VITE_COMMIT_SHA = commitSha()
 
 /**
  * The build identity has to follow HEAD, not the moment the dev server started. `define` is
@@ -42,7 +46,7 @@ export default defineConfig({
   plugins: [liveCommitSha()],
   server: { port: 5173, strictPort: true },
   define: {
-    __COMMIT_SHA__: JSON.stringify(process.env.VITE_COMMIT_SHA),
+    __COMMIT_SHA__: JSON.stringify(commitSha()),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
     __APP_VERSION__: JSON.stringify(version),
   },
