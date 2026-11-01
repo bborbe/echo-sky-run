@@ -29,6 +29,13 @@ export const METER_GAIN = 2
 export const ACCEL = 0.09375
 export const FRICTION = 0.0625
 
+/**
+ * Friction while standing on a ghost Echo. A landing carries its speed onto the platform, and at the
+ * ground value a sprint needs ~72 px to stop — far more than a foothold has. The Echo grips instead,
+ * which is both the fix and the fiction: it is a solid copy of Pip, not ice.
+ */
+export const PLATFORM_FRICTION = 0.5
+
 /** Gravity while rising with jump held, and in every other case. The pair is the variable jump. */
 export const GRAVITY_HELD = 0.1875
 export const GRAVITY_FALL = 0.375

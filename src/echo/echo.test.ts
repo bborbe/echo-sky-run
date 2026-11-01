@@ -51,8 +51,10 @@ describe('placement', () => {
   it('lands the Echo as a thin top at the player feet', () => {
     const box = echoBoxAt(airborne(32, 20))
     expect(box.y).toBe(20 + PLAYER_H)
-    expect(box.x).toBe(32)
-    expect(box.w).toBe(PLAYER_W)
+    // Centred on the player, and wider than he is — a platform exactly his width leaves no margin
+    // to land on, which is what made Pip slide off it.
+    expect(box.x + box.w / 2).toBe(32 + PLAYER_W / 2)
+    expect(box.w).toBeGreaterThan(PLAYER_W)
     expect(box.h).toBe(4)
   })
 
