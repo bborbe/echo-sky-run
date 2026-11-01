@@ -19,6 +19,7 @@ Use the Makefile targets; each installs dependencies first when `node_modules` i
 | `make test` | `npm test` | Run the fast test tier (vitest project `fast`) — must be green before every commit |
 | `make test-all` | `npm run test:all` | Run both tiers, fast + slow — run it before merging any physics change |
 | `make build` | `npm run build` | Typecheck (`tsc`) and production build |
+| `make e2e` | `npm run build` + `npm run e2e` | Build, serve it, and play level 1-1 in a muted headless browser. Needs the browser binary once: `npx playwright install chromium` |
 
 ## Layout
 

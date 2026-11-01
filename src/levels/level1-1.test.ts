@@ -1,13 +1,27 @@
 import { describe, expect, it } from 'vitest'
 import { createSim, stepSim, type SimState } from '../game/sim.ts'
 import { TILE } from '../physics/constants.ts'
-import { parseLevel, SOLID, tileAt } from '../physics/tilemap.ts'
-import { LEVEL_1_1_COLS, LEVEL_1_1_GAP, LEVEL_1_1_ROWS } from './level1-1.ts'
+import { GOAL, parseLevel, SPAWN, tileAt } from '../physics/tilemap.ts'
+import { LEVEL_1_1_COLS, LEVEL_1_1_ECHO_AT_X, LEVEL_1_1_GAP, LEVEL_1_1_ROWS } from './level1-1.ts'
 
 const MAP = parseLevel(LEVEL_1_1_ROWS)
 
+/** Past this y the player has left the world: there is no floor below the gap. */
+const FELL_Y = MAP.rows * TILE + 80
+
+const IDLE = {
+  left: false,
+  right: false,
+  jump: false,
+  jumpPressed: false,
+  sprint: false,
+  echoPressed: false,
+} as const
+
 interface Run {
   won: boolean
+  /** The run left the world rather than merely running out of frames. */
+  fell: boolean
   frames: number
   echoesPlaced: number
 }
@@ -23,27 +37,20 @@ function play(useEcho: boolean, maxFrames = 3000): Run {
 
   for (let i = 0; i < maxFrames; i++) {
     const p = sim.player
-    // Mid-gap, airborne, and past the point where a plain hop would come up short.
-    const wantEcho = useEcho && !placed && !p.grounded && p.x >= 370 && sim.field.airCharges > 0
+    const wantEcho =
+      useEcho && !placed && !p.grounded && p.x >= LEVEL_1_1_ECHO_AT_X && sim.field.airCharges > 0
     if (wantEcho) {
       placed = true
       echoesPlaced += 1
     }
 
-    stepSim(sim, {
-      left: false,
-      right: true,
-      jump: true,
-      jumpPressed: true,
-      sprint: true,
-      echoPressed: wantEcho,
-    })
+    stepSim(sim, { ...IDLE, right: true, jump: true, jumpPressed: true, sprint: true, echoPressed: wantEcho })
 
-    if (sim.goalReached) return { won: true, frames: i + 1, echoesPlaced }
-    if (sim.player.y > MAP.rows * TILE + 80) break // fell out of the world
+    if (sim.goalReached) return { won: true, fell: false, frames: i + 1, echoesPlaced }
+    if (sim.player.y > FELL_Y) return { won: false, fell: true, frames: i + 1, echoesPlaced }
   }
 
-  return { won: false, frames: maxFrames, echoesPlaced }
+  return { won: false, fell: false, frames: maxFrames, echoesPlaced }
 }
 
 describe('level 1-1', () => {
@@ -51,18 +58,35 @@ describe('level 1-1', () => {
     for (const row of LEVEL_1_1_ROWS) expect(row).toHaveLength(LEVEL_1_1_COLS)
   })
 
+  it('has both the spawn and the goal tile', () => {
+    const chars = LEVEL_1_1_ROWS.join('')
+    expect(chars).toContain(SPAWN)
+    expect(chars).toContain(GOAL)
+  })
+
   it('has a solid gap no plain jump can clear', () => {
     for (let col = LEVEL_1_1_GAP.firstCol; col <= LEVEL_1_1_GAP.lastCol; col++) {
       for (let row = 0; row < MAP.rows; row++) {
-        expect(tileAt(MAP, col, row)).not.toBe(SOLID)
+        expect(tileAt(MAP, col, row)).not.toBe('#')
       }
     }
   })
 
-  it('cannot be finished without an Echo', () => {
+  it('is closed on the left, so holding left cannot leave the world', () => {
+    const sim = createSim(MAP)
+    for (let i = 0; i < 600; i++) {
+      stepSim(sim, { ...IDLE, left: true, sprint: true })
+      expect(sim.player.x).toBeGreaterThanOrEqual(0)
+      expect(sim.player.y).toBeLessThan(FELL_Y)
+    }
+  })
+
+  it('cannot be finished without an Echo, and the run falls into the gap', () => {
     const run = play(false)
     expect(run.won).toBe(false)
+    expect(run.fell).toBe(true)
     expect(run.echoesPlaced).toBe(0)
+    expect(run.frames).toBeLessThan(3000)
   })
 
   it('is finished by crossing the gap on a mid-air Echo', () => {

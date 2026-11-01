@@ -40,6 +40,9 @@ export class Renderer {
     )
     this.canvas.style.width = `${VIEW_W * scale}px`
     this.canvas.style.height = `${VIEW_H * scale}px`
+    // `imageSmoothingEnabled` governs drawImage inside the canvas; the browser's upscale of the
+    // element is a separate filter, and `auto` would bilinearly blur every pixel.
+    this.canvas.style.imageRendering = 'pixelated'
     return scale
   }
 

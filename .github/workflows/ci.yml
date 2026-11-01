@@ -33,3 +33,29 @@ jobs:
         run: npm test
       - name: Build
         run: npm run build
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Install the browser
+        run: npx playwright install --with-deps chromium
+      - name: Build
+        run: npm run build
+      - name: Play level 1-1 in a real browser
+        run: |
+          npx vite preview --port 4187 --strictPort &
+          for i in $(seq 1 30); do
+            curl -sf -o /dev/null "http://localhost:4187/echo-sky-run/" && break
+            sleep 1
+          done
+          E2E_URL=http://localhost:4187/echo-sky-run/ SHOT_PATH=/tmp/echo-sky-run-1-1.png npm run e2e

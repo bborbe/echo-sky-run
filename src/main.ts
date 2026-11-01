@@ -1,6 +1,6 @@
 import { BUILD_LABEL } from './build-info.ts'
 import { createSim, stepSim, type SimInput, type SimState } from './game/sim.ts'
-import { LEVEL_1_1_ROWS } from './levels/level1-1.ts'
+import { LEVEL_1_1_ECHO_AT_X, LEVEL_1_1_ROWS } from './levels/level1-1.ts'
 import { FixedStepper } from './physics/loop.ts'
 import { parseLevel } from './physics/tilemap.ts'
 import { Renderer } from './render/renderer.ts'
@@ -13,6 +13,7 @@ const renderer = new Renderer(canvas)
 renderer.fit()
 window.addEventListener('resize', () => renderer.fit())
 
+const stepper = new FixedStepper()
 let sim: SimState = createSim(map)
 let paused = false
 let tick = 0
@@ -20,19 +21,8 @@ let tick = 0
 const held = new Set<string>()
 const edge = { jump: false, echo: false }
 
-function readInput(): SimInput {
-  return {
-    left: held.has('ArrowLeft') || held.has('KeyA'),
-    right: held.has('ArrowRight') || held.has('KeyD'),
-    jump: held.has('Space') || held.has('ArrowUp') || held.has('KeyW'),
-    jumpPressed: edge.jump,
-    sprint: held.has('ShiftLeft') || held.has('ShiftRight'),
-    echoPressed: edge.echo,
-  }
-}
-
-// Only the game's own keys are captured: preventDefault on every keydown would swallow browser
-// shortcuts such as reload, and the page is the whole app.
+// Only the game's own keys are captured. A modified key is never a game key: Ctrl+R must reload the
+// page rather than reset the run, and preventDefault on every keydown would swallow it.
 const GAME_KEYS = new Set([
   'ArrowLeft',
   'ArrowRight',
@@ -48,21 +38,58 @@ const GAME_KEYS = new Set([
   'ShiftRight',
 ])
 
+const JUMP_KEYS = new Set(['Space', 'ArrowUp', 'KeyW'])
+
+function resetGame(): void {
+  sim = createSim(map)
+  held.clear()
+  edge.jump = false
+  edge.echo = false
+  tick = 0
+  stepper.reset()
+}
+
+function readInput(): SimInput {
+  let jump = false
+  for (const key of held) if (JUMP_KEYS.has(key)) jump = true
+
+  return {
+    left: held.has('ArrowLeft') || held.has('KeyA'),
+    right: held.has('ArrowRight') || held.has('KeyD'),
+    jump,
+    jumpPressed: edge.jump,
+    sprint: held.has('ShiftLeft') || held.has('ShiftRight'),
+    echoPressed: edge.echo,
+  }
+}
+
 window.addEventListener('keydown', (event) => {
+  if (event.ctrlKey || event.metaKey || event.altKey) return
   if (!GAME_KEYS.has(event.code)) return
   event.preventDefault()
   if (event.repeat) return
-  if (event.code === 'Space') edge.jump = true
+  if (JUMP_KEYS.has(event.code)) edge.jump = true
   if (event.code === 'KeyC') edge.echo = true
   held.add(event.code)
-  if (event.code === 'KeyR') sim = createSim(map)
+  if (event.code === 'KeyR') resetGame()
 })
 
 window.addEventListener('keyup', (event) => {
   held.delete(event.code)
 })
 
-const stepper = new FixedStepper()
+// A key still physically down when the tab loses focus never delivers keyup, so the player would
+// keep running after refocus. Drop every held key and any latched edge.
+function releaseAll(): void {
+  held.clear()
+  edge.jump = false
+  edge.echo = false
+}
+window.addEventListener('blur', releaseAll)
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) releaseAll()
+})
+
 let last = performance.now()
 
 function frame(now: number): void {
@@ -85,17 +112,6 @@ function frame(now: number): void {
 
 requestAnimationFrame(frame)
 
-/**
- * Test seam. The browser test drives the same `stepSim` the frame loop uses, one fixed step at a
- * time, so the level can be played deterministically without depending on frame timing.
- */
-interface EchoSkyRunTestApi {
-  pause(): void
-  reset(): void
-  step(input: Partial<SimInput>): ReturnType<typeof snapshot>
-  state(): ReturnType<typeof snapshot>
-}
-
 function snapshot() {
   return {
     x: sim.player.x,
@@ -110,13 +126,28 @@ function snapshot() {
   }
 }
 
+/**
+ * Test seam. The browser check drives the same `stepSim` the frame loop uses, one fixed step at a
+ * time, so the playthrough does not depend on frame timing.
+ *
+ * It is deliberately present in the production bundle: the check runs against the built `vite
+ * preview` output, where a dev-only gate would make it unreachable. It is inert unless called.
+ */
+interface EchoSkyRunTestApi {
+  readonly echoAtX: number
+  pause(): void
+  reset(): void
+  step(input: Partial<SimInput>): ReturnType<typeof snapshot>
+  state(): ReturnType<typeof snapshot>
+}
+
 const api: EchoSkyRunTestApi = {
+  echoAtX: LEVEL_1_1_ECHO_AT_X,
   pause() {
     paused = true
   },
   reset() {
-    sim = createSim(map)
-    tick = 0
+    resetGame()
   },
   step(input) {
     stepSim(sim, {

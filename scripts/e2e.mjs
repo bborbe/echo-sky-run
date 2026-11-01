@@ -34,23 +34,27 @@ try {
   await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
   check(true, 'game booted and exposed its simulation')
 
+  // A build whose Vite define never substituted would carry the literal '%VITE_COMMIT_SHA%', which
+  // is non-empty — so the check has to be SHA-shaped, not merely present.
   const meta = await page.getAttribute('meta[name="commit"]', 'content')
-  check(Boolean(meta), 'page carries a commit meta tag', meta || 'missing')
+  check(/^[0-9a-f]{7,40}$/.test(meta || ''), 'page carries a real commit SHA', meta || 'missing')
 
   const run = await page.evaluate(() => {
     const game = window.__echoSkyRun
     game.reset()
     game.pause()
-    let placed = false
-    let echoesUsed = 0
+
+    let wantEchoOnce = false
+    let echoesPlaced = 0
+    let previousEchoes = game.state().echoes
+
     for (let i = 0; i < 3000; i++) {
       const s = game.state()
-      // Mid-gap, airborne, past the point where a plain hop comes up short.
-      const wantEcho = !placed && !s.grounded && s.x >= 370 && s.airCharges > 0
-      if (wantEcho) {
-        placed = true
-        echoesUsed += 1
-      }
+      // Mid-gap, airborne, past the point where a plain hop comes up short. `echoAtX` is the level's
+      // own answer, so a level tweak cannot desynchronise the browser check from the unit test.
+      const wantEcho = !wantEchoOnce && !s.grounded && s.x >= game.echoAtX && s.airCharges > 0
+      if (wantEcho) wantEchoOnce = true
+
       const next = game.step({
         right: true,
         jump: true,
@@ -58,14 +62,19 @@ try {
         sprint: true,
         echoPressed: wantEcho,
       })
-      if (next.goalReached) return { won: true, frames: i + 1, echoesUsed, x: next.x }
+
+      // Count Echoes that actually appeared, not placements the driver asked for.
+      if (next.echoes > previousEchoes) echoesPlaced += 1
+      previousEchoes = next.echoes
+
+      if (next.goalReached) return { won: true, frames: i + 1, echoesPlaced, x: next.x }
       if (next.y > 400) return { won: false, fell: true, frames: i + 1, x: next.x }
     }
     return { won: false, timedOut: true }
   })
 
   check(run.won, 'level 1-1 is cleared', JSON.stringify(run))
-  check(run.echoesUsed === 1, 'the gap is crossed on exactly one mid-air Echo', `used=${run.echoesUsed}`)
+  check(run.echoesPlaced === 1, 'the gap is crossed on exactly one mid-air Echo', `placed=${run.echoesPlaced}`)
   check((run.frames || 0) > 60, 'the run takes more than a single hop', `frames=${run.frames}`)
 
   // Prove the canvas actually painted, not just that the simulation ran. Wait for two rendered
@@ -80,20 +89,9 @@ try {
     const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
     const seen = new Set()
     for (let i = 0; i < data.length; i += 4) seen.add(`${data[i]},${data[i + 1]},${data[i + 2]}`)
-    const mid = 4 * (Math.floor(canvas.height / 2) * canvas.width + Math.floor(canvas.width / 2))
-    return {
-      ok: seen.size > 2,
-      colours: seen.size,
-      size: `${canvas.width}x${canvas.height}`,
-      sample: `${data[0]},${data[1]},${data[2]},${data[3]}`,
-      mid: `${data[mid]},${data[mid + 1]},${data[mid + 2]},${data[mid + 3]}`,
-    }
+    return { ok: seen.size > 2, colours: seen.size, size: `${canvas.width}x${canvas.height}` }
   })
-  check(
-    painted.ok,
-    'the canvas rendered more than a flat fill',
-    `colours=${painted.colours} size=${painted.size} px0=${painted.sample} mid=${painted.mid}`,
-  )
+  check(painted.ok, 'the canvas rendered more than a flat fill', `colours=${painted.colours} size=${painted.size}`)
 
   await page.screenshot({ path: SHOT_PATH })
   console.log(`screenshot: ${SHOT_PATH}`)
