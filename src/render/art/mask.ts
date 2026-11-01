@@ -112,3 +112,45 @@ export function outlined(mask: Mask, outline = 'o'): Mask {
       .join(''),
   )
 }
+
+export interface Bounds {
+  readonly x: number
+  readonly y: number
+  readonly w: number
+  readonly h: number
+}
+
+/** The box around a mask's opaque pixels — what the player actually sees, padding excluded. */
+export function opaqueBounds(mask: Mask): Bounds {
+  return unionBounds([mask])
+}
+
+/** The box around the opaque pixels of every frame — an animation's full visible extent. */
+export function unionBounds(frames: readonly Mask[]): Bounds {
+  let x0 = Infinity
+  let y0 = Infinity
+  let x1 = -Infinity
+  let y1 = -Infinity
+  for (const mask of frames) {
+    for (let y = 0; y < mask.length; y++) {
+      for (let x = 0; x < mask[y].length; x++) {
+        if (mask[y][x] === CLEAR) continue
+        x0 = Math.min(x0, x)
+        y0 = Math.min(y0, y)
+        x1 = Math.max(x1, x)
+        y1 = Math.max(y1, y)
+      }
+    }
+  }
+  if (x1 < x0) return { x: 0, y: 0, w: 0, h: 0 }
+  return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 }
+}
+
+/** How many pixels differ between two same-size masks. */
+export function pixelDiff(a: Mask, b: Mask): number {
+  let n = 0
+  for (let y = 0; y < a.length; y++) {
+    for (let x = 0; x < a[y].length; x++) if (a[y][x] !== b[y]?.[x]) n++
+  }
+  return n
+}

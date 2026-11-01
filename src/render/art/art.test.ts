@@ -12,11 +12,30 @@ import { SMALL_H, SMALL_W, SUPER_H, SUPER_W } from '../../physics/constants.ts'
 import { parseLevel } from '../../physics/tilemap.ts'
 import { CATALOGUE, animation } from './catalogue.ts'
 import { ECHO_PLATFORM, RING_SEGMENTS, litSegments, ringFraction } from './fx.ts'
-import { boundaryKeys, bottomRow, maskColours, maskSize, type Mask } from './mask.ts'
+import { boundaryKeys, bottomRow, maskColours, maskSize, opaqueBounds, pixelDiff, unionBounds } from './mask.ts'
 import { INK, INK_HEX } from './palette.ts'
 import { tileShape } from './tiles.ts'
 
-const same = (a: Mask, b: Mask): boolean => a.length === b.length && a.every((row, i) => row === b[i])
+/** The animations that move — named here, so the catalogue cannot quietly mark one as held. */
+const MOVING = new Set([
+  ...['small', 'super'].flatMap((f) => ['idle', 'run', 'sprint', 'death'].map((p) => `pip-${f}-${p}`)),
+  'goomba-walk',
+  'turtle-walk',
+  'turtle-shell-kicked',
+  'qblock-full',
+  'checkpoint-open',
+  'checkpoint-claimed',
+  'goal-flag',
+  'echo-fading',
+  'echo-refused',
+  'echo-spawn-ring',
+  'echo-timer-ring',
+  'echo-spark',
+  'dust',
+])
+
+/** Two frames of a moving animation must differ by more than a stray pixel. */
+const MIN_FRAME_DIFF_PX = 4
 
 describe('the sprite catalogue', () => {
   it('holds only rectangular masks, one size per animation', () => {
@@ -39,13 +58,22 @@ describe('the sprite catalogue', () => {
     }
   })
 
-  it('gives every moving animation at least two different frames, and every held pose one', () => {
+  it('flags exactly the named animations as moving', () => {
+    const flagged = new Set(CATALOGUE.filter((a) => a.moves).map((a) => a.name))
+    expect([...flagged].sort()).toEqual([...MOVING].sort())
+  })
+
+  it('gives every moving animation frames that really differ, and every held pose one frame', () => {
     for (const anim of CATALOGUE) {
       if (anim.moves) {
         expect(anim.frames.length, anim.name).toBeGreaterThanOrEqual(2)
         for (let i = 0; i < anim.frames.length; i++) {
           for (let j = i + 1; j < anim.frames.length; j++) {
-            expect(same(anim.frames[i], anim.frames[j]), `${anim.name} frames ${i} and ${j} are copies`).toBe(false)
+            const a = anim.frames[i]
+            const b = anim.frames[j]
+            // Rings grow, so their frames differ in size; a size change is a difference.
+            const diff = a.length === b.length && a[0].length === b[0].length ? pixelDiff(a, b) : Infinity
+            expect(diff, `${anim.name} frames ${i} and ${j}`).toBeGreaterThanOrEqual(MIN_FRAME_DIFF_PX)
           }
         }
       } else if (anim.kind === 'character' || anim.kind === 'prop') {
@@ -100,26 +128,37 @@ describe('the sprite catalogue', () => {
 })
 
 describe('hitbox and sprite sizes (spec § 4)', () => {
-  /** The sprite's size read off its decoded masks — never a declared constant. */
+  /** The mask size, for the non-hazard size checks. */
   function spriteSize(name: string): { w: number; h: number } {
     return maskSize(animation(name).frames[0])
   }
 
+  // The live hazards. The flattened Gear-Goomba is a corpse, not a hazard.
   const hazards = [
     ['goomba-walk', GEAR_GOOMBA_W, GEAR_GOOMBA_H],
-    ['goomba-squash', GEAR_GOOMBA_W, GEAR_GOOMBA_H],
     ['turtle-walk', STEAM_TURTLE_W, STEAM_TURTLE_H],
     ['turtle-shell', SHELL_W, SHELL_H],
     ['turtle-shell-kicked', SHELL_W, SHELL_H],
   ] as const
 
-  it('keeps every hazard hitbox at 85–90 % of its sprite on each axis', () => {
+  it('keeps every hazard hitbox at 85–90 % of what is drawn, on each axis', () => {
     for (const [name, hitW, hitH] of hazards) {
-      const { w, h } = spriteSize(name)
-      expect(hitW / w, `${name} width`).toBeGreaterThanOrEqual(0.85)
-      expect(hitW / w, `${name} width`).toBeLessThanOrEqual(0.9)
-      expect(hitH / h, `${name} height`).toBeGreaterThanOrEqual(0.85)
-      expect(hitH / h, `${name} height`).toBeLessThanOrEqual(0.9)
+      // The opaque box over all frames: transparent padding cannot inflate the sprite.
+      const { w, h } = unionBounds(animation(name).frames)
+      expect(hitW / w, `${name} width ${hitW}/${w}`).toBeGreaterThanOrEqual(0.85)
+      expect(hitW / w, `${name} width ${hitW}/${w}`).toBeLessThanOrEqual(0.9)
+      expect(hitH / h, `${name} height ${hitH}/${h}`).toBeGreaterThanOrEqual(0.85)
+      expect(hitH / h, `${name} height ${hitH}/${h}`).toBeLessThanOrEqual(0.9)
+    }
+  })
+
+  it('never draws a hazard frame smaller than its hitbox', () => {
+    for (const [name, hitW, hitH] of hazards) {
+      animation(name).frames.forEach((frame, i) => {
+        const box = opaqueBounds(frame)
+        expect(box.w, `${name}[${i}] width`).toBeGreaterThanOrEqual(hitW)
+        expect(box.h, `${name}[${i}] height`).toBeGreaterThanOrEqual(hitH)
+      })
     }
   })
 

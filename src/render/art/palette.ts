@@ -52,7 +52,7 @@ export const INK = {
  * the sky (atmospheric haze), so every play-layer solid sits darker than whatever is behind it.
  */
 export const SKY = {
-  top: '#8FB2E6',
+  top: '#86A9E0',
   mid: '#CFCBE8',
   horizon: '#F7DDBA',
   sunGlow: '#FFE8C2',

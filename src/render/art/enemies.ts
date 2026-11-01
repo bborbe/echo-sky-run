@@ -18,20 +18,20 @@ export const GOOMBA_KEYS: Keys = {
 /** Gear-Goomba: a walking brass cog with a grumpy face. 18×18. */
 export const GOOMBA_WALK: readonly Mask[] = [
   [
-    '..................',
-    '.......oo..oo.....',
-    '....oo.ohooao.oo..',
-    '...ohaoahhaaaoaso.',
-    '....ohaaaaaaaaso..',
-    '..ooahaaaaaaaaasoo',
-    '..oaaoooaaaoooaaso',
-    '..oaaawwoaowwaaaso',
-    '..oaaawoaaaowaaaso',
-    '..ooaaaaaaaaaaasoo',
-    '...oaaorrrrroaaso.',
-    '..ohaaaoooooaaaso.',
-    '...oo.osaaaso.oo..',
-    '......ooooooo.....',
+    '......oo..oo......',
+    '...oo.oaooao.oo...',
+    '..ohaooahhaaooaso.',
+    '...ohaaaaaaaaaso..',
+    '.ooahaaaaaaaaaasoo',
+    'ohaaaoooaaaoooaaso',
+    'oaaaawwoaaowwaaaso',
+    '.oaaawooaaoowaaso.',
+    'ohaaaaaaaaaaaaaaso',
+    '.ooaaaorrrrroaasoo',
+    '..oaaaaoooooaaaso.',
+    '.ohaaaaaaaaaaaaso.',
+    '..oo.osaaaaso.oo..',
+    '......oooooo......',
     '.....offo.offo....',
     '....offFo..ofFo...',
     '....offFo..ofFFo..',
@@ -39,19 +39,19 @@ export const GOOMBA_WALK: readonly Mask[] = [
   ],
   [
     '..................',
-    '..................',
     '......oo..oo......',
-    '...oo.ohooao.oo...',
-    '..ohaoahhaaaoaso..',
-    '...ohaaaaaaaaso...',
-    '.ooahaaaaaaaaasoo.',
-    '.oaaoooaaaoooaaso.',
-    '.oaaawwoaowwaaaso.',
-    '.oaaawoaaaowaaaso.',
-    '.ooaaaaaaaaaaasoo.',
-    '..oaaorrrrroaaso..',
-    '.ohaaaoooooaaaso..',
-    '..oo.osaaaso.oo...',
+    '...oo.oaooao.oo...',
+    '..ohaooahhaaooaso.',
+    '...ohaaaaaaaaaso..',
+    '.ooahaaaaaaaaaasoo',
+    'ohaaaoooaaaoooaaso',
+    'oaaaawwoaaowwaaaso',
+    '.oaaawooaaoowaaso.',
+    'ohaaaaaaaaaaaaaaso',
+    '.ooaaaorrrrroaasoo',
+    '..oaaaaoooooaaaso.',
+    '.ohaaaaaaaaaaaaso.',
+    '..oo.osaaaaso.oo..',
     '.....ooooooo......',
     '....offFoofFo.....',
     '...offFo..offFo...',
@@ -98,10 +98,10 @@ export const TURTLE_KEYS: Keys = {
 /** Steam-Turtle: a copper-shelled turtle with a steam stack. 18×27, faces left. */
 export const TURTLE_WALK: readonly Mask[] = [
   [
-    '..................',
-    '..................',
-    '...oooo...........',
-    '..ogggGo....oo....',
+    '...........ooo....',
+    '..........owwwo...',
+    '...oooo...owwwo...',
+    '..ogggGo...owo....',
     '.oggggGGo..ofFo...',
     'owwgggggo..ofFo...',
     'oweggggGo.oofFoo..',
@@ -128,10 +128,10 @@ export const TURTLE_WALK: readonly Mask[] = [
   ],
   [
     '..................',
-    '..................',
-    '..................',
-    '...oooo...........',
-    '..ogggGo....oo....',
+    '.........ooo......',
+    '........owwwo.....',
+    '...oooo..owwwo....',
+    '..ogggGo..ooo.....',
     '.oggggGGo..ofFo...',
     'owwgggggo..ofFo...',
     'oweggggGo.oofFoo..',
@@ -157,89 +157,44 @@ export const TURTLE_WALK: readonly Mask[] = [
   ],
 ]
 
-/** The stomped shell: copper dome, brass rim, steam stack. 18×18. */
-export const SHELL_REST: Mask = [
-  '..................',
-  '..................',
-  '..................',
-  '..................',
-  '........oo........',
-  '.......ofFo.......',
-  '......oofFoo......',
-  '....ooaaaaaaoo....',
-  '...oarrrrhhrrrao..',
-  '..oarrrrhhrrrrrao.',
-  '..oarrarrrrrarrao.',
-  '.oarrrrrrarrrrrrao',
-  '.oarrrarrrrrrarrao',
-  '.oakkkkkkkkkkkkkao',
-  '.oaaaaaaaaaaaaaaao',
-  '..owwwwwwwwwwwwwo.',
-  '..owwwwwwwwwwwwwo.',
-  '...ooooooooooooo..',
-]
+/**
+ * The stomped shell: a copper dome on a brass rim with its steam stack. 18×18, filling its box so
+ * the 16×16 hitbox is never larger than what the player sees.
+ */
+function shell(stackDx: number, glintX: number): Mask {
+  const top = (row: string): string => {
+    const chars = '..................'.split('')
+    const start = Math.floor((18 - row.length) / 2) + stackDx
+    for (let i = 0; i < row.length; i++) if (row[i] !== '.') chars[start + i] = row[i]
+    return chars.join('')
+  }
+  const body = [
+    '....oaaaaaaaao....',
+    '...oarrrrrrrrao...',
+    '..oarrrrrrrrrrao..',
+    '..oarrarrrrrarao..',
+    '.oarrrrrrarrrrrao.',
+    '.oarrrarrrrrrarao.',
+    'oarrrrrrrrrrrrrrao',
+    'oarrrarrrrrrrarrao',
+    'oarrrrrrrarrrrrrao',
+    'oakkkkkkkkkkkkkkao',
+    'oaaaaaaaaaaaaaaaao',
+    '.owwwwwwwwwwwwwwo.',
+    '.owwwwwwwwwwwwwwo.',
+    '..owwwwwwwwwwwwo..',
+    '...oooooooooooo...',
+  ].map((row, y) => {
+    // The brass glint: two pixels on the dome's upper rows, swept round by the spin.
+    if (y !== 1 && y !== 2) return row
+    const chars = row.split('')
+    for (const x of [glintX, glintX + 1]) if (chars[x] === 'r') chars[x] = 'h'
+    return chars.join('')
+  })
+  return [top('oo'), top('ofFo'), top('ooofFooo'), ...body]
+}
 
-/** A kicked shell spinning: the highlight and the stack sweep round. 4 frames. */
-export const SHELL_SPIN: readonly Mask[] = [
-  SHELL_REST,
-  [
-    '..................',
-    '..................',
-    '..................',
-    '..................',
-    '..................',
-    '...........oo.....',
-    '..........ofFo....',
-    '....oooaaoofoo....',
-    '...oarrrrrrrhhao..',
-    '..oarrrrrrrrhhrao.',
-    '..oarrarrrrrarrao.',
-    '.oarrrrrrarrrrrrao',
-    '.oarrrarrrrrrarrao',
-    '.oakkkkkkkkkkkkkao',
-    '.oaaaaaaaaaaaaaaao',
-    '..owwwwwwwwwwwwwo.',
-    '..owwwwwwwwwwwwwo.',
-    '...ooooooooooooo..',
-  ],
-  [
-    '..................',
-    '..................',
-    '..................',
-    '..................',
-    '..................',
-    '..................',
-    '..................',
-    '....ooaaaaaaoo....',
-    '...oarrrrrrrrrao..',
-    '..oarhhrrrrrrrrao.',
-    '..oarhharrrrarrao.',
-    '.oarrrrrrarrrrrrao',
-    '.oarrrarrrrrrarrao',
-    '.oakkkkkkkkkkkkkao',
-    '.oaaaaaaaaaaaaaaao',
-    '..owwwwwwwwwwwwwo.',
-    '..owwwwwwwwwwwwwo.',
-    '...ooooooooooooo..',
-  ],
-  [
-    '..................',
-    '..................',
-    '..................',
-    '..................',
-    '..................',
-    '.....oo...........',
-    '....ofFo..........',
-    '....oofooaaoo.....',
-    '...oarrrrrrrrrao..',
-    '..oarrrrrrrrrrrao.',
-    '..oarrarrrrrahhao.',
-    '.oarrrrrrarrrhhrao',
-    '.oarrrarrrrrrarrao',
-    '.oakkkkkkkkkkkkkao',
-    '.oaaaaaaaaaaaaaaao',
-    '..owwwwwwwwwwwwwo.',
-    '..owwwwwwwwwwwwwo.',
-    '...ooooooooooooo..',
-  ],
-]
+export const SHELL_REST: Mask = shell(0, 9)
+
+/** A kicked shell spinning: the stack and the glint sweep round. 4 frames. */
+export const SHELL_SPIN: readonly Mask[] = [shell(0, 9), shell(2, 11), shell(0, 5), shell(-2, 7)]

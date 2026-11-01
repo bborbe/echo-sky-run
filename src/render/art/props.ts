@@ -206,6 +206,7 @@ const BANNERS: readonly (readonly string[])[] = [
     '.......ohwbbbbwo',
     '.......ohwaaaawo',
     '.......ohwwbbwwo',
+    '.......ohwwwwwwo',
     '.......ohooooooo',
   ],
 ]

@@ -1,10 +1,14 @@
 import { BUILD_LABEL } from './build-info.ts'
-import { mountDebugOverlay, readFreeze, readSpawn, spawnQuery } from './debug/overlay.ts'
+import { mountDebugOverlay, readEchoSpot, readFreeze, readSpawn, spawnQuery } from './debug/overlay.ts'
+import { ECHO_LIFE_F, placeEcho } from './echo/echo.ts'
 import { createSim, stepSim, type SimInput, type SimState } from './game/sim.ts'
 import { LEVEL_1_1_ECHO_AT_X, LEVEL_1_1_ROWS } from './levels/level1-1.ts'
-import { TILE } from './physics/constants.ts'
+import { PLAYER_W, TILE } from './physics/constants.ts'
 import { FixedStepper } from './physics/loop.ts'
 import { parseLevel, tileAt } from './physics/tilemap.ts'
+import { Juice, type StepFacts, type StompFact } from './render/juice.ts'
+import { skyColourAt } from './render/parallax.ts'
+import { PipAnimator } from './render/pose.ts'
 import { Renderer, PALETTE } from './render/renderer.ts'
 import { createControlsCard, ECHO_HINT } from './ui/controls-card.ts'
 import { escapeLeavesFullscreen, toggleFullscreen, watchFullscreen } from './ui/fullscreen.ts'
@@ -12,6 +16,8 @@ import { mountGamepad } from './ui/gamepad-shell.ts'
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game')
 if (!canvas) throw new Error('missing #game canvas')
+const skyCanvas = document.querySelector<HTMLCanvasElement>('#sky')
+if (!skyCanvas) throw new Error('missing #sky canvas')
 
 /** The spec's storage key. It holds the best time today; unlocked levels and relics join it later. */
 const STORAGE_KEY = 'echo-sky-run.v1'
@@ -45,7 +51,7 @@ function saveBest(seconds: number): void {
 }
 
 const map = parseLevel(LEVEL_1_1_ROWS)
-const renderer = new Renderer(canvas)
+const renderer = new Renderer(canvas, skyCanvas)
 window.addEventListener('resize', () => renderer.fit())
 // Fullscreen changes the window size, so the canvas has to re-fit on every change, not just a resize.
 watchFullscreen(() => renderer.fit())
@@ -93,6 +99,9 @@ const spawnPoint = readSpawn(location.search)
 /** `?freeze=1` starts paused, so a screenshot from a spawn URL is a still frame, not a moving one. */
 const frozenAtLoad = readFreeze(location.search)
 
+/** `?echo=x,y` starts the level with an Echo standing there — the screenshot tool's Echo poses. */
+const echoSpot = readEchoSpot(location.search)
+
 function newSim(): SimState {
   const next = createSim(map)
   if (spawnPoint !== null) {
@@ -100,7 +109,82 @@ function newSim(): SimState {
     next.player.y = spawnPoint.y
     next.respawn = { x: spawnPoint.x, y: spawnPoint.y }
   }
+  if (echoSpot !== null) {
+    // A box whose feet are at the spot: placeEcho puts the platform's top exactly there.
+    placeEcho(next.field, { x: echoSpot.x, y: echoSpot.y - next.player.h, w: PLAYER_W, h: next.player.h }, map)
+    next.field.airCharges = 1
+  }
   return next
+}
+
+/** Pip's pose, advanced once per fixed step. */
+const animator = new PipAnimator()
+/** Squash, dust, hit-stop, shake and the rest — advanced once per fixed step. */
+const juice = new Juice()
+/** Fixed steps the loop held for juice (hit-stop, death pop). The browser check reads it. */
+let heldSteps = 0
+
+/** What a step did, rebuilt every step for the juice. The stomp list is reused. */
+const stompFacts: StompFact[] = []
+
+/**
+ * One fixed step of the game plus everything drawn off it: the pose, then the juice. The frame loop
+ * and the browser check's seam both come through here, so a seam-driven run shows the same effects.
+ */
+function advance(input: SimInput): void {
+  const before = sim.player
+  const wasGrounded = before.grounded
+  const prevVy = before.vy
+  const deathBox = { x: before.x, y: before.y, w: PLAYER_W, h: before.h }
+  const deathsBefore = sim.deaths
+  const powerBefore = sim.power
+  const blocksBefore = sim.usedBlocks.size
+  const framesBefore = sim.frames
+
+  prevX = before.x
+  prevY = before.y
+  stepSim(sim, input)
+
+  const p = sim.player
+  const inputDir: -1 | 0 | 1 = input.left && !input.right ? -1 : input.right && !input.left ? 1 : 0
+  animator.update({ vx: p.vx, vy: p.vy, grounded: p.grounded, inputDir })
+  juice.tick()
+  // A finished run does not step; there is nothing for the juice to read.
+  if (sim.frames === framesBefore) return
+
+  stompFacts.length = 0
+  for (const e of sim.stomped) stompFacts.push({ kind: e.kind, x: e.x, y: e.y, w: e.w, h: e.h })
+  const placed = sim.field.echoes.find((e) => e.life === ECHO_LIFE_F - 1) ?? null
+  let blockHit: { col: number; row: number } | null = null
+  if (sim.usedBlocks.size > blocksBefore) {
+    let last = ''
+    for (const key of sim.usedBlocks) last = key
+    const [col, row] = last.split(',').map(Number)
+    blockHit = { col, row }
+  }
+  const died = sim.deaths > deathsBefore
+  const facts: StepFacts = {
+    inputDir,
+    grounded: p.grounded,
+    wasGrounded: died ? true : wasGrounded,
+    prevVy,
+    vx: p.vx,
+    vy: p.vy,
+    player: { x: p.x, y: p.y, w: PLAYER_W, h: p.h },
+    stomps: stompFacts,
+    died,
+    deathBox,
+    deathSuper: powerBefore === 'super',
+    bigHit: !died && powerBefore === 'super' && sim.power === 'small',
+    echoPlaced: placed,
+    echoRefused: input.echoPressed && placed === null,
+    blockHit,
+    pose: animator.pose,
+    poseFrame: animator.frame,
+    facing: animator.facing,
+    superForm: sim.power === 'super',
+  }
+  juice.observe(facts)
 }
 
 const stepper = new FixedStepper()
@@ -161,6 +245,8 @@ function resetGame(): void {
   recorded = false
   signShown = false
   stepper.reset()
+  animator.reset()
+  juice.reset()
 }
 
 function readInput(): SimInput {
@@ -283,9 +369,16 @@ function frame(now: number): void {
   let steps = 0
   if (!isHalted() && !controls.visible()) {
     steps = stepper.advance(elapsed, () => {
-      prevX = sim.player.x
-      prevY = sim.player.y
-      stepSim(sim, readInput())
+      // Hit-stop and the death pop hold the world still for a few fixed steps. A press made
+      // meanwhile stays latched and lands on the first step after the hold.
+      if (juice.holding()) {
+        juice.tickHold()
+        prevX = sim.player.x
+        prevY = sim.player.y
+        heldSteps += 1
+        return
+      }
+      advance(readInput())
       // An edge is consumed by the first fixed step that sees it.
       edge.jump = false
       edge.echo = false
@@ -326,6 +419,14 @@ function frame(now: number): void {
     // A seam-driven step has no stepper phase, so it draws the current state rather than blending
     // back towards the previous one.
     alpha: renderAlpha ?? stepper.alpha,
+    power: sim.power,
+    invuln: sim.invuln,
+    checkpointClaimed:
+      sim.checkpoint !== null && sim.respawn.x === sim.checkpoint.x && sim.respawn.y === sim.checkpoint.y,
+    pose: animator.pose,
+    poseFrame: animator.frame,
+    facing: animator.facing,
+    juice,
   })
 
   const stats = frameStats(frameMs, steps)
@@ -403,6 +504,14 @@ interface EchoSkyRunTestApi {
   frozen(): boolean
   /** Frame durations over the recent window — the browser check asserts the 18 ms p99 budget. */
   frameTimings(): { samples: number; meanMs: number; p99Ms: number; maxMs: number }
+  /** Turn a seam pause into a freeze: the sim stays still and no PAUSED plate is drawn (screenshots). */
+  hold(): void
+  /** The juice the loop is running: holds, shake, and fixed steps held so far. */
+  juice(): { hitStop: number; deathHold: number; shake: number; shakeX: number; shakeY: number; heldSteps: number }
+  /** The camera's integer scroll, for the flicker probe. */
+  cameraX(): number
+  /** The sky gradient's colour at a screen row — what a gap must show. */
+  skyAt(y: number): [number, number, number]
 }
 
 const api: EchoSkyRunTestApi = {
@@ -423,12 +532,12 @@ const api: EchoSkyRunTestApi = {
     renderAlpha = null
   },
   step(input) {
-    // Take over the simulation: a seam step must not race the live frame loop.
+    // Take over the simulation: a seam step must not race the live frame loop. It goes through the
+    // same advance() as the loop, so the pose and the juice follow — but never holds: a seam step is
+    // always exactly one simulation step.
     paused = true
     renderAlpha = 1
-    prevX = sim.player.x
-    prevY = sim.player.y
-    stepSim(sim, {
+    advance({
       left: false,
       right: false,
       jump: false,
@@ -473,6 +582,24 @@ const api: EchoSkyRunTestApi = {
   }),
   paused: () => isPaused(),
   frozen: () => frozen,
+  hold() {
+    paused = false
+    frozen = true
+    renderAlpha = 1
+  },
+  juice: () => {
+    const o = juice.shakeOffset()
+    return {
+      hitStop: juice.hitStop,
+      deathHold: juice.deathHold,
+      shake: juice.shake,
+      shakeX: o.x,
+      shakeY: o.y,
+      heldSteps,
+    }
+  },
+  cameraX: () => renderer.cameraX,
+  skyAt: (y: number) => skyColourAt(y),
   frameTimings: () => {
     const sorted = [...frameTimes].sort((a, b) => a - b)
     const samples = sorted.length

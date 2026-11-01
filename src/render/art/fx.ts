@@ -51,7 +51,7 @@ export function ghostMask(pip: Mask): Mask {
 }
 
 /** Segments in the timer ring. */
-export const RING_SEGMENTS = 12
+export const RING_SEGMENTS = 8
 
 /** How much of the Echo's life is left, 1 at placement and 0 when it vanishes. */
 export function ringFraction(life: number): number {
@@ -63,8 +63,8 @@ export function litSegments(life: number): number {
   return Math.max(0, Math.ceil(ringFraction(life) * RING_SEGMENTS - 1e-9))
 }
 
-/** The ring's size: an 11×11 clock face, a dark rim around lit (bright) and spent (dark) pixels. */
-export const RING_SIZE = 11
+/** The ring's size: a 13×13 clock face, a dark rim around lit (bright) and spent (dark) pixels. */
+export const RING_SIZE = 13
 
 /**
  * The timer ring with `lit` of its segments bright. Each ring pixel belongs to the segment its angle
@@ -79,15 +79,15 @@ export function timerRingMask(lit: number): Mask {
       const dx = x - c
       const dy = y - c
       const d = Math.sqrt(dx * dx + dy * dy)
-      if (d > 5.2) {
+      if (d > 6.3) {
         row += CLEAR
-      } else if (d > 4.2) {
+      } else if (d > 5.2) {
         row += 'e'
-      } else if (d > 2.4) {
+      } else if (d > 2.9) {
         const angle = (Math.atan2(dx, -dy) + 2 * Math.PI) % (2 * Math.PI)
         const segment = Math.floor((angle / (2 * Math.PI)) * RING_SEGMENTS)
         row += segment < lit ? 'r' : 'e'
-      } else if (d > 1.4) {
+      } else if (d > 1.9) {
         row += 'e'
       } else {
         row += 'c'
