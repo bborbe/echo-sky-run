@@ -9,8 +9,18 @@ export const ECHO_BLINK_F = 60
 /** One mid-air Echo per airtime; the charge refreshes only on solid ground. */
 export const ECHO_AIR_CHARGES = 1
 /** The Echo's collision shape: a thin one-way top at the player's feet. */
-export const ECHO_W = PLAYER_W
+export const ECHO_W = 24
 export const ECHO_H = 4
+
+/**
+ * The Echo's top edge sits exactly at the player's feet, and it is deliberately WIDER than he is.
+ * At exactly PLAYER_W the player covers the platform edge to edge, so any residual landing velocity
+ * — friction needs ~48 frames to bleed off a sprint — carries him off it within a few frames. That
+ * is the "I slide off them" report, and the margin is the fix.
+ */
+export function echoBoxAt(player: Box): Box {
+  return { x: player.x - (ECHO_W - PLAYER_W) / 2, y: player.y + player.h, w: ECHO_W, h: ECHO_H }
+}
 
 export interface Echo {
   x: number
@@ -27,16 +37,6 @@ export interface EchoField {
 
 export function createEchoField(): EchoField {
   return { echoes: [], airCharges: ECHO_AIR_CHARGES }
-}
-
-/**
- * Where an Echo placed from this player box lands: a thin platform whose TOP edge is exactly at the
- * player's feet. Putting the top at the feet is load-bearing — a one-way surface only catches a box
- * whose bottom was at or above it, so a box placed with the player's feet at its *bottom* is already
- * past it and the player falls straight through.
- */
-export function echoBoxAt(player: Box): Box {
-  return { x: player.x, y: player.y + player.h, w: ECHO_W, h: ECHO_H }
 }
 
 /** True when a placement from this player box would be accepted. */

@@ -8,6 +8,11 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- fix: the Echo platform is visible. It was pale blue at 55% opacity over a pale blue sky, which is invisible rather than subtle — play gate 2 reported "I can't see them". It now draws a dark outline, a solid fill that survives a greyscale read, a ghost body above it, and a bright flash for its first six frames. A test asserts the outline and fill contrast against the sky colour.
+- fix: the Echo platform is 24 px wide instead of 12, centred on Pip. At exactly his width he covered it edge to edge, so any residual landing velocity walked him off it within a few frames — the "I slide off them" half of the same report. Pip does stay put once stopped; the drift only appears on landing, which is why the margin is the fix and friction was not the cause.
+
 ## v0.4.0
 
 - feat: Gear-Goomba and Steam-Turtle — 16×16 and 16×24 walkers at 0.5 px/f that turn at walls, die to a stomp, and turn a stomped turtle into a shell that slides at 3 px/f when kicked and follows Pip when carried with Shift

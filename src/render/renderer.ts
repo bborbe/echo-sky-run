@@ -1,4 +1,4 @@
-import { isBlinking, type Echo } from '../echo/echo.ts'
+import { ECHO_H, ECHO_LIFE_F, ECHO_W, isBlinking, type Echo } from '../echo/echo.ts'
 import type { Enemy } from '../game/enemies.ts'
 import type { Mushroom } from '../game/power.ts'
 import { PLAYER_H, PLAYER_W, TILE } from '../physics/constants.ts'
@@ -26,7 +26,13 @@ const FLAG = '#f2f2f2'
 const FLAG_POLE = '#8a8a8a'
 const PIP_BODY = '#e8663c'
 const PIP_VISOR = '#2b3a4a'
-const ECHO_BODY = 'rgba(120, 220, 255, 0.55)'
+const ECHO_BODY = 'rgba(150, 235, 255, 0.30)'
+/** The Echo's platform edge. Dark against the pale sky — the whole point of the outline. */
+const ECHO_OUTLINE = '#0b2233'
+/** The Echo's platform fill. Solid enough to read in greyscale; drawn at full opacity. */
+const ECHO_FILL = '#1f6fa8'
+/** The first frames after a placement, so a spawn is unmistakable. */
+const ECHO_FLASH = '#eaf9ff'
 const GOOMBA_BODY = '#8c4a2f'
 const GOOMBA_EYE = '#f2f2f2'
 const TURTLE_BODY = '#2f7a4a'
@@ -52,6 +58,8 @@ export const PALETTE = {
   flagPole: FLAG_POLE,
   pip: PIP_BODY,
   visor: PIP_VISOR,
+  echoFill: ECHO_FILL,
+  echoOutline: ECHO_OUTLINE,
 } as const
 
 export interface RenderState {
@@ -121,7 +129,7 @@ export class Renderer {
     const px = state.prevX + (state.player.x - state.prevX) * state.alpha
     const py = state.prevY + (state.player.y - state.prevY) * state.alpha
 
-    this.updateCamera(state.map, px, py)
+    this.updateCamera(state.map, px, py, state.player.h)
     this.usedBlocks = state.usedBlocks
 
     const sky = ctx.createLinearGradient(0, 0, 0, VIEW_H)
@@ -161,7 +169,7 @@ export class Renderer {
   }
 
   /** Horizontal deadzone around the view centre, plus the vertical edge margins, clamped to the level. */
-  private updateCamera(map: TileMap, playerX: number, playerY: number): void {
+  private updateCamera(map: TileMap, playerX: number, playerY: number, playerH: number): void {
     const worldW = map.cols * TILE
     const worldH = map.rows * TILE
     const centre = playerX + PLAYER_W / 2
@@ -173,7 +181,7 @@ export class Renderer {
     this.camX = clamp(wantX, 0, Math.max(0, worldW - this.viewW))
 
     const top = playerY
-    const bottom = playerY + PLAYER_H
+    const bottom = playerY + playerH
     let wantY = this.camY
     if (bottom > this.camY + VIEW_H - CAMERA_MARGIN_Y) wantY = bottom - (VIEW_H - CAMERA_MARGIN_Y)
     else if (top < this.camY + CAMERA_MARGIN_Y) wantY = top - CAMERA_MARGIN_Y
@@ -246,11 +254,21 @@ export class Renderer {
     if (isBlinking(echo) && Math.floor(tick / 4) % 2 === 0) return
     // Echoes never move once placed, so they need no interpolation — but they are rounded like the
     // player, or fillRect antialiases them against a pixel-perfect canvas.
+    const ctx = this.ctx
     const x = Math.round(echo.x)
     const y = Math.round(echo.y)
-    this.ctx.fillStyle = ECHO_BODY
-    this.ctx.fillRect(x, y - PLAYER_H, PLAYER_W, PLAYER_H)
-    this.ctx.fillRect(x, y, PLAYER_W, 4)
+
+    // The ghost body first, so the platform reads as the thing Pip stands on rather than a shelf.
+    ctx.fillStyle = ECHO_BODY
+    ctx.fillRect(x + (ECHO_W - PLAYER_W) / 2, y - PLAYER_H, PLAYER_W, PLAYER_H)
+
+    // A hard outline, then the fill. The Echo used to be pale blue at 55% opacity over a pale blue
+    // sky, which is invisible rather than subtle — play gate 2 reported "I can't see them".
+    ctx.fillStyle = ECHO_OUTLINE
+    ctx.fillRect(x - 1, y - 1, ECHO_W + 2, ECHO_H + 2)
+    // A fresh placement flashes bright for its first few frames.
+    ctx.fillStyle = echo.life > ECHO_LIFE_F - 6 ? ECHO_FLASH : ECHO_FILL
+    ctx.fillRect(x, y, ECHO_W, ECHO_H)
   }
 
   private drawEnemy(enemy: Enemy): void {
