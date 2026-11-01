@@ -1,4 +1,4 @@
-import { isGrounded, moveBox, type Box } from './collision.ts'
+import { groundUnder, moveBox, type Box } from './collision.ts'
 import {
   ACCEL,
   COYOTE_F,
@@ -11,6 +11,7 @@ import {
   MAX_FALL,
   METER_GAIN,
   METER_MAX,
+  PLATFORM_FRICTION,
   PLAYER_H,
   PLAYER_W,
   RUN_MAX,
@@ -44,6 +45,8 @@ export interface PlayerState {
   jumpBuffer: number
   /** Set the frame the head met a ceiling — the caller uses it to trigger a ? block. */
   hitCeiling: boolean
+  /** True when the ground under Pip is a ghost Echo rather than the level's tiles. */
+  onPlatform: boolean
 }
 
 /**
@@ -51,7 +54,19 @@ export interface PlayerState {
  * current tier's height instead.
  */
 export function createPlayer(x: number, y: number, h: number = PLAYER_H): PlayerState {
-  return { x, y, vx: 0, vy: 0, h, meter: 0, grounded: false, coyote: 0, jumpBuffer: 0, hitCeiling: false }
+  return {
+    x,
+    y,
+    vx: 0,
+    vy: 0,
+    h,
+    meter: 0,
+    grounded: false,
+    coyote: 0,
+    jumpBuffer: 0,
+    hitCeiling: false,
+    onPlatform: false,
+  }
 }
 
 export const NO_INPUT: PlayerInput = {
@@ -79,13 +94,17 @@ export function stepPlayer(
   const sprinting = input.sprint && s.meter >= METER_MAX
   const maxSpeed = sprinting ? SPRINT_MAX : RUN_MAX
 
+  // An Echo grips harder than the level's tiles, so a landing at speed stops on the platform instead
+  // of sliding off the end of it.
+  const friction = s.onPlatform ? PLATFORM_FRICTION : FRICTION
+
   if (dir !== 0) {
     s.vx += dir * ACCEL
     if (Math.abs(s.vx) > maxSpeed) s.vx = Math.sign(s.vx) * maxSpeed
-  } else if (Math.abs(s.vx) <= FRICTION) {
+  } else if (Math.abs(s.vx) <= friction) {
     s.vx = 0
   } else {
-    s.vx -= Math.sign(s.vx) * FRICTION
+    s.vx -= Math.sign(s.vx) * friction
   }
 
   // --- the P-meter fills only while running at max speed
@@ -114,7 +133,9 @@ export function stepPlayer(
   if (moved.hitTop || moved.hitBottom) s.vy = 0
 
   // --- ground state and the two timers
-  s.grounded = isGrounded({ x: s.x, y: s.y, w: PLAYER_W, h: s.h }, map, platforms)
+  const ground = groundUnder({ x: s.x, y: s.y, w: PLAYER_W, h: s.h }, map, platforms)
+  s.grounded = ground !== 'none'
+  s.onPlatform = ground === 'platform'
   if (s.grounded) s.coyote = COYOTE_F
   else if (s.coyote > 0) s.coyote -= 1
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PLAYER_W } from '../physics/constants.ts'
+import { PLAYER_H, PLAYER_W } from '../physics/constants.ts'
 import { createPlayer, stepPlayer, NO_INPUT } from '../physics/player.ts'
 import { parseLevel } from '../physics/tilemap.ts'
 import { createEchoField, echoPlatforms, placeEcho } from './echo.ts'
@@ -29,11 +29,39 @@ describe('standing on an Echo', () => {
 
   it('gives the platform margin either side of Pip, so a landing is not a knife-edge', () => {
     const field = createEchoField()
-    placeEcho(field, { x: 32, y: 16, w: PLAYER_W, h: 14 }, SKY)
+    placeEcho(field, { x: 32, y: 16, w: PLAYER_W, h: PLAYER_H }, SKY)
     const p = echoPlatforms(field)[0]
 
     // The spec spawns the Echo at Pip's hitbox; a 12 px platform under a 12 px player leaves no room
     // to land, so the platform is deliberately wider than he is.
     expect(p.w).toBeGreaterThan(PLAYER_W)
   })
+})
+
+describe('landing on an Echo with speed', () => {
+  // The report was "I spawn them ... I slide off them". The test above only proves a Pip who is
+  // already stopped stays stopped — it passes on the old 12 px platform too, so it never reproduced
+  // the defect. This one lands him at speed and stops pressing, which is what the report describes.
+  for (const [name, speed] of [
+    ['run', 2.25],
+    ['sprint', 3.0],
+  ] as const) {
+    it(`keeps Pip on the platform when he lands at ${name} speed`, () => {
+      const field = createEchoField()
+      // Same height for the placement and the player: the one-way top only catches a box whose
+      // bottom was at or above it, so a 16-tall player placed as if 14 starts through the surface.
+      placeEcho(field, { x: 32, y: 16, w: PLAYER_W, h: PLAYER_H }, SKY)
+      const p = echoPlatforms(field)[0]
+
+      const landed = createPlayer(p.x + (p.w - PLAYER_W) / 2, p.y - PLAYER_H)
+      landed.vx = speed
+      landed.grounded = true
+
+      for (let i = 0; i < 90; i++) stepPlayer(landed, NO_INPUT, SKY, echoPlatforms(field))
+
+      expect(landed.grounded).toBe(true)
+      expect(landed.x).toBeGreaterThanOrEqual(p.x - 0.5)
+      expect(landed.x + PLAYER_W).toBeLessThanOrEqual(p.x + p.w + 0.5)
+    })
+  }
 })

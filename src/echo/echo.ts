@@ -9,7 +9,7 @@ export const ECHO_BLINK_F = 60
 /** One mid-air Echo per airtime; the charge refreshes only on solid ground. */
 export const ECHO_AIR_CHARGES = 1
 /** The Echo's collision shape: a thin one-way top at the player's feet. */
-export const ECHO_W = 24
+export const ECHO_W = 32
 export const ECHO_H = 4
 
 /**
