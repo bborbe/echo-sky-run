@@ -31,13 +31,31 @@ function readInput(): SimInput {
   }
 }
 
+// Only the game's own keys are captured: preventDefault on every keydown would swallow browser
+// shortcuts such as reload, and the page is the whole app.
+const GAME_KEYS = new Set([
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowUp',
+  'ArrowDown',
+  'Space',
+  'KeyA',
+  'KeyD',
+  'KeyW',
+  'KeyC',
+  'KeyR',
+  'ShiftLeft',
+  'ShiftRight',
+])
+
 window.addEventListener('keydown', (event) => {
+  if (!GAME_KEYS.has(event.code)) return
+  event.preventDefault()
   if (event.repeat) return
   if (event.code === 'Space') edge.jump = true
   if (event.code === 'KeyC') edge.echo = true
   held.add(event.code)
   if (event.code === 'KeyR') sim = createSim(map)
-  event.preventDefault()
 })
 
 window.addEventListener('keyup', (event) => {
@@ -53,7 +71,7 @@ function frame(now: number): void {
 
   if (!paused) {
     stepper.advance(elapsed, () => {
-      stepSim(sim, readInput(), map)
+      stepSim(sim, readInput())
       // An edge is consumed by the first fixed step that sees it.
       edge.jump = false
       edge.echo = false
@@ -101,19 +119,15 @@ const api: EchoSkyRunTestApi = {
     tick = 0
   },
   step(input) {
-    stepSim(
-      sim,
-      {
-        left: false,
-        right: false,
-        jump: false,
-        jumpPressed: false,
-        sprint: false,
-        echoPressed: false,
-        ...input,
-      },
-      map,
-    )
+    stepSim(sim, {
+      left: false,
+      right: false,
+      jump: false,
+      jumpPressed: false,
+      sprint: false,
+      echoPressed: false,
+      ...input,
+    })
     tick += 1
     return snapshot()
   },

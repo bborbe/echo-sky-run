@@ -30,11 +30,14 @@ function play(useEcho: boolean, maxFrames = 3000): Run {
       echoesPlaced += 1
     }
 
-    stepSim(
-      sim,
-      { left: false, right: true, jump: true, jumpPressed: true, sprint: true, echoPressed: wantEcho },
-      MAP,
-    )
+    stepSim(sim, {
+      left: false,
+      right: true,
+      jump: true,
+      jumpPressed: true,
+      sprint: true,
+      echoPressed: wantEcho,
+    })
 
     if (sim.goalReached) return { won: true, frames: i + 1, echoesPlaced }
     if (sim.player.y > MAP.rows * TILE + 80) break // fell out of the world

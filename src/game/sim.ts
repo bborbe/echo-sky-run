@@ -48,7 +48,8 @@ export function createSim(map: TileMap): SimState {
  * One fixed step of the whole game. Pure: same state plus same input sequence gives the same result,
  * which is what lets the level's own test and the browser drive the identical simulation.
  */
-export function stepSim(sim: SimState, input: SimInput, map: TileMap = sim.map): void {
+export function stepSim(sim: SimState, input: SimInput): void {
+  const map = sim.map
   // Place before the step, so a mid-air Echo can catch the player on the very frame it appears.
   if (input.echoPressed) placeEcho(sim.field, playerBox(sim.player), map)
 
