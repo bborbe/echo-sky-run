@@ -7,7 +7,7 @@ import {
   type EchoField,
 } from '../echo/echo.ts'
 import type { Box } from '../physics/collision.ts'
-import { EPS, PLAYER_W, TILE } from '../physics/constants.ts'
+import { EPS, PLAYER_H, PLAYER_W, TILE } from '../physics/constants.ts'
 import { createPlayer, stepPlayer, type PlayerInput, type PlayerState } from '../physics/player.ts'
 import {
   CHECKPOINT,
@@ -87,8 +87,17 @@ export function comboValue(chain: number): number {
   return Math.min(100 * 2 ** (chain - 1), 1000)
 }
 
+/**
+ * One shared player box, filled per use. The per-frame path is under a zero-allocation budget, and
+ * every caller consumes it immediately, before the next `playerBox` call overwrites it.
+ */
+const PLAYER_BOX = { x: 0, y: 0, w: PLAYER_W, h: PLAYER_H }
+
 function playerBox(p: PlayerState): Box {
-  return { x: p.x, y: p.y, w: PLAYER_W, h: p.h }
+  PLAYER_BOX.x = p.x
+  PLAYER_BOX.y = p.y
+  PLAYER_BOX.h = p.h
+  return PLAYER_BOX
 }
 
 function overlapsTile(p: PlayerState, tile: { x: number; y: number }): boolean {
@@ -256,7 +265,11 @@ export function stepSim(sim: SimState, input: SimInput): void {
   // grants Super if he is still Small — the spec's rule, so the second half of the level is played
   // with the tier the first half earned.
   if (sim.checkpoint !== null && overlapsTile(sim.player, sim.checkpoint)) {
-    sim.respawn = { x: sim.checkpoint.x, y: sim.checkpoint.y }
+    // Assign only when the point actually moves: standing on the checkpoint runs this every frame,
+    // and a fresh object each frame would break the zero-allocation budget.
+    if (sim.respawn.x !== sim.checkpoint.x || sim.respawn.y !== sim.checkpoint.y) {
+      sim.respawn = { x: sim.checkpoint.x, y: sim.checkpoint.y }
+    }
     if (sim.power === 'small') setTier(sim, 'super')
   }
 

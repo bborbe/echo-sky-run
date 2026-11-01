@@ -78,9 +78,21 @@ export function stepMushrooms(field: PowerField, map: TileMap): void {
   }
 }
 
-/** Remove and count the mushrooms Pip is standing in. */
+/** One shared mushroom box, so the collect pass does not allocate per mushroom per frame. */
+const MUSHROOM_BOX = { x: 0, y: 0, w: MUSHROOM_W, h: MUSHROOM_H }
+
+/**
+ * Remove and count the mushrooms Pip is standing in. Compacts in place rather than filtering, and
+ * reuses one box, because the per-frame path is under a zero-allocation budget.
+ */
 export function collectMushrooms(field: PowerField, player: Box): number {
   const before = field.mushrooms.length
-  field.mushrooms = field.mushrooms.filter((m) => !overlaps(player, { x: m.x, y: m.y, w: MUSHROOM_W, h: MUSHROOM_H }))
-  return before - field.mushrooms.length
+  let live = 0
+  for (const m of field.mushrooms) {
+    MUSHROOM_BOX.x = m.x
+    MUSHROOM_BOX.y = m.y
+    if (!overlaps(player, MUSHROOM_BOX)) field.mushrooms[live++] = m
+  }
+  field.mushrooms.length = live
+  return before - live
 }

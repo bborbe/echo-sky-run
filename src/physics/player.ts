@@ -1,6 +1,7 @@
 import { groundUnder, moveBox, type Box } from './collision.ts'
 import {
   ACCEL,
+  CORNER_CORRECTION_PX,
   COYOTE_F,
   FRICTION,
   GRAVITY_FALL,
@@ -77,6 +78,42 @@ export const NO_INPUT: PlayerInput = {
   sprint: false,
 }
 
+/** One shared box for the player's own move and ground probe, so the 60 Hz step allocates nothing. */
+const PLAYER_BOX = { x: 0, y: 0, w: PLAYER_W, h: PLAYER_H }
+
+interface CornerFix {
+  readonly x: number
+  readonly y: number
+  readonly hitLeft: boolean
+  readonly hitRight: boolean
+}
+
+/**
+ * Slip a rising Pip past a ceiling corner: try a sideways nudge of 1..CORNER_CORRECTION_PX in each
+ * direction and take the first that lets the head rise. Null when nothing within the budget frees
+ * it, so a real head bump stays a bump. The nudge is bounded by the platformer guide's 4 px, which
+ * is why this cannot tunnel through a gap the level meant to be solid.
+ */
+function ceilingCornerFix(
+  startX: number,
+  startY: number,
+  vx: number,
+  vy: number,
+  h: number,
+  map: TileMap,
+  platforms: readonly Box[],
+): CornerFix | null {
+  const probe = { x: startX, y: startY, w: PLAYER_W, h }
+  for (let k = 1; k <= CORNER_CORRECTION_PX; k++) {
+    for (const dx of [k, -k]) {
+      const moved = moveBox(probe, vx + dx, vy, map, platforms)
+      // `moved` is reused, so copy the fields out before the next probe overwrites them.
+      if (!moved.hitTop) return { x: moved.x, y: moved.y, hitLeft: moved.hitLeft, hitRight: moved.hitRight }
+    }
+  }
+  return null
+}
+
 /**
  * Advance the player one fixed step. Mutates and returns `state`; the simulation is a plain fold over
  * this function, which is what makes it deterministic for identical input sequences.
@@ -125,15 +162,42 @@ export function stepPlayer(
   s.vy = Math.min(s.vy + gravity, MAX_FALL)
 
   // --- move, resolving each axis against the tile grid
-  const moved = moveBox({ x: s.x, y: s.y, w: PLAYER_W, h: s.h }, s.vx, s.vy, map, platforms)
-  s.x = moved.x
-  s.y = moved.y
-  s.hitCeiling = moved.hitTop
-  if (moved.hitLeft || moved.hitRight) s.vx = 0
-  if (moved.hitTop || moved.hitBottom) s.vy = 0
+  const startX = s.x
+  const startY = s.y
+  PLAYER_BOX.x = startX
+  PLAYER_BOX.y = startY
+  PLAYER_BOX.h = s.h
+  const moved = moveBox(PLAYER_BOX, s.vx, s.vy, map, platforms)
+  let nextX = moved.x
+  let nextY = moved.y
+  let hitLeft = moved.hitLeft
+  let hitRight = moved.hitRight
+  let hitTop = moved.hitTop
+  const hitBottom = moved.hitBottom
+
+  // --- corner correction: a rising jump that clips a ceiling corner by a few pixels slips past it
+  if (hitTop && s.vy < 0) {
+    const fix = ceilingCornerFix(startX, startY, s.vx, s.vy, s.h, map, platforms)
+    if (fix !== null) {
+      nextX = fix.x
+      nextY = fix.y
+      hitLeft = fix.hitLeft
+      hitRight = fix.hitRight
+      hitTop = false
+    }
+  }
+
+  s.x = nextX
+  s.y = nextY
+  s.hitCeiling = hitTop
+  if (hitLeft || hitRight) s.vx = 0
+  if (hitTop || hitBottom) s.vy = 0
 
   // --- ground state and the two timers
-  const ground = groundUnder({ x: s.x, y: s.y, w: PLAYER_W, h: s.h }, map, platforms)
+  PLAYER_BOX.x = s.x
+  PLAYER_BOX.y = s.y
+  PLAYER_BOX.h = s.h
+  const ground = groundUnder(PLAYER_BOX, map, platforms)
   s.grounded = ground !== 'none'
   s.onPlatform = ground === 'platform'
   if (s.grounded) s.coyote = COYOTE_F

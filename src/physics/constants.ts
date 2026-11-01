@@ -49,5 +49,12 @@ export const COYOTE_F = 6
 /** Frames a jump press is remembered while airborne, waiting for the ground. */
 export const JUMP_BUFFER_F = 6
 
+/**
+ * How far a rising Pip may be nudged sideways to slip past a ceiling corner. Clipping a block by a
+ * pixel or two should not stop a jump; the platformer guide's budget is 4 px, and going further
+ * would let a player pass through gaps the level meant to be solid.
+ */
+export const CORNER_CORRECTION_PX = 4
+
 /** Float tolerance for tile-edge comparisons. */
 export const EPS = 1e-9
