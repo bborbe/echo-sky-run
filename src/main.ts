@@ -1,5 +1,5 @@
 import { BUILD_LABEL } from './build-info.ts'
-import { mountDebugOverlay, readSpawn, spawnQuery } from './debug/overlay.ts'
+import { mountDebugOverlay, readFreeze, readSpawn, spawnQuery } from './debug/overlay.ts'
 import { createSim, stepSim, type SimInput, type SimState } from './game/sim.ts'
 import { LEVEL_1_1_ECHO_AT_X, LEVEL_1_1_ROWS } from './levels/level1-1.ts'
 import { TILE } from './physics/constants.ts'
@@ -90,6 +90,9 @@ function showSignHint(): void {
  */
 const spawnPoint = readSpawn(location.search)
 
+/** `?freeze=1` starts paused, so a screenshot from a spawn URL is a still frame, not a moving one. */
+const frozenAtLoad = readFreeze(location.search)
+
 function newSim(): SimState {
   const next = createSim(map)
   if (spawnPoint !== null) {
@@ -106,8 +109,15 @@ let prevX = sim.player.x
 let prevY = sim.player.y
 /** The player asked for a pause; the tab being hidden is tracked separately so one does not clear the other. */
 let paused = false
+/**
+ * `?freeze=1`: hold the simulation on the frame the page loaded. It is not a player pause — a
+ * screenshot needs a still frame without the PAUSED banner drawn over the game.
+ */
+let frozen = frozenAtLoad
 let tabHidden = false
 const isPaused = (): boolean => paused || tabHidden
+/** Everything that stops the fixed step. A frozen page still renders; that is what the shot captures. */
+const isHalted = (): boolean => isPaused() || frozen
 let tick = 0
 /** Set once the tally for this run has been recorded, so a finished level is not saved every frame. */
 let recorded = false
@@ -271,7 +281,7 @@ function frame(now: number): void {
   last = now
 
   let steps = 0
-  if (!isPaused() && !controls.visible()) {
+  if (!isHalted() && !controls.visible()) {
     steps = stepper.advance(elapsed, () => {
       prevX = sim.player.x
       prevY = sim.player.y
@@ -389,6 +399,10 @@ interface EchoSkyRunTestApi {
   /** The debug overlay's state: visibility, each field's rendered value, and the last spawn URL. */
   debug(): { visible: boolean; fields: Record<string, string>; spawnUrl: string | null }
   paused(): boolean
+  /** True while `?freeze=1` holds the simulation — the screenshot tool's own still-frame check. */
+  frozen(): boolean
+  /** Frame durations over the recent window — the browser check asserts the 18 ms p99 budget. */
+  frameTimings(): { samples: number; meanMs: number; p99Ms: number; maxMs: number }
 }
 
 const api: EchoSkyRunTestApi = {
@@ -400,6 +414,7 @@ const api: EchoSkyRunTestApi = {
   },
   resume() {
     paused = false
+    frozen = false
     tabHidden = false
     renderAlpha = null
   },
@@ -457,6 +472,18 @@ const api: EchoSkyRunTestApi = {
     spawnUrl: overlay.lastSpawnUrl(),
   }),
   paused: () => isPaused(),
+  frozen: () => frozen,
+  frameTimings: () => {
+    const sorted = [...frameTimes].sort((a, b) => a - b)
+    const samples = sorted.length
+    const meanMs = frameTimes.reduce((sum, ms) => sum + ms, 0) / Math.max(1, samples)
+    return {
+      samples,
+      meanMs,
+      p99Ms: samples === 0 ? 0 : sorted[Math.min(samples - 1, Math.floor(samples * 0.99))],
+      maxMs: samples === 0 ? 0 : sorted[samples - 1],
+    }
+  },
 }
 
 ;(window as unknown as { __echoSkyRun: EchoSkyRunTestApi }).__echoSkyRun = api

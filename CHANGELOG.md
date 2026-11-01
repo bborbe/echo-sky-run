@@ -8,6 +8,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- feat: the feel and performance budgets are tests. Input-to-frame ≤ 3 frames, corner correction ≤ 4 px, camera look-ahead (≥ 60% of the view ahead above 75% of max speed), a p99 frame time under 18 ms measured on the live frame loop, and zero heap allocations per frame in the fixed step — each with a test, plus a golden replay of level 1-1 that must land on the same frame-exact finish. The fixed step now reuses its scratch objects and arrays instead of building new ones every frame. `?freeze=1` holds a spawn URL on a still frame, `make shots` writes 960×540 and 1920×1080 screenshots from it, and the numbers live in `AGENTS.md`.
+
 ## v0.5.1
 
 - fix: the tutorial sign before the Echo gap reads `C/Y` — a player holding a pad sees their own button on it, not only the keyboard's. It drew `C` alone.

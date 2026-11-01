@@ -5,17 +5,14 @@ import { PLAYER_H, PLAYER_W, TILE } from '../physics/constants.ts'
 import type { PlayerState } from '../physics/player.ts'
 import { CHECKPOINT, GOAL, isOneWay, isSolid, QUESTION, SIGN, tileAt, type TileMap } from '../physics/tilemap.ts'
 
+import { Camera, VIEW_H } from './camera.ts'
+
 /**
  * The logical view height is fixed at 14 tiles. The scale is `window height / VIEW_H` and may be
  * fractional; the logical width follows from the window's aspect, so a wider window shows more of
  * the level rather than bigger pixels. Nothing is letterboxed.
  */
-export const VIEW_H = 224
-
-/** The camera lets Pip drift this far either side of the view's centre before it follows. */
-export const CAMERA_DEADZONE_X = 16
-/** The camera scrolls vertically once Pip is this close to the top or bottom edge. */
-export const CAMERA_MARGIN_Y = 48
+export { VIEW_H }
 
 const SKY = '#7fc4e8'
 const SKY_LOW = '#b9e2f2'
@@ -92,8 +89,8 @@ export class Renderer {
   private viewW = VIEW_H
   /** Set from the frame's state, because the tile pass needs it to draw an emptied ? block. */
   private usedBlocks: ReadonlySet<string> = new Set()
-  private camX = 0
-  private camY = 0
+  /** Scroll offset and look-ahead, in its own pure module so the budget is a unit test. */
+  private readonly camera = new Camera()
 
   constructor(canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d')
@@ -117,6 +114,7 @@ export class Renderer {
     const viewW = Math.max(TILE, Math.round(window.innerWidth / scale))
 
     this.viewW = viewW
+    this.camera.setViewWidth(viewW)
     this.canvas.width = viewW
     this.canvas.height = VIEW_H
     this.canvas.style.width = `${window.innerWidth}px`
@@ -133,7 +131,7 @@ export class Renderer {
     const px = state.prevX + (state.player.x - state.prevX) * state.alpha
     const py = state.prevY + (state.player.y - state.prevY) * state.alpha
 
-    this.updateCamera(state.map, px, py, state.player.h)
+    this.camera.update(px, py, state.player.h, state.player.vx, state.map.cols * TILE, state.map.rows * TILE)
     this.usedBlocks = state.usedBlocks
 
     const sky = ctx.createLinearGradient(0, 0, 0, VIEW_H)
@@ -143,7 +141,7 @@ export class Renderer {
     ctx.fillRect(0, 0, this.viewW, VIEW_H)
 
     ctx.save()
-    ctx.translate(-Math.round(this.camX), -Math.round(this.camY))
+    ctx.translate(-Math.round(this.camera.x), -Math.round(this.camera.y))
     this.drawTiles(state.map)
     for (const echo of state.echoes) this.drawEcho(echo, state.tick)
     for (const enemy of state.enemies) this.drawEnemy(enemy)
@@ -196,32 +194,14 @@ export class Renderer {
     ctx.fillText('Jump / A: retry · H: controls', x + w / 2, y + 68)
   }
 
-  /** Horizontal deadzone around the view centre, plus the vertical edge margins, clamped to the level. */
-  private updateCamera(map: TileMap, playerX: number, playerY: number, playerH: number): void {
-    const worldW = map.cols * TILE
-    const worldH = map.rows * TILE
-    const centre = playerX + PLAYER_W / 2
-    const viewCentre = this.camX + this.viewW / 2
-
-    let wantX = this.camX
-    if (centre > viewCentre + CAMERA_DEADZONE_X) wantX = centre - CAMERA_DEADZONE_X - this.viewW / 2
-    else if (centre < viewCentre - CAMERA_DEADZONE_X) wantX = centre + CAMERA_DEADZONE_X - this.viewW / 2
-    this.camX = clamp(wantX, 0, Math.max(0, worldW - this.viewW))
-
-    const top = playerY
-    const bottom = playerY + playerH
-    let wantY = this.camY
-    if (bottom > this.camY + VIEW_H - CAMERA_MARGIN_Y) wantY = bottom - (VIEW_H - CAMERA_MARGIN_Y)
-    else if (top < this.camY + CAMERA_MARGIN_Y) wantY = top - CAMERA_MARGIN_Y
-    this.camY = clamp(wantY, 0, Math.max(0, worldH - VIEW_H))
-  }
-
   private drawTiles(map: TileMap): void {
     const ctx = this.ctx
-    const firstCol = Math.max(0, Math.floor(this.camX / TILE))
-    const lastCol = Math.min(map.cols - 1, Math.ceil((this.camX + this.viewW) / TILE))
-    const firstRow = Math.max(0, Math.floor(this.camY / TILE))
-    const lastRow = Math.min(map.rows - 1, Math.ceil((this.camY + VIEW_H) / TILE))
+    const camX = this.camera.x
+    const camY = this.camera.y
+    const firstCol = Math.max(0, Math.floor(camX / TILE))
+    const lastCol = Math.min(map.cols - 1, Math.ceil((camX + this.viewW) / TILE))
+    const firstRow = Math.max(0, Math.floor(camY / TILE))
+    const lastRow = Math.min(map.rows - 1, Math.ceil((camY + VIEW_H) / TILE))
 
     for (let row = firstRow; row <= lastRow; row++) {
       for (let col = firstCol; col <= lastCol; col++) {
@@ -349,10 +329,6 @@ export class Renderer {
     ctx.fillStyle = PIP_VISOR
     ctx.fillRect(px + 2, py + 3, PLAYER_W - 4, 5)
   }
-}
-
-function clamp(value: number, low: number, high: number): number {
-  return Math.max(low, Math.min(value, high))
 }
 
 /** A run time as `M:SS.t` — the shape the spec's HUD shows. Integer maths throughout, because a

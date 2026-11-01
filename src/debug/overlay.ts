@@ -71,6 +71,14 @@ export function readSpawn(search: string): SpawnPoint | null {
   return { x, y }
 }
 
+/**
+ * `?freeze=1` starts the page paused. A screenshot taken from a spawn URL needs a still frame: the
+ * debug overlay's P copies a spot, and a moving target would make every shot a different one.
+ */
+export function readFreeze(search: string): boolean {
+  return new URLSearchParams(search).get('freeze') === '1'
+}
+
 /** One row per field. The label is what a reader scans; `field` is what the browser check keys on. */
 const FIELDS: readonly (readonly [string, string])[] = [
   ['fps', 'fps'],

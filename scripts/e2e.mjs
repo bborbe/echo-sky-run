@@ -520,6 +520,67 @@ try {
     JSON.stringify(pitAfter),
   )
 
+  // ---- feel and performance budgets, measured on the live frame loop -------------------------
+  await page.goto(URL, { waitUntil: 'load' })
+  await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+  await page.evaluate(() => {
+    window.__echoSkyRun.hideControls()
+    window.__echoSkyRun.reset()
+    window.__echoSkyRun.resume()
+  })
+  // Let the rolling window fill with real frames before reading it.
+  await page.waitForTimeout(2000)
+
+  const timings = await page.evaluate(() => window.__echoSkyRun.frameTimings())
+  check(
+    timings.samples >= 60 && timings.p99Ms < 18,
+    'p99 frame time is under the 18 ms budget',
+    JSON.stringify(timings),
+  )
+
+  // Input-to-frame: a real key press must reach the fixed step within 3 rendered frames.
+  const latency = await page.evaluate(async () => {
+    const game = window.__echoSkyRun
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+    const before = game.state().frames
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ArrowRight', bubbles: true }))
+    const rafs = await new Promise((resolve) => {
+      let count = 0
+      const tick = () => {
+        count += 1
+        if (game.state().frames > before) return resolve(count)
+        if (count >= 20) return resolve(-1)
+        requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    })
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'ArrowRight', bubbles: true }))
+    return { rafs }
+  })
+  check(
+    latency.rafs > 0 && latency.rafs <= 3,
+    'a key press reaches the simulation within 3 frames',
+    JSON.stringify(latency),
+  )
+
+  // ---- the debug spawn URL freezes the page, so a screenshot is a still frame ---------------
+  await page.goto(`${URL}?level=1-1&x=600&y=178&freeze=1`, { waitUntil: 'load' })
+  await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+  await page.evaluate(() => window.__echoSkyRun.hideControls())
+  await page.waitForTimeout(250)
+  const frozenA = await page.evaluate(() => ({
+    frozen: window.__echoSkyRun.frozen(),
+    paused: window.__echoSkyRun.paused(),
+    frames: window.__echoSkyRun.state().frames,
+  }))
+  await page.waitForTimeout(400)
+  const frozenB = await page.evaluate(() => window.__echoSkyRun.state().frames)
+  check(
+    frozenA.frozen && !frozenA.paused && frozenB === frozenA.frames,
+    'freeze=1 holds the simulation without drawing the pause banner',
+    JSON.stringify({ ...frozenA, after: frozenB }),
+  )
+
   check(errors.length === 0, 'no console errors', errors.slice(0, 3).join(' | '))
 } catch (err) {
   failed = true

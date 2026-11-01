@@ -22,9 +22,12 @@ export function echoBoxAt(player: Box): Box {
   return { x: player.x - (ECHO_W - PLAYER_W) / 2, y: player.y + player.h, w: ECHO_W, h: ECHO_H }
 }
 
-export interface Echo {
-  x: number
-  y: number
+/**
+ * An Echo is its own collision box, so the physics step can use the live list directly instead of
+ * copying it into fresh platform objects every frame — the performance budget allows no per-frame
+ * allocation.
+ */
+export interface Echo extends Box {
   /** Frames of life left. Reaching 0 removes the Echo. */
   life: number
 }
@@ -49,20 +52,32 @@ export function canPlaceEcho(field: EchoField, player: Box, map: TileMap): boole
 export function placeEcho(field: EchoField, player: Box, map: TileMap): boolean {
   if (!canPlaceEcho(field, player, map)) return false
   const box = echoBoxAt(player)
-  field.echoes.push({ x: box.x, y: box.y, life: ECHO_LIFE_F })
+  field.echoes.push({ x: box.x, y: box.y, w: ECHO_W, h: ECHO_H, life: ECHO_LIFE_F })
   field.airCharges -= 1
   return true
 }
 
-/** Age every Echo by one frame and drop the expired ones. */
+/**
+ * Age every Echo by one frame and drop the expired ones. Compacting in place rather than filtering
+ * keeps the per-frame path allocation-free; `filter` would build a new array on every frame.
+ */
 export function tickEchoes(field: EchoField): void {
-  for (const e of field.echoes) e.life -= 1
-  field.echoes = field.echoes.filter((e) => e.life > 0)
+  const echoes = field.echoes
+  let live = 0
+  for (let i = 0; i < echoes.length; i++) {
+    const e = echoes[i]
+    e.life -= 1
+    if (e.life > 0) echoes[live++] = e
+  }
+  echoes.length = live
 }
 
-/** The Echoes as collision platforms, for the physics step. */
-export function echoPlatforms(field: EchoField): Box[] {
-  return field.echoes.map((e) => ({ x: e.x, y: e.y, w: ECHO_W, h: ECHO_H }))
+/**
+ * The Echoes as collision platforms, for the physics step. The live list is returned as-is: an Echo
+ * carries its own box, so this is a view and not a copy.
+ */
+export function echoPlatforms(field: EchoField): readonly Box[] {
+  return field.echoes
 }
 
 /** An Echo blinks for its last ECHO_BLINK_F frames. */

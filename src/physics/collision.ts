@@ -20,13 +20,32 @@ export interface MoveResult {
 /** What a box is standing on. An Echo is a platform, never solid ground. */
 export type Ground = 'none' | 'tile' | 'platform'
 
-function cellsOverlapping(x: number, y: number, w: number, h: number): { c0: number; c1: number; r0: number; r1: number } {
-  return {
-    c0: Math.floor(x / TILE),
-    c1: Math.floor((x + w - EPS) / TILE),
-    r0: Math.floor(y / TILE),
-    r1: Math.floor((y + h - EPS) / TILE),
-  }
+/**
+ * The shared result `moveBox` fills in place. Read it before the next `moveBox` call — the reference
+ * is reused so the 60 Hz step allocates nothing.
+ */
+const MOVE_RESULT = { x: 0, y: 0, hitLeft: false, hitRight: false, hitTop: false, hitBottom: false }
+
+interface Cells {
+  c0: number
+  c1: number
+  r0: number
+  r1: number
+}
+
+/**
+ * One shared cell range, filled in place. The fixed step runs at 60 Hz and the performance budget is
+ * zero heap allocations per frame, so the hot path must not build a fresh object per collision probe.
+ * Every caller reads the fields immediately and never holds the reference across another call.
+ */
+const CELLS: Cells = { c0: 0, c1: 0, r0: 0, r1: 0 }
+
+function cellsOverlapping(x: number, y: number, w: number, h: number): Cells {
+  CELLS.c0 = Math.floor(x / TILE)
+  CELLS.c1 = Math.floor((x + w - EPS) / TILE)
+  CELLS.r0 = Math.floor(y / TILE)
+  CELLS.r1 = Math.floor((y + h - EPS) / TILE)
+  return CELLS
 }
 
 function hitsSolid(x: number, y: number, w: number, h: number, map: TileMap): boolean {
@@ -82,6 +101,8 @@ function platformStop(
  * Move a box by (dx, dy) through the tile grid and any dynamic platforms, resolving each axis
  * separately and in sub-steps of at most one pixel, so no surface can be tunnelled through at any
  * speed the game produces. A blocked axis snaps flush to the surface edge.
+ *
+ * The result object is reused between calls — read its fields before calling `moveBox` again.
  */
 export function moveBox(box: Box, dx: number, dy: number, map: TileMap, platforms: readonly Box[] = []): MoveResult {
   let { x, y } = box
@@ -141,7 +162,13 @@ export function moveBox(box: Box, dx: number, dy: number, map: TileMap, platform
     remaining -= step
   }
 
-  return { x, y, hitLeft, hitRight, hitTop, hitBottom }
+  MOVE_RESULT.x = x
+  MOVE_RESULT.y = y
+  MOVE_RESULT.hitLeft = hitLeft
+  MOVE_RESULT.hitRight = hitRight
+  MOVE_RESULT.hitTop = hitTop
+  MOVE_RESULT.hitBottom = hitBottom
+  return MOVE_RESULT
 }
 
 /** What is under the box: a solid tile, a one-way tile at exactly its feet, a platform, or nothing. */

@@ -62,6 +62,13 @@ export interface EnemyEvents {
   readonly hit: boolean
 }
 
+/**
+ * The frame's enemy events, reused. The performance budget allows no per-frame allocation, and the
+ * caller reads the events before the next step overwrites them.
+ */
+const STOMPED: Enemy[] = []
+const EVENTS: { stomped: Enemy[]; hit: boolean } = { stomped: STOMPED, hit: false }
+
 export function createEnemyField(): EnemyField {
   return { enemies: [], carried: null }
 }
@@ -149,14 +156,14 @@ export function stepEnemies(field: EnemyField, player: Box, playerVy: number, ma
   }
 
   // --- 3. what each surviving enemy does to Pip, tested against its position this frame
-  const stomped: Enemy[] = []
+  STOMPED.length = 0
   let hit = false
 
   for (const e of field.enemies) {
     if (e.dead || e.mode === 'carried') continue
 
     if (stomps(player, playerVy, e)) {
-      stomped.push(e)
+      STOMPED.push(e)
       if (e.kind === 'gear-goomba') e.dead = true
       else toShell(e)
       continue
@@ -169,9 +176,14 @@ export function stepEnemies(field: EnemyField, player: Box, playerVy: number, ma
     if (overlaps(player, enemyBox(e))) hit = true
   }
 
-  field.enemies = field.enemies.filter((e) => !e.dead)
+  // Compact in place rather than filtering: `filter` builds a new array every frame, and the
+  // performance budget allows no per-frame allocation.
+  let live = 0
+  for (const e of field.enemies) if (!e.dead) field.enemies[live++] = e
+  field.enemies.length = live
 
-  return { stomped, hit }
+  EVENTS.hit = hit
+  return EVENTS
 }
 
 /**
