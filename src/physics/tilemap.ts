@@ -34,9 +34,9 @@ export function tileAt(map: TileMap, col: number, row: number): string {
   return map.tiles[row][col]
 }
 
-/** A solid tile blocks from every side. */
+/** A solid tile blocks from every side. A ? block is solid until it is emptied from below. */
 export function isSolid(ch: string): boolean {
-  return ch === SOLID
+  return ch === SOLID || ch === QUESTION
 }
 
 /** A one-way tile blocks only a fall from above; it is ignored when rising or moving sideways. */

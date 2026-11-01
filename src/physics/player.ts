@@ -33,6 +33,8 @@ export interface PlayerState {
   y: number
   vx: number
   vy: number
+  /** Hitbox height, which depends on the power tier: 14 small, 26 super. */
+  h: number
   /** P-meter, 0..METER_MAX. Full unlocks the sprint speed. */
   meter: number
   grounded: boolean
@@ -40,10 +42,16 @@ export interface PlayerState {
   coyote: number
   /** Frames a jump press stays remembered while airborne. */
   jumpBuffer: number
+  /** Set the frame the head met a ceiling — the caller uses it to trigger a ? block. */
+  hitCeiling: boolean
 }
 
-export function createPlayer(x: number, y: number): PlayerState {
-  return { x, y, vx: 0, vy: 0, meter: 0, grounded: false, coyote: 0, jumpBuffer: 0 }
+/**
+ * A player box. `h` defaults to PLAYER_H so the physics tests keep a fixed box; the game passes the
+ * current tier's height instead.
+ */
+export function createPlayer(x: number, y: number, h: number = PLAYER_H): PlayerState {
+  return { x, y, vx: 0, vy: 0, h, meter: 0, grounded: false, coyote: 0, jumpBuffer: 0, hitCeiling: false }
 }
 
 export const NO_INPUT: PlayerInput = {
@@ -98,14 +106,15 @@ export function stepPlayer(
   s.vy = Math.min(s.vy + gravity, MAX_FALL)
 
   // --- move, resolving each axis against the tile grid
-  const moved = moveBox({ x: s.x, y: s.y, w: PLAYER_W, h: PLAYER_H }, s.vx, s.vy, map, platforms)
+  const moved = moveBox({ x: s.x, y: s.y, w: PLAYER_W, h: s.h }, s.vx, s.vy, map, platforms)
   s.x = moved.x
   s.y = moved.y
+  s.hitCeiling = moved.hitTop
   if (moved.hitLeft || moved.hitRight) s.vx = 0
   if (moved.hitTop || moved.hitBottom) s.vy = 0
 
   // --- ground state and the two timers
-  s.grounded = isGrounded({ x: s.x, y: s.y, w: PLAYER_W, h: PLAYER_H }, map, platforms)
+  s.grounded = isGrounded({ x: s.x, y: s.y, w: PLAYER_W, h: s.h }, map, platforms)
   if (s.grounded) s.coyote = COYOTE_F
   else if (s.coyote > 0) s.coyote -= 1
 

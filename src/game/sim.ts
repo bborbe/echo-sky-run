@@ -7,10 +7,31 @@ import {
   type EchoField,
 } from '../echo/echo.ts'
 import type { Box } from '../physics/collision.ts'
-import { PLAYER_H, PLAYER_W, TILE } from '../physics/constants.ts'
+import { EPS, PLAYER_W, TILE } from '../physics/constants.ts'
 import { createPlayer, stepPlayer, type PlayerInput, type PlayerState } from '../physics/player.ts'
-import { findEnemySpawns, findTile, CHECKPOINT, GOAL, SPAWN, type TileMap } from '../physics/tilemap.ts'
+import {
+  CHECKPOINT,
+  findEnemySpawns,
+  findTile,
+  GOAL,
+  QUESTION,
+  SPAWN,
+  tileAt,
+  type TileMap,
+} from '../physics/tilemap.ts'
 import { createEnemy, createEnemyField, STOMP_BOUNCE, stepEnemies, type EnemyField } from './enemies.ts'
+import {
+  applyHit,
+  collectMushrooms,
+  createPowerField,
+  heightOf,
+  INVULN_F,
+  spawnMushroom,
+  stepMushrooms,
+  yAfterResize,
+  type PowerField,
+  type PowerTier,
+} from './power.ts'
 
 export interface SimInput extends PlayerInput {
   /** The Echo key went down this frame. */
@@ -27,6 +48,13 @@ export interface SimState {
   player: PlayerState
   field: EchoField
   enemies: EnemyField
+  powers: PowerField
+  /** Pip's tier: Small dies to a hit, Super drops to Small. */
+  power: PowerTier
+  /** Frames of invincibility left. A hit during this window is ignored. */
+  invuln: number
+  /** ? blocks already emptied, keyed "col,row" so the renderer can draw them flat. */
+  readonly usedBlocks: Set<string>
   goalReached: boolean
   /** Deaths this run — the tally shows it, and a test asserts the respawn happened. */
   deaths: number
@@ -45,11 +73,15 @@ export function comboValue(chain: number): number {
 }
 
 function playerBox(p: PlayerState): Box {
-  return { x: p.x, y: p.y, w: PLAYER_W, h: PLAYER_H }
+  return { x: p.x, y: p.y, w: PLAYER_W, h: p.h }
 }
 
 function overlapsTile(p: PlayerState, tile: { x: number; y: number }): boolean {
-  return p.x + PLAYER_W > tile.x && p.x < tile.x + TILE && p.y + PLAYER_H > tile.y && p.y < tile.y + TILE
+  return p.x + PLAYER_W > tile.x && p.x < tile.x + TILE && p.y + p.h > tile.y && p.y < tile.y + TILE
+}
+
+function blockKey(col: number, row: number): string {
+  return `${col},${row}`
 }
 
 /**
@@ -72,9 +104,13 @@ export function createSim(map: TileMap): SimState {
     goal,
     checkpoint: findTile(map, CHECKPOINT),
     respawn: { x: spawn.x, y: spawn.y },
-    player: createPlayer(spawn.x, spawn.y),
+    player: createPlayer(spawn.x, spawn.y, heightOf('small')),
     field: createEchoField(),
     enemies,
+    powers: createPowerField(),
+    power: 'small',
+    invuln: 0,
+    usedBlocks: new Set<string>(),
     goalReached: false,
     deaths: 0,
     combo: 0,
@@ -82,15 +118,45 @@ export function createSim(map: TileMap): SimState {
   }
 }
 
-/**
- * Put Pip back at the last checkpoint. A death ends every Echo (the spec's edge case) and breaks the
- * stomp chain, because both belong to the run that ended. Enemies are left as they are: respawning
- * them would let a player farm the same stomp by dying on purpose.
- */
+/** Put Pip back at the last checkpoint, in his starting tier. */
 export function respawnPlayer(sim: SimState): void {
-  sim.player = createPlayer(sim.respawn.x, sim.respawn.y)
+  sim.power = 'small'
+  sim.invuln = 0
+  sim.player = createPlayer(sim.respawn.x, sim.respawn.y, heightOf('small'))
   sim.field = createEchoField()
+  sim.powers = createPowerField()
   sim.combo = 0
+}
+
+/** Grow or shrink Pip, keeping his feet where they are. */
+function setTier(sim: SimState, tier: PowerTier): void {
+  const oldH = sim.player.h
+  const newH = heightOf(tier)
+  if (newH === oldH) return
+  sim.player.y = yAfterResize(sim.player.y, oldH, newH)
+  sim.player.h = newH
+  sim.power = tier
+}
+
+/**
+ * A ? block Pip's head met this frame: empty it and drop a Mushroom on top of it. Only the first
+ * block in reach is used, which is what a player expects when two sit side by side.
+ */
+function hitBlocks(sim: SimState): void {
+  if (!sim.player.hitCeiling) return
+  const row = Math.floor((sim.player.y - 1) / TILE)
+  const c0 = Math.floor(sim.player.x / TILE)
+  const c1 = Math.floor((sim.player.x + PLAYER_W - EPS) / TILE)
+
+  for (let col = c0; col <= c1; col++) {
+    if (tileAt(sim.map, col, row) !== QUESTION) continue
+    const key = blockKey(col, row)
+    if (sim.usedBlocks.has(key)) continue
+
+    sim.usedBlocks.add(key)
+    sim.powers.mushrooms.push(spawnMushroom(col * TILE, row * TILE - 16))
+    return
+  }
 }
 
 /**
@@ -105,6 +171,7 @@ export function stepSim(sim: SimState, input: SimInput): void {
   if (input.echoPressed) placeEcho(sim.field, playerBox(sim.player), map)
 
   stepPlayer(sim.player, input, map, echoPlatforms(sim.field))
+  hitBlocks(sim)
 
   // Enemies move after the player, so a stomp is tested against the position he actually reached.
   const events = stepEnemies(sim.enemies, playerBox(sim.player), sim.player.vy, map)
@@ -118,6 +185,25 @@ export function stepSim(sim: SimState, input: SimInput): void {
 
   // A stomp chain is broken by landing, and an Echo landing counts as landing.
   if (sim.player.grounded) sim.combo = 0
+
+  // --- the Mushroom and the tier it buys
+  stepMushrooms(sim.powers, map)
+  if (collectMushrooms(sim.powers, playerBox(sim.player)) > 0 && sim.power === 'small') {
+    setTier(sim, 'super')
+  }
+
+  // --- damage: Super drops to Small, Small is death. Invincibility swallows both.
+  if (events.hit && sim.invuln === 0) {
+    const hit = applyHit(sim.power)
+    if (hit.died) {
+      sim.deaths += 1
+      respawnPlayer(sim)
+    } else {
+      setTier(sim, hit.tier)
+      sim.invuln = INVULN_F
+    }
+  }
+  if (sim.invuln > 0) sim.invuln -= 1
 
   tickEchoes(sim.field)
   refreshAirCharges(sim.field, playerBox(sim.player), map, echoPlatforms(sim.field))

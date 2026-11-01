@@ -2,11 +2,18 @@ import { describe, expect, it } from 'vitest'
 import { echoPlatforms } from '../echo/echo.ts'
 import { createSim, stepSim, type SimState } from '../game/sim.ts'
 import { groundUnder } from '../physics/collision.ts'
-import { PLAYER_H, PLAYER_W, TILE } from '../physics/constants.ts'
+import { PLAYER_W, TILE } from '../physics/constants.ts'
 import { GOAL, parseLevel, SPAWN, tileAt } from '../physics/tilemap.ts'
 import { LEVEL_1_1_COLS, LEVEL_1_1_ECHO_AT_X, LEVEL_1_1_GAP, LEVEL_1_1_ROWS } from './level1-1.ts'
 
-const MAP = parseLevel(LEVEL_1_1_ROWS)
+/**
+ * The level stripped of the things that change a run's shape: enemies (a hit while Small is now
+ * death) and the ? block (its Mushroom makes Pip Super mid-run, which changes the jump geometry the
+ * gap crossing depends on). These tests are about the two gaps and the checkpoint. Enemy behaviour
+ * is covered by `src/game/enemies.test.ts`, the block by `src/game/sim.power.test.ts`, and the
+ * populated level by the browser playthrough.
+ */
+const MAP = parseLevel(LEVEL_1_1_ROWS.map((row) => row.replace(/[gt?]/g, '.')))
 
 /** Past this y the player has left the world: there is no floor below the gap. */
 const FELL_Y = MAP.rows * TILE + 80
@@ -34,7 +41,7 @@ interface Run {
 
 function stoodOnEcho(sim: SimState): boolean {
   if (sim.player.x <= GAP_FIRST_X) return false
-  const box = { x: sim.player.x, y: sim.player.y, w: PLAYER_W, h: PLAYER_H }
+  const box = { x: sim.player.x, y: sim.player.y, w: PLAYER_W, h: sim.player.h }
   return groundUnder(box, MAP, echoPlatforms(sim.field)) === 'platform'
 }
 
@@ -108,7 +115,7 @@ describe('level 1-1', () => {
 
     const lipMissing = (): boolean => {
       const p = sim.player
-      const feetRow = Math.floor((p.y + PLAYER_H) / TILE)
+      const feetRow = Math.floor((p.y + p.h) / TILE)
       const col = Math.floor((p.x + PLAYER_W) / TILE)
       return tileAt(sim.map, col, feetRow) !== '#'
     }
@@ -152,7 +159,7 @@ describe('level 1-1', () => {
 
     const lipMissing = (): boolean => {
       const p = sim.player
-      const feetRow = Math.floor((p.y + PLAYER_H) / TILE)
+      const feetRow = Math.floor((p.y + p.h) / TILE)
       const col = Math.floor((p.x + PLAYER_W) / TILE)
       return tileAt(sim.map, col, feetRow) !== '#'
     }

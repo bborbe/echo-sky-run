@@ -15,6 +15,9 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 - feat: level 1-1 is rebuilt to the spec's shape — a flat start with no enemies, then a Gear-Goomba, a ? block, a Steam-Turtle, a small gap, the checkpoint and the 13-tile Echo gap — with a 19-tile floor between the two gaps so a sprint jump out of the small one lands before the Echo gap rather than on its lip
 - feat: the checkpoint flag claims the respawn point the first time Pip reaches it
 - feat: a pit kills regardless of tier and puts Pip back at the last checkpoint on the same frame, with no key press; a death ends every Echo and breaks the stomp chain
+- feat: Pip has two tiers — Small at 12x14 and Super at 12x26 — and the hitbox height follows the tier, so he grows upward from his feet instead of into the floor
+- feat: the ? block is solid and releases a Mushroom when hit from below, once; collecting it turns Small into Super
+- feat: a hit while Super drops Pip to Small with 90 f of invincibility; a hit while Small is death and respawns at the checkpoint
 
 ## v0.3.0
 

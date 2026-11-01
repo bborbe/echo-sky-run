@@ -1,5 +1,6 @@
 import { isBlinking, type Echo } from '../echo/echo.ts'
 import type { Enemy } from '../game/enemies.ts'
+import type { Mushroom } from '../game/power.ts'
 import { PLAYER_H, PLAYER_W, TILE } from '../physics/constants.ts'
 import type { PlayerState } from '../physics/player.ts'
 import { CHECKPOINT, GOAL, isOneWay, isSolid, QUESTION, tileAt, type TileMap } from '../physics/tilemap.ts'
@@ -31,6 +32,9 @@ const GOOMBA_EYE = '#f2f2f2'
 const TURTLE_BODY = '#2f7a4a'
 const SHELL_BODY = '#c9a227'
 const QUESTION_BLOCK = '#c9a227'
+const USED_BLOCK = '#8a6f1e'
+const MUSHROOM_CAP = '#d94a2b'
+const MUSHROOM_STEM = '#f2e8d0'
 const CHECKPOINT_POLE = '#8a8a8a'
 const CHECKPOINT_FLAG = '#5dbb63'
 
@@ -58,6 +62,9 @@ export interface RenderState {
   readonly prevY: number
   readonly echoes: readonly Echo[]
   readonly enemies: readonly Enemy[]
+  readonly mushrooms: readonly Mushroom[]
+  /** ? blocks already emptied, keyed "col,row". */
+  readonly usedBlocks: ReadonlySet<string>
   readonly tick: number
   /** Blend factor between the last two fixed steps. */
   readonly alpha: number
@@ -67,6 +74,8 @@ export class Renderer {
   private readonly canvas: HTMLCanvasElement
   private readonly ctx: CanvasRenderingContext2D
   private viewW = VIEW_H
+  /** Set from the frame's state, because the tile pass needs it to draw an emptied ? block. */
+  private usedBlocks: ReadonlySet<string> = new Set()
   private camX = 0
   private camY = 0
 
@@ -109,6 +118,7 @@ export class Renderer {
     const py = state.prevY + (state.player.y - state.prevY) * state.alpha
 
     this.updateCamera(state.map, px, py)
+    this.usedBlocks = state.usedBlocks
 
     const sky = ctx.createLinearGradient(0, 0, 0, VIEW_H)
     sky.addColorStop(0, SKY)
@@ -121,7 +131,8 @@ export class Renderer {
     this.drawTiles(state.map)
     for (const echo of state.echoes) this.drawEcho(echo, state.tick)
     for (const enemy of state.enemies) this.drawEnemy(enemy)
-    this.drawPlayer(px, py)
+    for (const mushroom of state.mushrooms) this.drawMushroom(mushroom)
+    this.drawPlayer(px, py, state.player.h)
     ctx.restore()
   }
 
@@ -158,7 +169,15 @@ export class Renderer {
         const x = col * TILE
         const y = row * TILE
 
-        if (isSolid(ch)) {
+        if (ch === QUESTION) {
+          // Drawn before the solid branch, because a ? block is solid and would otherwise be a wall.
+          ctx.fillStyle = this.usedBlocks.has(`${col},${row}`) ? USED_BLOCK : QUESTION_BLOCK
+          ctx.fillRect(x, y, TILE, TILE)
+          if (!this.usedBlocks.has(`${col},${row}`)) {
+            ctx.fillStyle = PIP_VISOR
+            ctx.fillRect(x + 6, y + 4, 4, 8)
+          }
+        } else if (isSolid(ch)) {
           ctx.fillStyle = GROUND
           ctx.fillRect(x, y, TILE, TILE)
           if (!isSolid(tileAt(map, col, row - 1))) {
@@ -168,11 +187,6 @@ export class Renderer {
         } else if (isOneWay(ch)) {
           ctx.fillStyle = PLANK
           ctx.fillRect(x, y, TILE, 4)
-        } else if (ch === QUESTION) {
-          ctx.fillStyle = QUESTION_BLOCK
-          ctx.fillRect(x, y, TILE, TILE)
-          ctx.fillStyle = PIP_VISOR
-          ctx.fillRect(x + 6, y + 4, 4, 8)
         } else if (ch === CHECKPOINT) {
           ctx.fillStyle = CHECKPOINT_POLE
           ctx.fillRect(x + 7, y - TILE * 2, 2, TILE * 3)
@@ -235,12 +249,22 @@ export class Renderer {
     ctx.fillRect(x + 2, y + 3, enemy.w - 4, enemy.h - 6)
   }
 
-  private drawPlayer(x: number, y: number): void {
+  private drawMushroom(mushroom: Mushroom): void {
+    const ctx = this.ctx
+    const x = Math.round(mushroom.x)
+    const y = Math.round(mushroom.y)
+    ctx.fillStyle = MUSHROOM_STEM
+    ctx.fillRect(x + 3, y + 8, 10, 8)
+    ctx.fillStyle = MUSHROOM_CAP
+    ctx.fillRect(x, y, 16, 8)
+  }
+
+  private drawPlayer(x: number, y: number, h: number): void {
     const ctx = this.ctx
     const px = Math.round(x)
     const py = Math.round(y)
     ctx.fillStyle = PIP_BODY
-    ctx.fillRect(px, py, PLAYER_W, PLAYER_H)
+    ctx.fillRect(px, py, PLAYER_W, h)
     ctx.fillStyle = PIP_VISOR
     ctx.fillRect(px + 2, py + 3, PLAYER_W - 4, 5)
   }
