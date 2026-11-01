@@ -530,6 +530,8 @@ interface EchoSkyRunTestApi {
   overlayBox(): { x: number; y: number; w: number; h: number } | null
   /** The inks the overlay panel may contain: panel, rim and the font's colours. */
   overlayInks(): string[]
+  /** The lines the overlay panel drew on the last frame. */
+  overlayLines(): string[]
   /** The camera's integer scroll, for the flicker probe. */
   cameraX(): number
   /** The sky gradient's colour at a screen row — what a gap must show. */
@@ -630,6 +632,7 @@ const api: EchoSkyRunTestApi = {
   tiles: () => map.tiles,
   overlayBox: () => renderer.overlayBox,
   overlayInks: () => [INK.panel, INK.brass, INK.brassLight, INK.cream, INK.echo],
+  overlayLines: () => [...renderer.overlayLines],
   cameraX: () => renderer.cameraX,
   elements: () => {
     const out: { name: string; x: number; y: number; w: number; h: number }[] = []

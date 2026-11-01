@@ -370,6 +370,36 @@ try {
   const resumedByP = await page.evaluate(() => window.__echoSkyRun.paused())
   check(pausedByP && !resumedByP, 'P pauses and resumes with the overlay hidden', `${pausedByP} -> ${resumedByP}`)
 
+  // Play gate 1: "esc ... where is not option to show keybind again". The pause panel names the
+  // controls key, H opens the card from the pause, and dismissing the card leaves the game paused.
+  await page.keyboard.press('p')
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+  const pausePanel = await page.evaluate(() => ({
+    paused: window.__echoSkyRun.paused(),
+    lines: window.__echoSkyRun.overlayLines(),
+  }))
+  check(
+    pausePanel.paused && pausePanel.lines.includes('H: CONTROLS'),
+    'the pause panel shows how to bring the controls back',
+    JSON.stringify(pausePanel),
+  )
+  await page.keyboard.press('h')
+  const cardFromPause = await page.evaluate(() => ({
+    card: window.__echoSkyRun.controls().visible,
+    paused: window.__echoSkyRun.paused(),
+  }))
+  await page.keyboard.press('Space')
+  const backToPause = await page.evaluate(() => ({
+    card: window.__echoSkyRun.controls().visible,
+    paused: window.__echoSkyRun.paused(),
+  }))
+  check(
+    cardFromPause.card && cardFromPause.paused && !backToPause.card && backToPause.paused,
+    'H opens the controls from the pause, and closing them returns to the pause',
+    JSON.stringify({ cardFromPause, backToPause }),
+  )
+  await page.keyboard.press('p')
+
   // ---- controller ----------------------------------------------------------------------------
   await page.evaluate(() => {
     window.__echoSkyRun.reset()
