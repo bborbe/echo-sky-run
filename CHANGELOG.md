@@ -11,6 +11,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 ## Unreleased
 
 - feat: the feel and performance budgets are tests. Input-to-frame ≤ 3 frames, corner correction ≤ 4 px, camera framing (the view follows Pip and never leads the direction of travel), a p99 frame time under 18 ms measured on the live frame loop, and zero heap allocations per frame in the fixed step — each with a test, plus a golden replay of level 1-1 that must land on the same frame-exact finish. The fixed step now reuses its scratch objects and arrays instead of building new ones every frame. `?freeze=1` holds a spawn URL on a still frame, `make shots` writes 960×540 and 1920×1080 screenshots from it, and the numbers live in `AGENTS.md`.
+- feat: level 1-1 is drawn in art direction C, "painted sky, crisp clockwork". Pip (Small and Super), the Echo, the Gear-Goomba, the Steam-Turtle, the ? block, the Mushroom, the flags, the sign and the ground tiles are pixel masks in `src/render/art/`. Tests check the palette, the sepia outline, distinct animation frames, and the hazard hitboxes at 85–90 % of their sprites (spec § 4). `?sheet=1` shows every frame on a contact sheet, and `?echo=x,y` places an Echo for screenshots.
 
 ## v0.5.1
 

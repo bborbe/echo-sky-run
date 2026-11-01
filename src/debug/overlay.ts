@@ -72,6 +72,22 @@ export function readSpawn(search: string): SpawnPoint | null {
 }
 
 /**
+ * `?echo=<x>,<y>` places one Echo with its platform top at that spot when the level starts — the
+ * screenshot tool's way to show an Echo over a chosen background without scripting a jump. Pixel
+ * coordinates, like the spawn. Null when absent or malformed.
+ */
+export function readEchoSpot(search: string): SpawnPoint | null {
+  const raw = new URLSearchParams(search).get('echo')
+  if (raw === null) return null
+  const parts = raw.split(',')
+  if (parts.length !== 2 || parts.some((p) => p.trim() === '')) return null
+  const x = Number(parts[0])
+  const y = Number(parts[1])
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null
+  return { x, y }
+}
+
+/**
  * `?freeze=1` starts the page paused. A screenshot taken from a spawn URL needs a still frame: the
  * debug overlay's P copies a spot, and a moving target would make every shot a different one.
  */
