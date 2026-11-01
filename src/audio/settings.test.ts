@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_VOLUMES, loadVolumes, saveVolumes, SETTINGS_KEY, snapVolume, VolumeMenu } from './settings.ts'
+import { DEFAULT_VOLUMES, loadVolumes, nudgeVolume, saveVolumes, SETTINGS_KEY, snapVolume } from './settings.ts'
 
 /** A Storage stand-in backed by a map. */
 function memoryStorage(initial: Record<string, string> = {}) {
@@ -53,35 +53,24 @@ describe('volume settings', () => {
   })
 })
 
-describe('the pause panel volume rows', () => {
-  it('Space and ↑/↓ switch the row; ←/→ move the selected slider one step', () => {
-    const menu = new VolumeMenu({ music: 0.5, effects: 0.8 })
-    expect(menu.row).toBe('music')
-    expect(menu.key('ArrowLeft')).toBe('volume')
-    expect(menu.volumes).toEqual({ music: 0.4, effects: 0.8 })
-    expect(menu.key('Space')).toBe('row')
-    expect(menu.row).toBe('effects')
-    expect(menu.key('ArrowRight')).toBe('volume')
-    expect(menu.key('ArrowRight')).toBe('volume')
-    expect(menu.volumes).toEqual({ music: 0.4, effects: 1 })
-    expect(menu.key('ArrowRight')).toBe('none')
-    expect(menu.key('ArrowUp')).toBe('row')
-    expect(menu.row).toBe('music')
+describe('the settings sliders', () => {
+  it('moves one slider one step and leaves the other alone', () => {
+    expect(nudgeVolume({ music: 0.5, effects: 0.8 }, 'music', -1)).toEqual({ music: 0.4, effects: 0.8 })
+    expect(nudgeVolume({ music: 0.5, effects: 0.8 }, 'effects', 1)).toEqual({ music: 0.5, effects: 0.9 })
   })
 
-  it('reaches both ends of a slider using only the pad keys (Space and ←/→)', () => {
-    const menu = new VolumeMenu({ music: 0.5, effects: 0.5 })
-    for (let i = 0; i < 12; i++) menu.key('ArrowLeft')
-    menu.key('Space')
-    for (let i = 0; i < 12; i++) menu.key('ArrowRight')
-    expect(menu.volumes).toEqual({ music: 0, effects: 1 })
+  it('reaches both ends and stops there', () => {
+    let v = { music: 0.5, effects: 0.5 }
+    for (let i = 0; i < 12; i++) v = nudgeVolume(v, 'music', -1)
+    expect(v.music).toBe(0)
+    for (let i = 0; i < 12; i++) v = nudgeVolume(v, 'effects', 1)
+    expect(v.effects).toBe(1)
   })
 
-  it('owns its keys and nothing else', () => {
-    expect(VolumeMenu.owns('Space')).toBe(true)
-    expect(VolumeMenu.owns('ArrowLeft')).toBe(true)
-    expect(VolumeMenu.owns('KeyH')).toBe(false)
-    expect(VolumeMenu.owns('Escape')).toBe(false)
-    expect(new VolumeMenu(DEFAULT_VOLUMES).key('KeyQ')).toBe('none')
+  it('returns the same object when a press changes nothing, so the shell plays no tick', () => {
+    const atTop = { music: 1, effects: 0.5 }
+    expect(nudgeVolume(atTop, 'music', 1)).toBe(atTop)
+    const atBottom = { music: 0.5, effects: 0 }
+    expect(nudgeVolume(atBottom, 'effects', -1)).toBe(atBottom)
   })
 })

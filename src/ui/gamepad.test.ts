@@ -22,6 +22,12 @@ describe('the spec § 6 mapping', () => {
   it('moves with the D-pad', () => {
     expect(padCodes(pad({ buttons: [PAD.LEFT] }))).toEqual(['ArrowLeft'])
     expect(padCodes(pad({ buttons: [PAD.RIGHT] }))).toEqual(['ArrowRight'])
+    expect(padCodes(pad({ buttons: [PAD.UP] }))).toEqual(['PadUp'])
+    expect(padCodes(pad({ buttons: [PAD.DOWN] }))).toEqual(['PadDown'])
+  })
+
+  it('opens the controls card from LB, the free button spec § 6 leaves', () => {
+    expect(padCodes(pad({ buttons: [PAD.LB] }))).toEqual(['KeyH'])
   })
 
   it('moves with the left stick past the dead zone, and not inside it', () => {
@@ -30,9 +36,13 @@ describe('the spec § 6 mapping', () => {
     expect(padCodes(pad({ axes: [STICK_DEAD_ZONE / 2, 0] }))).toEqual([])
   })
 
-  it('leaves the vertical axis alone — a stick nudge must not jump', () => {
-    // ArrowUp is a jump key, so mapping the stick's Y axis to it would make tilting up a jump.
-    expect(padCodes(pad({ axes: [0, 1] }))).toEqual([])
+  it('sends the vertical axis to the menus, never to a jump key', () => {
+    // ArrowUp is a jump key, so mapping the stick's Y axis to it would make tilting up a jump. The
+    // Pad codes are the ones the level's own key set never contains.
+    expect(padCodes(pad({ axes: [0, 1] }))).toEqual(['PadDown'])
+    expect(padCodes(pad({ axes: [0, -1] }))).toEqual(['PadUp'])
+    expect(padCodes(pad({ axes: [0, STICK_DEAD_ZONE / 2] }))).toEqual([])
+    for (const code of padCodes(pad({ axes: [0, 1] }))) expect(code.startsWith('Arrow')).toBe(false)
   })
 
   it('holds every button at once', () => {
@@ -57,5 +67,7 @@ describe('keyForCode', () => {
     expect(keyForCode('ArrowLeft')).toBe('ArrowLeft')
     expect(keyForCode('Escape')).toBe('Escape')
     expect(keyForCode('KeyC')).toBe('c')
+    expect(keyForCode('PadUp')).toBe('ArrowUp')
+    expect(keyForCode('PadDown')).toBe('ArrowDown')
   })
 })

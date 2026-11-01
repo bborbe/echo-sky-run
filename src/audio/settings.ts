@@ -1,6 +1,7 @@
 /**
- * The two volume sliders and how they persist: pure, so the menu logic and the storage rules are
- * unit tests. The engine applies the values; the pause panel draws them.
+ * The two volume sliders and how they persist: pure, so the storage rules and the slider maths are
+ * unit tests. The engine applies the values; the settings screen draws them and the shell moves them
+ * one step at a time.
  *
  * Settings live under their own key, apart from the save (`echo-sky-run.v1`), so the save schema's
  * versioning and migration never have to know about them.
@@ -11,6 +12,7 @@ export interface Volumes {
   readonly effects: number
 }
 
+/** Which slider a step moves. */
 export type VolumeRow = 'music' | 'effects'
 
 export const SETTINGS_KEY = 'echo-sky-run.settings.v1'
@@ -23,6 +25,15 @@ export const VOLUME_STEPS = 10
 export function snapVolume(v: number): number {
   if (!Number.isFinite(v)) return 0
   return Math.round(Math.min(1, Math.max(0, v)) * VOLUME_STEPS) / VOLUME_STEPS
+}
+
+/**
+ * One slider moved one step. The result is snapped, so a press always lands on a drawn segment and a
+ * press past either end changes nothing — the shell plays no tick when the object comes back the same.
+ */
+export function nudgeVolume(v: Volumes, row: VolumeRow, dir: -1 | 1): Volumes {
+  const next = snapVolume(v[row] + dir / VOLUME_STEPS)
+  return next === v[row] ? v : { ...v, [row]: next }
 }
 
 /**
@@ -51,55 +62,3 @@ export function saveVolumes(storage: Pick<Storage, 'setItem'> | null, v: Volumes
     // Storage unavailable: the volume still applies, it just is not remembered.
   }
 }
-
-/** What a key press on the pause panel did. */
-export type MenuAction = 'row' | 'volume' | 'none'
-
-/**
- * The pause panel's volume rows. Space (the pad's A) or ↑/↓ moves between the rows, ←/→ (the pad's
- * D-pad) moves the selected slider one step. The pad sends no up/down, which is why Space also
- * picks the row.
- */
-export class VolumeMenu {
-  row: VolumeRow = 'music'
-  volumes: Volumes
-
-  constructor(volumes: Volumes) {
-    this.volumes = volumes
-  }
-
-  key(code: string): MenuAction {
-    switch (code) {
-      case 'ArrowUp':
-      case 'ArrowDown':
-      case 'KeyW':
-      case 'KeyS':
-      case 'Space':
-        this.row = this.row === 'music' ? 'effects' : 'music'
-        return 'row'
-      case 'ArrowLeft':
-      case 'KeyA':
-        return this.nudge(-1)
-      case 'ArrowRight':
-      case 'KeyD':
-        return this.nudge(1)
-      default:
-        return 'none'
-    }
-  }
-
-  /** Keys the menu owns while it is up; the game never sees them. */
-  static owns(code: string): boolean {
-    return MENU_KEYS.has(code)
-  }
-
-  private nudge(dir: -1 | 1): MenuAction {
-    const current = this.volumes[this.row]
-    const next = snapVolume(current + dir / VOLUME_STEPS)
-    if (next === current) return 'none'
-    this.volumes = { ...this.volumes, [this.row]: next }
-    return 'volume'
-  }
-}
-
-const MENU_KEYS = new Set(['ArrowUp', 'ArrowDown', 'KeyW', 'KeyS', 'Space', 'ArrowLeft', 'KeyA', 'ArrowRight', 'KeyD'])

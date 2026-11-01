@@ -40,19 +40,26 @@ export interface PadBinding {
 }
 
 /**
- * The spec's § 6 mapping. Movement is the left stick and the D-pad; the vertical axis and D-pad
- * up/down are deliberately absent, because "look up / duck" has no mechanic in this build — mapping
- * them to ArrowUp would make a stick nudge jump, since ArrowUp is a jump key.
+ * The spec's § 6 mapping. Movement is the left stick and the D-pad; "look up / duck" has no mechanic
+ * in this build, so the vertical axis and D-pad up/down are bound to `PadUp` / `PadDown` — codes only
+ * the menus read. Mapping them to ArrowUp instead would make a stick nudge jump, since ArrowUp is a
+ * jump key; the level ignores the Pad codes, so a pad player can walk a menu without moving Pip.
  */
 export const PAD_BINDINGS: readonly PadBinding[] = [
   { button: PAD.A, code: 'Space', name: 'A', action: 'Jump' },
   { button: PAD.B, code: 'KeyX', name: 'B', action: 'Spin jump' },
   { button: PAD.X, code: 'ShiftLeft', name: 'X', action: 'Run / carry' },
   { button: PAD.Y, code: 'KeyC', name: 'Y', action: 'Echo' },
+  { button: PAD.LB, code: 'KeyH', name: 'LB', action: 'Controls' },
   { button: PAD.START, code: 'Escape', name: 'Start', action: 'Pause' },
   { button: PAD.LEFT, code: 'ArrowLeft', name: 'D-pad ←', action: 'Move' },
   { button: PAD.RIGHT, code: 'ArrowRight', name: 'D-pad →', action: 'Move' },
+  { button: PAD.UP, code: 'PadUp', name: 'D-pad ↑', action: 'Menu up' },
+  { button: PAD.DOWN, code: 'PadDown', name: 'D-pad ↓', action: 'Menu down' },
 ]
+
+/** The codes only the menus read: the level's own key set never contains them. */
+export const MENU_ONLY_CODES: ReadonlySet<string> = new Set(['PadUp', 'PadDown'])
 
 /** Stick deflection that counts as a direction. Worn sticks rest off zero, so this is not 0. */
 export const STICK_DEAD_ZONE = 0.35
@@ -69,6 +76,9 @@ export function padCodes(pad: PadSnapshot): string[] {
   const x = pad.axes[0] ?? 0
   if (x <= -STICK_DEAD_ZONE) codes.push('ArrowLeft')
   if (x >= STICK_DEAD_ZONE) codes.push('ArrowRight')
+  const y = pad.axes[1] ?? 0
+  if (y <= -STICK_DEAD_ZONE) codes.push('PadUp')
+  if (y >= STICK_DEAD_ZONE) codes.push('PadDown')
   return codes
 }
 
@@ -85,6 +95,8 @@ export function pickPad<T extends { connected: boolean; mapping: string }>(
 export function keyForCode(code: string): string {
   if (code === 'Space') return ' '
   if (code === 'ShiftLeft' || code === 'ShiftRight') return 'Shift'
+  if (code === 'PadUp') return 'ArrowUp'
+  if (code === 'PadDown') return 'ArrowDown'
   if (code.startsWith('Arrow') || code === 'Escape') return code
   return code.replace(/^(Key|Digit)/, '').toLowerCase()
 }

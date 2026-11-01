@@ -75,11 +75,37 @@ try {
   await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
   check(true, 'game booted and exposed its simulation')
 
-  // ---- the controls card -------------------------------------------------------------------
-  // Checked before anything else, because it is on screen at load and swallows the first key: the
-  // input checks below would otherwise be measuring the card rather than the game.
+  // ---- the title screen, and the way into the game -----------------------------------------
+  // The game lands on a title screen and nothing steps until the player starts. Checked before
+  // anything else because a menu swallows keys: the input checks below would otherwise be measuring
+  // the menu rather than the game.
+  const title = await page.evaluate(() => ({
+    menu: window.__echoSkyRun.menu(),
+    card: window.__echoSkyRun.controls().visible,
+    paused: window.__echoSkyRun.paused(),
+  }))
+  check(title.menu?.screen === 'title', 'the game lands on the title screen', JSON.stringify(title.menu))
+  check(
+    JSON.stringify(title.menu?.items) === JSON.stringify(['START', 'CONTROLS']),
+    'the title offers START and CONTROLS',
+    JSON.stringify(title.menu?.items),
+  )
+  check(!title.card, 'the controls card does not cover the title: it is a row on it')
+  check(title.paused, 'nothing steps on the title screen')
+
+  // The 3 s budget covers the whole way in: page load, then the one press that hands over control.
+  await page.keyboard.press('Space')
+  const started = await page.evaluate(() => ({
+    screen: window.__echoSkyRun.screen(),
+    ms: Math.round(performance.now()),
+  }))
+  check(started.screen === 'level', 'START begins the run', JSON.stringify(started))
+  check(started.ms <= 3000, 'page load to the player in control is 3 s or less', `${started.ms} ms`)
+
+  // ---- the controls card --------------------------------------------------------------------
+  await page.keyboard.press('h')
   const card = await page.evaluate(() => window.__echoSkyRun.controls())
-  check(card.visible, 'the controls card is shown on first start')
+  check(card.visible, 'H opens the controls card')
   check(
     card.labels.includes('Echo') && card.labels.includes('Jump') && card.labels.includes('Move'),
     'the card lists the mappings',
@@ -210,7 +236,8 @@ try {
   const run = await page.evaluate(() => {
     const game = window.__echoSkyRun
     game.reset()
-    game.pause()
+    // No pause here: a seam step already halts the frame loop, and pausing would leave the screen on
+    // the pause menu, so the goal could never hand the run to the results screen.
 
     let wantEchoOnce = false
     let echoesPlaced = 0
@@ -335,6 +362,73 @@ try {
     JSON.stringify(tallyText),
   )
 
+  // ---- the results screen: the run's time, the best time, and the two ways on ----------------
+  const results = await page.evaluate(() => ({
+    screen: window.__echoSkyRun.screen(),
+    menu: window.__echoSkyRun.menu(),
+    lines: window.__echoSkyRun.overlayLines(),
+    frames: window.__echoSkyRun.state().frames,
+    stored: JSON.parse(localStorage.getItem('echo-sky-run.v1') ?? 'null'),
+  }))
+  /** A `M:SS.t` panel line back to seconds, so the check compares numbers rather than formatting. */
+  const panelSeconds = (line, prefix) => {
+    const [m, s] = line.slice(prefix.length).split(':')
+    return Number(m) * 60 + Number(s)
+  }
+  const timeLine = results.lines.find((l) => l.startsWith('TIME '))
+  const bestLine = results.lines.find((l) => l.startsWith('BEST '))
+  check(
+    results.screen === 'results' && JSON.stringify(results.menu?.items) === JSON.stringify(['RETRY', 'TITLE']),
+    'the flag hands the run to the results screen, offering RETRY and TITLE',
+    JSON.stringify({ screen: results.screen, menu: results.menu }),
+  )
+  check(
+    timeLine !== undefined && Math.abs(panelSeconds(timeLine, 'TIME ') - results.frames / 60) <= 0.1,
+    'the results TIME is the run timer read at the goal frame',
+    JSON.stringify({ timeLine, seconds: results.frames / 60 }),
+  )
+  check(
+    bestLine !== undefined &&
+      typeof results.stored?.bestSeconds === 'number' &&
+      Math.abs(panelSeconds(bestLine, 'BEST ') - results.stored.bestSeconds) <= 0.1,
+    'the results BEST is the best time the save holds',
+    JSON.stringify({ bestLine, stored: results.stored }),
+  )
+
+  // RETRY starts a fresh run: the timer goes back to its start, not the run it just finished.
+  await page.keyboard.press('Space')
+  const retried = await page.evaluate(() => {
+    const api = window.__echoSkyRun
+    const screen = api.screen()
+    api.pause()
+    return { screen, frames: api.state().frames }
+  })
+  check(
+    retried.screen === 'level' && retried.frames < 30,
+    'RETRY starts a fresh run with the timer back at its start',
+    JSON.stringify({ retried, finishedFrames: results.frames }),
+  )
+
+  // TITLE returns to the title panel, from the results.
+  await page.evaluate(() => window.__echoSkyRun.openScreen('results'))
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Space')
+  const atTitle = await page.evaluate(() => ({
+    screen: window.__echoSkyRun.screen(),
+    menu: window.__echoSkyRun.menu(),
+  }))
+  check(
+    atTitle.screen === 'title' && atTitle.menu?.items?.[0] === 'START',
+    'TITLE returns to the title panel',
+    JSON.stringify(atTitle),
+  )
+
+  // Back to a running level for the checks below.
+  await page.evaluate(() => {
+    window.__echoSkyRun.reset()
+    window.__echoSkyRun.resume()
+  })
+
   // ---- what is actually on the canvas ------------------------------------------------------
   // Wait for two rendered frames first: the read otherwise races the first paint and sees a blank
   // backing store.
@@ -395,7 +489,7 @@ try {
   const resumedByP = await page.evaluate(() => window.__echoSkyRun.paused())
   check(pausedByP && !resumedByP, 'P pauses and resumes with the overlay hidden', `${pausedByP} -> ${resumedByP}`)
 
-  // Play gate 1: "esc ... where is not option to show keybind again". The pause panel names the
+  // Play gate 1: "esc ... where is not option to show keybind again". The pause menu names the
   // controls key, H opens the card from the pause, and dismissing the card leaves the game paused.
   await page.keyboard.press('p')
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
@@ -404,7 +498,7 @@ try {
     lines: window.__echoSkyRun.overlayLines(),
   }))
   check(
-    pausePanel.paused && pausePanel.lines.includes('H: CONTROLS'),
+    pausePanel.paused && pausePanel.lines.includes('H / LB: CONTROLS'),
     'the pause panel shows how to bring the controls back',
     JSON.stringify(pausePanel),
   )
@@ -422,6 +516,119 @@ try {
     cardFromPause.card && cardFromPause.paused && !backToPause.card && backToPause.paused,
     'H opens the controls from the pause, and closing them returns to the pause',
     JSON.stringify({ cardFromPause, backToPause }),
+  )
+  await page.keyboard.press('p')
+
+  // ---- the pause menu, each row by its effect -------------------------------------------------
+  const pauseMenu = await page.evaluate(() => {
+    const api = window.__echoSkyRun
+    api.reset()
+    api.resume()
+    api.pause()
+    return api.menu()
+  })
+  check(
+    JSON.stringify(pauseMenu?.items) === JSON.stringify(['RESUME', 'RESTART', 'SETTINGS']),
+    'the pause menu offers RESUME, RESTART and SETTINGS',
+    JSON.stringify(pauseMenu),
+  )
+
+  // RESUME returns to play with the run still advancing — the timer keeps counting.
+  const resumedRun = await page.evaluate(async () => {
+    const api = window.__echoSkyRun
+    api.reset()
+    api.resume()
+    api.pause()
+    return api.state().frames
+  })
+  await page.keyboard.press('Space')
+  const afterResume = await page.evaluate(async () => {
+    const api = window.__echoSkyRun
+    await new Promise((r) => setTimeout(r, 300))
+    return { screen: api.screen(), frames: api.state().frames }
+  })
+  check(
+    afterResume.screen === 'level' && afterResume.frames > resumedRun,
+    'RESUME returns to play with the run timer still advancing',
+    JSON.stringify({ atPause: resumedRun, ...afterResume }),
+  )
+
+  // RESTART returns to play with the level and the timer back at their start values.
+  const beforeRestart = await page.evaluate(() => {
+    const api = window.__echoSkyRun
+    api.reset()
+    api.resume()
+    for (let i = 0; i < 30; i++) api.step({ right: true })
+    const s = api.state()
+    api.pause()
+    return { x: s.x, frames: s.frames, spawnX: api.spawnX() }
+  })
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Space')
+  const afterRestart = await page.evaluate(() => {
+    const api = window.__echoSkyRun
+    return { screen: api.screen(), x: api.state().x, frames: api.state().frames }
+  })
+  check(
+    afterRestart.screen === 'level' &&
+      afterRestart.frames === 0 &&
+      afterRestart.x === beforeRestart.spawnX &&
+      beforeRestart.x > beforeRestart.spawnX,
+    'RESTART returns to play with the level and the timer reset to their start',
+    JSON.stringify({ beforeRestart, afterRestart }),
+  )
+
+  // SETTINGS opens the settings screen: both sliders, the card and the way back.
+  await page.evaluate(() => {
+    const api = window.__echoSkyRun
+    api.reset()
+    api.resume()
+    api.pause()
+  })
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Space')
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+  const settingsScreen = await page.evaluate(() => ({
+    screen: window.__echoSkyRun.screen(),
+    menu: window.__echoSkyRun.menu(),
+    lines: window.__echoSkyRun.overlayLines(),
+  }))
+  check(
+    settingsScreen.screen === 'settings' &&
+      JSON.stringify(settingsScreen.menu?.items) === JSON.stringify(['MUSIC', 'EFFECTS', 'CONTROLS', 'BACK']),
+    'SETTINGS opens the settings screen with both sliders, the card and back',
+    JSON.stringify(settingsScreen),
+  )
+  // The sliders draw as `MUSIC 50` / `EFFECTS 80`, the same lines the reload check reads.
+  check(
+    settingsScreen.lines.some((l) => l.startsWith('MUSIC ')) && settingsScreen.lines.some((l) => l.startsWith('EFFECTS ')),
+    'the settings screen draws both volume bars',
+    JSON.stringify(settingsScreen.lines),
+  )
+
+  // BACK returns to the pause, and the back key leaves the settings for the pause too.
+  await page.keyboard.press('Escape')
+  const backFromSettings = await page.evaluate(() => window.__echoSkyRun.screen())
+  check(backFromSettings === 'pause', 'the back key leaves the settings for the pause', backFromSettings)
+  await page.keyboard.press('Escape')
+
+  // ---- the menus are cheap ---------------------------------------------------------------------
+  // The overlap half of "no overlapping HUD" needs a strip to measure against, so it runs on the
+  // ?debug=1 page below. Here the budget: a menu frame is the cheapest frame the game draws, so it
+  // must hold one 60 Hz frame, not the 18 ms the busy in-game frames are allowed.
+  await page.evaluate(() => {
+    const api = window.__echoSkyRun
+    api.reset()
+    api.resume()
+    api.pause()
+  })
+  await page.waitForTimeout(1500)
+  const menuFrame = await page.evaluate(() => window.__echoSkyRun.frameTimings())
+  check(
+    menuFrame.samples >= 60 && menuFrame.p99Ms <= 16.8 + 1e-6,
+    'a menu frame holds the 16.8 ms 60 Hz budget',
+    JSON.stringify(menuFrame),
   )
   await page.keyboard.press('p')
 
@@ -486,6 +693,41 @@ try {
   })
   check(startPauses.paused && !startPauses.resumed, 'pad Start pauses and resumes', JSON.stringify(startPauses))
 
+  // The menus on the pad: the D-pad moves the selection, A confirms, LB opens the controls card.
+  const padMenu = await page.evaluate(async () => {
+    const api = window.__echoSkyRun
+    api.reset()
+    api.resume()
+    api.pause()
+    const first = api.menu().index
+    window.__pads = [window.__makePad([13])]
+    await new Promise((r) => setTimeout(r, 180))
+    const second = api.menu().index
+    window.__pads = [window.__makePad([0])]
+    await new Promise((r) => setTimeout(r, 180))
+    const screen = api.screen()
+    window.__pads = [window.__makePad()]
+    await new Promise((r) => setTimeout(r, 120))
+    return { first, second, screen }
+  })
+  check(padMenu.second === padMenu.first + 1, 'the pad D-pad moves the menu selection', JSON.stringify(padMenu))
+  check(padMenu.screen === 'level', 'pad A confirms the selected row', JSON.stringify(padMenu))
+
+  const padControls = await page.evaluate(async () => {
+    const api = window.__echoSkyRun
+    api.reset()
+    api.resume()
+    api.hideControls()
+    window.__pads = [window.__makePad([4])]
+    await new Promise((r) => setTimeout(r, 180))
+    const visible = api.controls().visible
+    window.__pads = [window.__makePad()]
+    await new Promise((r) => setTimeout(r, 120))
+    api.hideControls()
+    return visible
+  })
+  check(padControls, 'pad LB opens the controls card', String(padControls))
+
   // The first press after connect must not be swallowed. The pad appears already holding A — which
   // is exactly what a browser reports when the player presses a button to wake a pad — and Pip has
   // to leave the ground on that press, not wait for a second one.
@@ -529,6 +771,32 @@ try {
   const debugOn = await page.evaluate(() => window.__echoSkyRun.debug())
   check(debugOn.visible, '?debug=1 shows the overlay')
 
+  // "No overlapping HUD" (goal SC2) is only checkable where a HUD exists: the debug strip runs along
+  // the top edge, so a menu panel must stay entirely below it. The panel box is in logical pixels,
+  // the strip is a DOM element in CSS pixels.
+  const overlap = await page.evaluate(async () => {
+    const api = window.__echoSkyRun
+    api.openScreen('pause')
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+    const box = api.overlayBox()
+    const strip = document.getElementById('debug-overlay')
+    const scale = window.innerHeight / 224
+    const rect = strip && !strip.hidden ? strip.getBoundingClientRect() : null
+    return {
+      visible: api.debug().visible,
+      box,
+      strip: rect ? { top: rect.top / scale, bottom: (rect.top + rect.height) / scale } : null,
+    }
+  })
+  check(
+    overlap.visible &&
+      overlap.box !== null &&
+      overlap.strip !== null &&
+      (overlap.box.y >= overlap.strip.bottom || overlap.box.y + overlap.box.h <= overlap.strip.top),
+    'the menu panel never overlaps the HUD strip',
+    JSON.stringify(overlap),
+  )
+
   // Every field the task names renders. The numeric check is per field rather than universal: the
   // run state, the power tier and the level id are text by design, and requiring a digit of them
   // would force the executor to fake a number.
@@ -548,8 +816,7 @@ try {
   check(/-?\d/.test(debugOn.fields.p99 ?? ''), 'the p99 frame time is present', debugOn.fields.p99)
 
   const toggled = await page.evaluate(async () => {
-    // The controls card is up on a fresh load and swallows the first key, so clear it first — this
-    // check is about the overlay, not the card.
+    // A fresh load lands on the title; clear any card first — this check is about the overlay.
     window.__echoSkyRun.hideControls()
     const press = () => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Backquote', bubbles: true }))
     press()
@@ -1093,7 +1360,9 @@ try {
     'before any input the sound engine is locked, with no AudioContext',
     JSON.stringify({ state: locked.state, unlocked: locked.unlocked }),
   )
-  await page.keyboard.press('z')
+  // The first press is START on the title: it closes the title into the level, so it raises `ui-close`
+  // — and that sound has to play, not be dropped by the unlock that happens in the same press.
+  await page.keyboard.press('Space')
   await page.waitForTimeout(300)
   const unlocked = await audioState()
   const firstSound = (unlocked.log ?? []).find((e) => e.event === 'ui-close')
@@ -1148,11 +1417,15 @@ try {
     JSON.stringify({ pauseQuietMs, tPaused, tStill }),
   )
 
-  // The volume rows, driven with the pad-reachable keys only: Space (pad A) and ←/→ (D-pad).
+  // The volume sliders, driven with the pad-reachable keys only: the D-pad moves the selection and
+  // ←/→ moves a slider. They live on the settings screen now, two rows below the pause menu's top.
   const menuShown = await audioState()
-  await page.keyboard.press('ArrowLeft')
-  await page.keyboard.press('ArrowLeft')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Space')
+  await page.keyboard.press('ArrowLeft')
+  await page.keyboard.press('ArrowLeft')
+  await page.keyboard.press('ArrowDown')
   await page.keyboard.press('ArrowRight')
   await page.waitForTimeout(150)
   const adjusted = await audioState()
@@ -1165,10 +1438,12 @@ try {
       Math.abs(adjusted.gains.effects - 0.9) < 1e-6 &&
       pauseLines.includes('MUSIC 30') &&
       pauseLines.includes('EFFECTS 90'),
-    'Space and ←/→ set both volume bars, and the bus gains follow',
+    'the D-pad and ←/→ set both volume bars, and the bus gains follow',
     JSON.stringify({ volumes: adjusted.volumes, gains: adjusted.gains, pauseLines }),
   )
 
+  // Two backs: settings → pause, pause → the level.
+  await page.keyboard.press('Escape')
   await page.keyboard.press('Escape')
   await page.waitForTimeout(300)
   const tResumed = (await audioState()).musicTime
@@ -1200,12 +1475,17 @@ try {
   check((await audioState()).state === 'running', 'showing the tab again resumes the AudioContext')
   await keepTrace()
 
-  // The volumes survive a reload: read back through the engine and the drawn rows.
+  // The volumes survive a reload: read back through the engine and the drawn rows. The reload lands
+  // on the title, so the way to the sliders is START, pause, SETTINGS.
   await page.reload({ waitUntil: 'load' })
   await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
   const reloaded = await audioState()
   await page.keyboard.press('z')
+  await page.keyboard.press('Space')
   await page.keyboard.press('Escape')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Space')
   await page.waitForTimeout(200)
   const reloadedGains = (await audioState()).gains
   const reloadedLines = await page.evaluate(() => window.__echoSkyRun.overlayLines())
@@ -1220,6 +1500,31 @@ try {
     JSON.stringify({ volumes: reloaded.volumes, gains: reloadedGains, lines: reloadedLines }),
   )
   await keepTrace()
+
+  // ---- the menus raise the existing UI sounds (spec § 9) -------------------------------------
+  // The 17-event in-level trace is the audio task's; this one owns the three UI events its own menus
+  // raise, so a menu that silently changes screens is a failure here rather than at a play gate.
+  await openAudioPage()
+  await page.waitForFunction(() => window.__echoSkyRun.audio().ready, null, { timeout: 10000 })
+  await page.keyboard.press('z')
+  const uiTrace = await page.evaluate(async () => {
+    const api = window.__echoSkyRun
+    const press = (code) =>
+      window.dispatchEvent(new KeyboardEvent('keydown', { code, bubbles: true, cancelable: true }))
+    const before = api.audio().log.length
+    press('Space') // START: the title closes into the level
+    await new Promise((r) => setTimeout(r, 80))
+    press('Escape') // the level opens the pause
+    await new Promise((r) => setTimeout(r, 80))
+    press('ArrowDown') // a row move ticks
+    await new Promise((r) => setTimeout(r, 80))
+    return api.audio().log.slice(before).map((e) => e.event)
+  })
+  check(
+    uiTrace.includes('ui-close') && uiTrace.includes('ui-open') && uiTrace.includes('ui-tick'),
+    'menu actions raise the existing UI sounds: a screen change and a row move',
+    JSON.stringify(uiTrace),
+  )
 
   // The scripted 1-1 run, through the same advance() the frame loop uses.
   await openAudioPage()

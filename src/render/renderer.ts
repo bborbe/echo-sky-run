@@ -16,6 +16,7 @@ import { spriteOrigin } from './anchor.ts'
 import { Background } from './background.ts'
 import { Camera, VIEW_H } from './camera.ts'
 import { Juice } from './juice.ts'
+import { isVolumeRow, type GameScreen, type MenuItem } from '../ui/screens.ts'
 
 /**
  * The logical view height is fixed at 14 tiles. The scale is `window height / VIEW_H` and may be
@@ -53,7 +54,6 @@ export interface RenderState {
   readonly mushrooms: readonly Mushroom[]
   /** ? blocks already emptied, keyed "col,row". */
   readonly usedBlocks: ReadonlySet<string>
-  readonly goalReached: boolean
   /** The player paused, or the tab is hidden. */
   readonly paused: boolean
   readonly runSeconds: number
@@ -70,17 +70,44 @@ export interface RenderState {
   readonly pose: PipPose
   readonly poseFrame: number
   readonly facing: -1 | 1
+  /** The juice the loop is running. */
   readonly juice: Juice
-  /** The volume rows, shown on the pause panel when the player paused; null hides them. */
-  readonly volumeMenu?: VolumeMenuView | null
+  /** The menu screen that is up, or null while the game plays. */
+  readonly menu?: MenuView | null
 }
 
-/** What the pause panel's volume rows show: two 0..1 levels and the selected row. */
-export interface VolumeMenuView {
+/** What a menu screen shows: its rows, which one is selected, and the numbers it needs. */
+export interface MenuView {
+  readonly screen: Exclude<GameScreen, 'level'>
+  readonly items: readonly MenuItem[]
+  readonly index: number
+  /** The settings screen's two sliders, 0..1. */
   readonly music: number
   readonly effects: number
-  readonly row: 'music' | 'effects'
+  /** The results screen's run time, and the best time or null before the first finish. */
+  readonly runSeconds: number
+  readonly bestSeconds: number | null
 }
+
+/** Each screen's heading and its one footer line. */
+const MENU_HEADING: Readonly<Record<Exclude<GameScreen, 'level'>, string>> = {
+  title: OVERLAY_TEXT.gameTitle,
+  pause: OVERLAY_TEXT.paused,
+  settings: OVERLAY_TEXT.settings,
+  results: OVERLAY_TEXT.clear,
+}
+
+const MENU_HINT: Readonly<Record<Exclude<GameScreen, 'level'>, string>> = {
+  title: OVERLAY_TEXT.selectHint,
+  pause: OVERLAY_TEXT.pausedControls,
+  settings: OVERLAY_TEXT.settingsHint,
+  results: OVERLAY_TEXT.selectHint,
+}
+
+/** Rows are this far apart, so a menu never crowds and the panel height is arithmetic. */
+const ROW_H = 12
+const PANEL_PAD_TOP = 9
+const PANEL_PAD_BOTTOM = 9
 
 /** Segments in a volume bar, one per slider step. */
 const BAR_SEGMENTS = 10
@@ -190,8 +217,7 @@ export class Renderer {
 
     this.overlayBox = null
     this.overlayLines.length = 0
-    if (state.goalReached) this.drawTally(state.runSeconds, state.bestSeconds)
-    else if (state.paused) this.drawPaused(state.volumeMenu ?? null)
+    if (state.menu) this.drawMenu(state.menu)
   }
 
   /** A frame of a catalogue animation, for a facing. */
@@ -438,25 +464,106 @@ export class Renderer {
   readonly overlayLines: string[] = []
 
   /**
-   * A pause has to look like one, or a player cannot tell a stopped game from a broken one. It also
-   * names the way back to the controls card (play gate 1: "esc ... where is not option to show
-   * keybind again"); H opens the card from here and dismissing it returns to the pause.
+   * One panel per screen: the title, the pause menu, the settings sliders and the level-clear tally.
+   * Every screen draws the same brass-rimmed panel in the same pixel font, so the loop reads as one
+   * game rather than four overlays — play gate 1 found the old system-font text soft, and a screen
+   * that looked different from the tally would read as a different product.
+   *
+   * The panel is sized from its own widest line and centred, which is also what keeps it clear of the
+   * debug overlay's strip along the top edge.
    */
-  private drawPaused(menu: VolumeMenuView | null): void {
-    const w = Math.max(textWidth(OVERLAY_TEXT.pausedHint), menu ? textWidth(OVERLAY_TEXT.volumeHint) : 0) + 20
-    const h = menu ? 86 : 46
+  private drawMenu(view: MenuView): void {
+    const heading = MENU_HEADING[view.screen]
+    const hint = MENU_HINT[view.screen]
+    const subtitle = view.screen === 'title' ? OVERLAY_TEXT.world : null
+    const stats = view.screen === 'results'
+    const sliders = view.screen === 'settings'
+
+    let contentW = Math.max(textWidth(heading), textWidth(hint))
+    if (subtitle !== null) contentW = Math.max(contentW, textWidth(subtitle))
+    for (const item of view.items) {
+      contentW = Math.max(
+        contentW,
+        sliders && isVolumeRow(item) ? this.volumeRowWidth() : this.menuRowWidth(item.label),
+      )
+    }
+    if (stats) {
+      contentW = Math.max(
+        contentW,
+        textWidth(`${OVERLAY_TEXT.time} ${formatTime(view.runSeconds)}`),
+        textWidth(this.bestLine(view.bestSeconds)),
+      )
+    }
+
+    const w = Math.min(this.viewW - 16, contentW + 24)
+    const h =
+      PANEL_PAD_TOP +
+      10 +
+      (subtitle === null ? 0 : 10) +
+      (stats ? 20 : 0) +
+      4 +
+      view.items.length * ROW_H +
+      8 +
+      7 +
+      PANEL_PAD_BOTTOM
     const x = Math.round((this.viewW - w) / 2)
     const y = Math.round((VIEW_H - h) / 2)
     this.panel(x, y, w, h)
     this.overlayBox = { x, y, w, h }
-    this.centred(OVERLAY_TEXT.paused, x + w / 2, y + 8, 'brassLight')
-    this.centred(OVERLAY_TEXT.pausedHint, x + w / 2, y + 21, 'echo')
-    this.centred(OVERLAY_TEXT.pausedControls, x + w / 2, y + 32, 'echo')
-    if (menu) {
-      this.volumeRow(OVERLAY_TEXT.music, menu.music, menu.row === 'music', x + w / 2, y + 47)
-      this.volumeRow(OVERLAY_TEXT.effects, menu.effects, menu.row === 'effects', x + w / 2, y + 58)
-      this.centred(OVERLAY_TEXT.volumeHint, x + w / 2, y + 72, 'echo')
+    const cx = x + w / 2
+
+    let cy = y + PANEL_PAD_TOP
+    this.centred(heading, cx, cy, 'brassLight')
+    cy += 10
+    if (subtitle !== null) {
+      this.centred(subtitle, cx, cy, 'echo')
+      cy += 10
     }
+    if (stats) {
+      this.centred(`${OVERLAY_TEXT.time} ${formatTime(view.runSeconds)}`, cx, cy, 'cream')
+      cy += 10
+      this.centred(this.bestLine(view.bestSeconds), cx, cy, 'cream')
+      cy += 10
+    }
+    cy += 4
+    for (let i = 0; i < view.items.length; i++) {
+      const item = view.items[i]
+      const selected = i === view.index
+      if (sliders && isVolumeRow(item)) {
+        this.volumeRow(item.label, item.id === 'music' ? view.music : view.effects, selected, cx, cy)
+      } else {
+        this.menuRow(item.label, selected, cx, cy)
+      }
+      cy += ROW_H
+    }
+    cy += 8
+    this.centred(hint, cx, cy, 'echo')
+  }
+
+  private bestLine(bestSeconds: number | null): string {
+    return bestSeconds === null ? OVERLAY_TEXT.noBest : `${OVERLAY_TEXT.best} ${formatTime(bestSeconds)}`
+  }
+
+  private menuRowWidth(label: string): number {
+    return textWidth('>') + 4 + textWidth(label)
+  }
+
+  /**
+   * One plain row: a marker on the selected row, then the label. The drawn line is recorded, so the
+   * browser check reads the menu exactly as it is on screen.
+   */
+  private menuRow(label: string, selected: boolean, cx: number, y: number): void {
+    let gx = Math.round(cx - this.menuRowWidth(label) / 2)
+    if (selected) this.text('>', gx, y, 'brassLight')
+    gx += textWidth('>') + 4
+    this.text(label, gx, y, selected ? 'brassLight' : 'cream')
+    this.overlayLines.push(label)
+  }
+
+  private volumeRowWidth(): number {
+    const labelW = textWidth(OVERLAY_TEXT.effects)
+    const barW = BAR_SEGMENTS * (SEGMENT_W + 1) - 1
+    return textWidth('>') + 4 + labelW + 6 + barW + 6 + textWidth('100')
   }
 
   /**
@@ -467,8 +574,7 @@ export class Renderer {
     const labelW = textWidth(OVERLAY_TEXT.effects)
     const barW = BAR_SEGMENTS * (SEGMENT_W + 1) - 1
     const number = String(Math.round(level * 100))
-    const rowW = textWidth('>') + 4 + labelW + 6 + barW + 6 + textWidth('100')
-    let gx = Math.round(cx - rowW / 2)
+    let gx = Math.round(cx - this.volumeRowWidth() / 2)
     if (selected) this.text('>', gx, y, 'brassLight')
     gx += textWidth('>') + 4
     this.text(label, gx, y, selected ? 'brassLight' : 'cream')
@@ -482,31 +588,6 @@ export class Renderer {
     gx += barW + 6
     this.text(number, gx, y, 'cream')
     this.overlayLines.push(`${label} ${number}`)
-  }
-
-  /**
-   * The level-clear tally: this run's time, the best time, and the way out. The prompt matters as
-   * much as the numbers — the run is frozen, so without it a player who wants another go has no
-   * visible way to start one (operator playtest, 2026-11-01). Pixel font on an opaque panel, the
-   * prompt in bright cyan: play gate 1 found the old system-font text soft and its hint too dim.
-   */
-  private drawTally(runSeconds: number, bestSeconds: number | null): void {
-    const w = Math.min(this.viewW - 32, 220)
-    const h = 76
-    const x = Math.round((this.viewW - w) / 2)
-    const y = Math.round((VIEW_H - h) / 2)
-    this.panel(x, y, w, h)
-    this.overlayBox = { x, y, w, h }
-    const cx = x + w / 2
-    this.centred(OVERLAY_TEXT.clear, cx, y + 9, 'brassLight')
-    this.centred(`${OVERLAY_TEXT.time} ${formatTime(runSeconds)}`, cx, y + 25, 'cream')
-    this.centred(
-      bestSeconds === null ? OVERLAY_TEXT.noBest : `${OVERLAY_TEXT.best} ${formatTime(bestSeconds)}`,
-      cx,
-      y + 37,
-      'cream',
-    )
-    this.centred(OVERLAY_TEXT.clearHint, cx, y + 58, 'echo')
   }
 }
 
