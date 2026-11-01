@@ -9,7 +9,26 @@ export const ECHO_KEYS: Keys = {
   e: 'echoEdge',
   r: 'echoRim',
   c: 'echo',
+  k: 'echoDeep',
   w: 'white',
+}
+
+/** How each Pip pixel turns to glass: lines and brass deepen, fur goes cyan, the lit parts go bright. */
+const GLASS: Readonly<Record<string, string>> = {
+  o: 'k',
+  x: 'k',
+  a: 'k',
+  d: 'k',
+  f: 'k',
+  F: 'k',
+  r: 'k',
+  k: 'k',
+  b: 'c',
+  s: 'c',
+  h: 'r',
+  w: 'r',
+  l: 'r',
+  g: 'w',
 }
 
 /**
@@ -25,9 +44,10 @@ export const ECHO_PLATFORM: Mask = [
 ]
 
 /**
- * The ghost: a Pip frame in Echo glass. Pip's outline becomes the bright rim, his fills the cyan
- * core, and a dark edge is grown one pixel around the whole silhouette — the edge is what keeps a
- * pale ghost visible against a pale sky (play gate 2, "i can no see them").
+ * The ghost: a Pip frame in Echo glass. His lines and goggle band turn deep cyan, his fur pale cyan,
+ * his lenses and muzzle bright — so it reads as Pip, not a blob — and a dark edge is grown one pixel
+ * around the whole silhouette. The edge is what keeps a pale ghost visible against a pale sky (play
+ * gate 2, "i can no see them").
  */
 export function ghostMask(pip: Mask): Mask {
   const h = pip.length
@@ -38,7 +58,7 @@ export function ghostMask(pip: Mask): Mask {
     let row = ''
     for (let x = -1; x <= w; x++) {
       if (at(x, y)) {
-        row += pip[y][x] === 'o' || pip[y][x] === 'x' ? 'r' : 'c'
+        row += GLASS[pip[y][x]] ?? 'c'
       } else if (at(x - 1, y) || at(x + 1, y) || at(x, y - 1) || at(x, y + 1)) {
         row += 'e'
       } else {
@@ -63,7 +83,7 @@ export function litSegments(life: number): number {
   return Math.max(0, Math.ceil(ringFraction(life) * RING_SEGMENTS - 1e-9))
 }
 
-/** The ring's size: a 13×13 clock face, a dark rim around lit (bright) and spent (dark) pixels. */
+/** The ring's size: a 13×13 clock face, a dark rim around lit (bright) and spent (deep cyan) segments. */
 export const RING_SIZE = 13
 
 /**
@@ -86,7 +106,7 @@ export function timerRingMask(lit: number): Mask {
       } else if (d > 2.9) {
         const angle = (Math.atan2(dx, -dy) + 2 * Math.PI) % (2 * Math.PI)
         const segment = Math.floor((angle / (2 * Math.PI)) * RING_SEGMENTS)
-        row += segment < lit ? 'r' : 'e'
+        row += segment < lit ? 'r' : 'k'
       } else if (d > 1.9) {
         row += 'e'
       } else {

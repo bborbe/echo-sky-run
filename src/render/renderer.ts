@@ -293,7 +293,7 @@ export class Renderer {
     let baked = cache.get(key)
     if (!baked) {
       const mask: Mask = ghostMask(frames[i])
-      baked = bake([flash ? mask.map((row) => row.replace(/[cr]/g, 'w')) : mask], ECHO_KEYS)
+      baked = bake([flash ? mask.map((row) => row.replace(/[ckr]/g, 'w')) : mask], ECHO_KEYS)
       cache.set(key, baked)
     }
     return facing === 1 ? baked.right[0] : baked.left[0]

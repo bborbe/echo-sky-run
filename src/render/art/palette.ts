@@ -42,6 +42,8 @@ export const INK = {
   echo: '#9FE8FF',
   echoRim: '#E9FBFF',
   echoEdge: '#15394F',
+  /** The ghost's inner lines: Pip's outline and goggle band in a deeper cyan, so the ghost reads as him. */
+  echoDeep: '#4FA9CC',
 
   // the Mushroom
   capRed: '#C8402A',
