@@ -23,6 +23,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 - feat: the game pauses when the tab is hidden, so a player who switches away does not come back to a run that carried on without him
 - feat: a controls card on first start lists the keyboard and pad mappings and the one line that explains the Echo — "C leaves a ghost platform where you are — jump on it"; any key dismisses it, H brings it back, and it switches to pad labels the moment a controller is connected
 - feat: a sign before the Echo gap shows the `C` key and its hint the first time Pip walks past it, so the one move the level is about is taught before it is demanded
+- feat: a practice ledge before the checkpoint sits above what a plain jump can reach, with the floor left intact below it — the place to learn the mid-air Echo where falling costs nothing
 
 ## v0.3.0
 

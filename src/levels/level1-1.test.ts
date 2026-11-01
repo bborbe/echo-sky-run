@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { echoPlatforms } from '../echo/echo.ts'
 import { createSim, stepSim, type SimState } from '../game/sim.ts'
 import { groundUnder } from '../physics/collision.ts'
-import { PLAYER_W, TILE } from '../physics/constants.ts'
+import { GRAVITY_HELD, JUMP_V_SPRINT, PLAYER_W, SMALL_H, TILE } from '../physics/constants.ts'
 import { GOAL, parseLevel, SPAWN, tileAt } from '../physics/tilemap.ts'
 import { LEVEL_1_1_COLS, LEVEL_1_1_ECHO_AT_X, LEVEL_1_1_GAP, LEVEL_1_1_ROWS } from './level1-1.ts'
 
@@ -149,6 +149,20 @@ describe('level 1-1', () => {
     expect(run.echoesPlaced).toBe(1)
     // The win must come from standing on the Echo in the gap, not from a lucky trajectory.
     expect(run.stoodOnEchoInGap).toBe(true)
+  })
+
+  it('puts the practice ledge above what a plain jump can reach', () => {
+    // The ledge is the spot the Echo is practised on. If a plain jump reaches it, it teaches nothing.
+    const ledgeRow = LEVEL_1_1_ROWS.findIndex((row) => row.slice(39, 42) === '###')
+    expect(ledgeRow).toBeGreaterThanOrEqual(0)
+
+    const apex = (JUMP_V_SPRINT * JUMP_V_SPRINT) / (2 * GRAVITY_HELD)
+    const floorTop = 12 * TILE
+    const headAtApex = floorTop - SMALL_H - apex
+    const ledgeUnderside = ledgeRow * TILE + TILE
+
+    // Larger y is lower: the head must still be below the ledge at the top of the jump.
+    expect(headAtApex).toBeGreaterThan(ledgeUnderside)
   })
 
   it('moves the respawn point to the checkpoint once Pip reaches it', () => {
