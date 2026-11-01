@@ -43,6 +43,8 @@ const MUSHROOM_CAP = '#d94a2b'
 const MUSHROOM_STEM = '#f2e8d0'
 const CHECKPOINT_POLE = '#8a8a8a'
 const CHECKPOINT_FLAG = '#5dbb63'
+/** The tally's action prompt: dimmer than the times, because it is a hint and not a result. */
+const TALLY_PROMPT = '#9fb3c4'
 
 /**
  * The renderer's palette. Exported so the browser check asserts these colours instead of repeating
@@ -150,11 +152,15 @@ export class Renderer {
     if (state.goalReached) this.drawTally(state.runSeconds, state.bestSeconds)
   }
 
-  /** The level-clear tally: this run's time and the best time, in screen space over the level. */
+  /**
+   * The level-clear tally: this run's time, the best time, and the way out. The prompt matters as
+   * much as the numbers — the run is frozen, so without it a player who wants another go has no
+   * visible way to start one (operator playtest, 2026-11-01).
+   */
   private drawTally(runSeconds: number, bestSeconds: number | null): void {
     const ctx = this.ctx
-    const w = Math.min(this.viewW - 32, 200)
-    const h = 64
+    const w = Math.min(this.viewW - 32, 220)
+    const h = 80
     const x = Math.round((this.viewW - w) / 2)
     const y = Math.round((VIEW_H - h) / 2)
 
@@ -166,6 +172,8 @@ export class Renderer {
     ctx.fillText('LEVEL CLEAR', x + w / 2, y + 18)
     ctx.fillText(`TIME ${formatTime(runSeconds)}`, x + w / 2, y + 34)
     ctx.fillText(bestSeconds === null ? 'BEST --' : `BEST ${formatTime(bestSeconds)}`, x + w / 2, y + 50)
+    ctx.fillStyle = TALLY_PROMPT
+    ctx.fillText('Jump / A: retry · H: controls', x + w / 2, y + 68)
   }
 
   /** Horizontal deadzone around the view centre, plus the vertical edge margins, clamped to the level. */

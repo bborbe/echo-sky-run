@@ -197,6 +197,12 @@ function hitBlocks(sim: SimState): void {
  * the browser drive the identical simulation.
  */
 export function stepSim(sim: SimState, input: SimInput): void {
+  // A finished run is frozen. The tally shows the time the flag was touched, so the clock, Pip and
+  // every entity stop on that frame — otherwise a player who keeps holding right walks off the
+  // level behind the tally while the timer climbs (operator playtest, 2026-11-01). A retry builds a
+  // fresh sim; nothing here can un-finish this one.
+  if (sim.goalReached) return
+
   const map = sim.map
   sim.frames += 1
 

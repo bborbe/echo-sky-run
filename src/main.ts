@@ -164,6 +164,14 @@ window.addEventListener('keydown', (event) => {
     return
   }
 
+  // A finished run is frozen by the sim, so a jump is the tally's "retry" — the prompt on the tally
+  // promises exactly that, and without it the only way out is a key the card does not mention.
+  if (sim.goalReached && JUMP_KEYS.has(event.code)) {
+    event.preventDefault()
+    resetGame()
+    return
+  }
+
   if (!GAME_KEYS.has(event.code)) return
   event.preventDefault()
   if (event.repeat) return
