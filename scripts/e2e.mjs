@@ -482,6 +482,44 @@ try {
     `x ${spawned.x} vs ${spawn.spot.x}`,
   )
 
+  // ---- death respawns, in the browser, with no key press -------------------------------------
+  // Two pits, because the respawn point is the thing that changes: before the checkpoint Pip comes
+  // back where he started, after it he comes back at the flag. The spawn URL sets the start, so the
+  // second case only passes if the flag actually claimed the respawn.
+  const pitAt = async (x) => {
+    await page.goto(`${URL}?level=1-1&x=${x}&y=176`, { waitUntil: 'load' })
+    await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+    return page.evaluate(() => {
+      const game = window.__echoSkyRun
+      const spawnX = game.spawnX()
+      game.pause()
+      let s = game.state()
+      let frames = 0
+      for (; frames < 400 && s.deaths === 0; frames++) s = game.step({ right: true })
+      // The frame the pit takes him is the frame he is already back — no key press, no delay.
+      const backAtSpawn = Math.abs(s.x - spawnX) < 1
+      // In control again: the very next input moves him.
+      const next = game.step({ right: true })
+      return { deaths: s.deaths, frames, spawnX, x: s.x, backAtSpawn, moved: next.x > s.x }
+    })
+  }
+
+  const pitBefore = await pitAt(440)
+  check(pitBefore.deaths === 1, 'a pit kills Pip', JSON.stringify(pitBefore))
+  check(
+    pitBefore.backAtSpawn && pitBefore.moved,
+    'before the checkpoint he is back at the start and in control, same frame',
+    JSON.stringify(pitBefore),
+  )
+
+  const pitAfter = await pitAt(600)
+  check(pitAfter.deaths === 1, 'the Echo gap kills Pip', JSON.stringify(pitAfter))
+  check(
+    Math.abs(pitAfter.x - 688) < 1 && pitAfter.moved,
+    'after the checkpoint he comes back at the flag, not where he started',
+    JSON.stringify(pitAfter),
+  )
+
   check(errors.length === 0, 'no console errors', errors.slice(0, 3).join(' | '))
 } catch (err) {
   failed = true
