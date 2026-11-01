@@ -76,6 +76,8 @@ export interface RenderState {
   /** ? blocks already emptied, keyed "col,row". */
   readonly usedBlocks: ReadonlySet<string>
   readonly goalReached: boolean
+  /** The player paused, or the tab is hidden. */
+  readonly paused: boolean
   readonly runSeconds: number
   /** The best time from localStorage, or null before the first finish. */
   readonly bestSeconds: number | null
@@ -150,6 +152,24 @@ export class Renderer {
     ctx.restore()
 
     if (state.goalReached) this.drawTally(state.runSeconds, state.bestSeconds)
+    else if (state.paused) this.drawPaused()
+  }
+
+  /** A pause has to look like one, or a player cannot tell a stopped game from a broken one. */
+  private drawPaused(): void {
+    const ctx = this.ctx
+    const w = 120
+    const h = 40
+    const x = Math.round((this.viewW - w) / 2)
+    const y = Math.round((VIEW_H - h) / 2)
+    ctx.fillStyle = 'rgba(20, 30, 40, 0.85)'
+    ctx.fillRect(x, y, w, h)
+    ctx.fillStyle = FLAG
+    ctx.font = '10px monospace'
+    ctx.textAlign = 'center'
+    ctx.fillText('PAUSED', x + w / 2, y + 18)
+    ctx.fillStyle = TALLY_PROMPT
+    ctx.fillText('Esc / P / Start: resume', x + w / 2, y + 32)
   }
 
   /**

@@ -16,6 +16,46 @@ const SHOT_PATH = process.env.SHOT_PATH || '/tmp/echo-sky-run-1-1.png'
 const browser = await chromium.launch({ args: ['--mute-audio'] })
 const page = await browser.newPage({ viewport: { width: 960, height: 540 } })
 
+// A pad and a fullscreen API the check can drive. Both are stubbed before any page script runs:
+// headless Chromium has no controller, and a real requestFullscreen needs a user gesture.
+await page.addInitScript(() => {
+  window.__pads = []
+  window.__makePad = (pressed = []) => ({
+    id: 'Xbox Wireless Controller',
+    connected: true,
+    mapping: 'standard',
+    axes: [0, 0, 0, 0],
+    buttons: Array.from({ length: 16 }, (_, i) => ({
+      pressed: pressed.includes(i),
+      value: pressed.includes(i) ? 1 : 0,
+    })),
+  })
+  Object.defineProperty(navigator, 'getGamepads', {
+    configurable: true,
+    value: () => window.__pads,
+  })
+
+  let fullscreen = null
+  Object.defineProperty(document, 'fullscreenElement', {
+    configurable: true,
+    get: () => fullscreen,
+  })
+  Element.prototype.requestFullscreen = function () {
+    fullscreen = this
+    document.dispatchEvent(new Event('fullscreenchange'))
+    return Promise.resolve()
+  }
+  document.exitFullscreen = () => {
+    fullscreen = null
+    document.dispatchEvent(new Event('fullscreenchange'))
+    return Promise.resolve()
+  }
+
+  // Every synthetic key the pad shell presses, in order, so the mapping can be asserted directly.
+  window.__keyCodes = []
+  window.addEventListener('keydown', (e) => window.__keyCodes.push(e.code), true)
+})
+
 const errors = []
 page.on('console', (msg) => {
   if (msg.type() === 'error') errors.push(msg.text())
@@ -261,6 +301,186 @@ try {
 
   await page.screenshot({ path: SHOT_PATH })
   console.log(`screenshot: ${SHOT_PATH}`)
+
+  // ---- the debug overlay, hidden on a plain URL ---------------------------------------------
+  const plainDebug = await page.evaluate(() => window.__echoSkyRun.debug())
+  check(!plainDebug.visible, 'the debug overlay is hidden on a plain URL')
+
+  // With the overlay hidden, P is the spec's pause key. Resume first: the playthrough above left the
+  // simulation paused, and a pause key pressed on an already-paused game reads as a resume.
+  await page.evaluate(() => {
+    window.__echoSkyRun.reset()
+    window.__echoSkyRun.resume()
+  })
+  await page.waitForTimeout(100)
+  await page.keyboard.press('p')
+  const pausedByP = await page.evaluate(() => window.__echoSkyRun.paused())
+  await page.keyboard.press('p')
+  const resumedByP = await page.evaluate(() => window.__echoSkyRun.paused())
+  check(pausedByP && !resumedByP, 'P pauses and resumes with the overlay hidden', `${pausedByP} -> ${resumedByP}`)
+
+  // ---- controller ----------------------------------------------------------------------------
+  await page.evaluate(() => {
+    window.__echoSkyRun.reset()
+    window.__echoSkyRun.resume()
+  })
+  await page.waitForTimeout(120)
+
+  const noPad = await page.evaluate(() => window.__echoSkyRun.pad())
+  check(noPad.id === null, 'no pad is reported before one is connected', JSON.stringify(noPad))
+
+  // Hot-plug: the pad appears mid-run, with no event from the browser (the stub only changes what
+  // getGamepads returns), so this also proves the poll notices it.
+  await page.evaluate(() => {
+    window.__pads = [window.__makePad()]
+  })
+  await page.waitForTimeout(150)
+  const hotPlug = await page.evaluate(() => ({
+    pad: window.__echoSkyRun.pad(),
+    card: window.__echoSkyRun.controls(),
+    toast: document.getElementById('pad-toast')?.textContent ?? '',
+  }))
+  check(hotPlug.pad.id !== null, 'hot-plugging a pad is noticed', JSON.stringify(hotPlug.pad))
+  check(hotPlug.toast.includes('connected'), 'a connection toast is shown', hotPlug.toast)
+  check(hotPlug.card.pad, 'the controls card switches to pad labels')
+
+  // The spec § 6 mapping, one button at a time. Each press must reach the game as its key code.
+  const MAPPING = [
+    [0, 'Space', 'A jump'],
+    [1, 'KeyX', 'B spin'],
+    [2, 'ShiftLeft', 'X run'],
+    [3, 'KeyC', 'Y Echo'],
+  ]
+  for (const [button, code, label] of MAPPING) {
+    const pressed = await page.evaluate(async ({ button }) => {
+      window.__keyCodes = []
+      window.__pads = [window.__makePad([button])]
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      const codes = window.__keyCodes
+      window.__pads = [window.__makePad()]
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      return codes
+    }, { button })
+    check(pressed.includes(code), `pad ${label} presses ${code}`, JSON.stringify(pressed))
+  }
+
+  // Start → Escape → pause. Pressed twice, so the run is left unpaused for the checks below.
+  const startPauses = await page.evaluate(async () => {
+    window.__pads = [window.__makePad([9])]
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    const paused = window.__echoSkyRun.paused()
+    window.__pads = [window.__makePad()]
+    await new Promise((resolve) => setTimeout(resolve, 120))
+    window.__pads = [window.__makePad([9])]
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    const resumed = window.__echoSkyRun.paused()
+    window.__pads = [window.__makePad()]
+    await new Promise((resolve) => setTimeout(resolve, 120))
+    return { paused, resumed }
+  })
+  check(startPauses.paused && !startPauses.resumed, 'pad Start pauses and resumes', JSON.stringify(startPauses))
+
+  // The first press after connect must not be swallowed. The pad appears already holding A — which
+  // is exactly what a browser reports when the player presses a button to wake a pad — and Pip has
+  // to leave the ground on that press, not wait for a second one.
+  const firstPress = await page.evaluate(async () => {
+    window.__pads = []
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    window.__echoSkyRun.reset()
+    window.__echoSkyRun.resume()
+    window.__echoSkyRun.hideControls()
+    await new Promise((resolve) => setTimeout(resolve, 120))
+    const before = window.__echoSkyRun.state()
+    window.__pads = [window.__makePad([0])]
+    await new Promise((resolve) => setTimeout(resolve, 180))
+    const after = window.__echoSkyRun.state()
+    window.__pads = [window.__makePad()]
+    return { beforeGrounded: before.grounded, afterGrounded: after.grounded, vy: after.vy }
+  })
+  check(
+    firstPress.beforeGrounded && !firstPress.afterGrounded && firstPress.vy < 0,
+    'the first press after connect is not swallowed',
+    JSON.stringify(firstPress),
+  )
+
+  // ---- fullscreen ----------------------------------------------------------------------------
+  const fullscreen = await page.evaluate(async () => {
+    const press = () => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyF', bubbles: true }))
+    press()
+    await new Promise((resolve) => setTimeout(resolve, 120))
+    const on = document.fullscreenElement !== null
+    press()
+    await new Promise((resolve) => setTimeout(resolve, 120))
+    return { on, off: document.fullscreenElement === null }
+  })
+  check(fullscreen.on && fullscreen.off, 'F toggles fullscreen', JSON.stringify(fullscreen))
+
+  // ---- the debug overlay, on ?debug=1 --------------------------------------------------------
+  await page.goto(`${URL}?debug=1`, { waitUntil: 'load' })
+  await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+  await page.waitForTimeout(400)
+
+  const debugOn = await page.evaluate(() => window.__echoSkyRun.debug())
+  check(debugOn.visible, '?debug=1 shows the overlay')
+
+  // Every field the task names renders a label and a number; p99 in particular must be a real one.
+  const REQUIRED_FIELDS = ['fps', 'frame', 'p99', 'steps', 'pose', 'speed', 'echo', 'commit']
+  const missing = REQUIRED_FIELDS.filter((field) => !(field in debugOn.fields))
+  check(missing.length === 0, 'the overlay renders every field', `missing=${missing.join(',')}`)
+  const nonNumeric = REQUIRED_FIELDS.filter((field) => !/-?\d/.test(debugOn.fields[field] ?? ''))
+  check(nonNumeric.length === 0, 'every field carries a numeric value', `not-numeric=${nonNumeric.join(',')}`)
+  check(/-?\d/.test(debugOn.fields.p99 ?? ''), 'the p99 frame time is present', debugOn.fields.p99)
+
+  const toggled = await page.evaluate(async () => {
+    // The controls card is up on a fresh load and swallows the first key, so clear it first — this
+    // check is about the overlay, not the card.
+    window.__echoSkyRun.hideControls()
+    const press = () => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Backquote', bubbles: true }))
+    press()
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    const off = window.__echoSkyRun.debug().visible
+    press()
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    return { off, backOn: window.__echoSkyRun.debug().visible }
+  })
+  check(!toggled.off && toggled.backOn, 'backtick toggles the overlay', JSON.stringify(toggled))
+
+  // P copies the current spot as a spawn URL. The clipboard is the product path; the overlay's own
+  // record is the fallback, because a headless browser may refuse the clipboard outright.
+  // `URL` here is the page URL string, so the origin is built with the global constructor.
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new globalThis.URL(URL).origin })
+  // Walk Pip away from the spawn first: a copy that always returned the level start would pass the
+  // round-trip check below without ever reading the player's position.
+  await page.evaluate(() => {
+    for (let i = 0; i < 40; i++) window.__echoSkyRun.step({ right: true })
+  })
+  await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyP', bubbles: true })))
+  await page.waitForTimeout(150)
+  const spawn = await page.evaluate(async () => ({
+    copied: window.__echoSkyRun.debug().spawnUrl,
+    clipboard: await navigator.clipboard.readText().catch(() => ''),
+    spot: window.__echoSkyRun.state(),
+  }))
+  check(
+    /\?level=1-1&x=-?\d+&y=-?\d+/.test(spawn.copied ?? ''),
+    'P builds a debug-spawn URL',
+    String(spawn.copied),
+  )
+  check(
+    spawn.clipboard === spawn.copied,
+    'P copies that URL to the clipboard',
+    `${spawn.clipboard} vs ${spawn.copied}`,
+  )
+
+  // And the URL does what it says: the level starts Pip at that spot.
+  await page.goto(spawn.copied, { waitUntil: 'load' })
+  await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+  const spawned = await page.evaluate(() => window.__echoSkyRun.state())
+  check(
+    spawn.spot.x > 32 && Math.abs(spawned.x - spawn.spot.x) <= 2,
+    'the spawn URL starts the level at that spot, not at the level start',
+    `x ${spawned.x} vs ${spawn.spot.x}`,
+  )
 
   check(errors.length === 0, 'no console errors', errors.slice(0, 3).join(' | '))
 } catch (err) {
