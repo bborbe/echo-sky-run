@@ -16,13 +16,19 @@
         overflow: hidden;
         background: #000;
       }
+      /* Two layers (art direction C): the painted sky underneath, the pixel play layer on top. */
+      #sky,
       #game {
         display: block;
+        position: fixed;
+        top: 0;
+        left: 0;
       }
     </style>
   </head>
   <body>
+    <canvas id="sky"></canvas>
     <canvas id="game"></canvas>
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/boot.ts"></script>
   </body>
 </html>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { debugToggle, debugVisible, readFreeze, readSpawn, spawnQuery } from './overlay.ts'
+import { debugToggle, debugVisible, readEchoSpot, readFreeze, readSpawn, spawnQuery } from './overlay.ts'
 
 describe('debug overlay visibility', () => {
   it('opens on ?debug=1 and stays shut on a plain URL', () => {
@@ -30,6 +30,14 @@ describe('debug spawn', () => {
     expect(readSpawn('?level=1-1')).toBeNull()
     expect(readSpawn('?level=1-1&x=10')).toBeNull()
     expect(readSpawn('?level=1-1&x=abc&y=10')).toBeNull()
+  })
+
+  it('reads an Echo spot from ?echo=x,y and nothing from a malformed one', () => {
+    expect(readEchoSpot('?level=1-1&echo=870,40')).toEqual({ x: 870, y: 40 })
+    expect(readEchoSpot('?level=1-1')).toBeNull()
+    expect(readEchoSpot('?echo=870')).toBeNull()
+    expect(readEchoSpot('?echo=870,')).toBeNull()
+    expect(readEchoSpot('?echo=a,b')).toBeNull()
   })
 
   it('freezes only on ?freeze=1, so a shot is a still frame', () => {

@@ -271,12 +271,17 @@ try {
     () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
   )
   const painted = await page.evaluate(() => {
-    const canvas = document.querySelector('#game')
-    if (!canvas) return { ok: false, why: 'no canvas' }
-    const ctx = canvas.getContext('2d')
-    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
-    const seen = new Set()
-    for (let i = 0; i < data.length; i += 4) seen.add(`${data[i]},${data[i + 1]},${data[i + 2]}`)
+    // Two layers since style C: the sky is painted on #sky, the ground and Pip on #game.
+    const colours = (selector) => {
+      const canvas = document.querySelector(selector)
+      const seen = new Set()
+      if (!canvas) return seen
+      const { data } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height)
+      for (let i = 0; i < data.length; i += 4) if (data[i + 3] === 255) seen.add(`${data[i]},${data[i + 1]},${data[i + 2]}`)
+      return seen
+    }
+    const skySeen = colours('#sky')
+    const seen = colours('#game')
 
     // Read the palette from the page rather than repeating the literals: a colour tweak must not
     // fail this check for the wrong reason. A distinct-colour count passes on the sky gradient
@@ -288,7 +293,7 @@ try {
     const palette = window.__echoSkyRun.palette
     return {
       colours: seen.size,
-      sky: seen.has(rgb(palette.sky)),
+      sky: skySeen.has(rgb(palette.sky)),
       ground: seen.has(rgb(palette.ground)),
       player: seen.has(rgb(palette.pip)),
     }
@@ -579,6 +584,247 @@ try {
     frozenA.frozen && !frozenA.paused && frozenB === frozenA.frames,
     'freeze=1 holds the simulation without drawing the pause banner',
     JSON.stringify({ ...frozenA, after: frozenB }),
+  )
+
+  // ---- style C: what goal SC2 lists as defects, and that the juice is actually wired ----------
+  // Every probe reads the real canvases. The play canvas is logical pixels (viewW × 224); the
+  // painted #sky canvas is BG_SCALE (3) times that.
+  const openFrozen = async (query) => {
+    await page.goto(`${URL}${query}&freeze=1`, { waitUntil: 'load' })
+    await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+    await page.evaluate(() => window.__echoSkyRun.hideControls())
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+  }
+
+  await openFrozen('?level=1-1&x=236&y=178')
+  const layers = await page.evaluate(() => {
+    const sky = document.querySelector('#sky')
+    const game = document.querySelector('#game')
+    return {
+      order: sky && game ? Boolean(sky.compareDocumentPosition(game) & Node.DOCUMENT_POSITION_FOLLOWING) : false,
+      pixelated: game ? game.style.imageRendering : '',
+      coverage: window.__echoSkyRun.layers(),
+    }
+  })
+  check(layers.order, 'the painted #sky canvas sits under the pixel #game canvas', JSON.stringify(layers.order))
+  check(layers.pixelated === 'pixelated', 'the play canvas keeps image-rendering: pixelated', layers.pixelated)
+  check(
+    layers.coverage.length === 3 && layers.coverage.every((l) => l.above > 1000 && l.below === 0),
+    'three parallax layers paint, and none of them below the haze line',
+    JSON.stringify(layers.coverage),
+  )
+
+  // Seams: every pixel of every solid tile in view is opaque.
+  const seams = await page.evaluate(() => {
+    const api = window.__echoSkyRun
+    const game = document.querySelector('#game')
+    const ctx = game.getContext('2d')
+    const { data } = ctx.getImageData(0, 0, game.width, game.height)
+    const camX = api.cameraX()
+    const tiles = api.tiles()
+    let holes = 0
+    let checked = 0
+    for (let row = 0; row < tiles.length; row++) {
+      for (let col = 0; col < tiles[row].length; col++) {
+        if (tiles[row][col] !== '#') continue
+        const x0 = col * 16 - camX
+        if (x0 + 16 <= 0 || x0 >= game.width) continue
+        for (let y = row * 16; y < row * 16 + 16; y++) {
+          for (let x = Math.max(0, x0); x < Math.min(game.width, x0 + 16); x++) {
+            checked++
+            if (data[(y * game.width + x) * 4 + 3] !== 255) holes++
+          }
+        }
+      }
+    }
+    return { holes, checked }
+  })
+  check(seams.checked > 1000 && seams.holes === 0, 'no seams: every solid tile pixel is opaque', JSON.stringify(seams))
+
+  // Drawn into a tile: Pip and the Gear-Goomba, standing, have their lowest outline row on the
+  // ground's top row minus one (y = 191) — never inside the tile.
+  const feet = await page.evaluate(() => {
+    const api = window.__echoSkyRun
+    const game = document.querySelector('#game')
+    const { data } = game.getContext('2d').getImageData(0, 0, game.width, game.height)
+    const camX = api.cameraX()
+    const lowestOutline = (e) => {
+      let lowest = -1
+      for (let y = 0; y < game.height; y++) {
+        for (let x = Math.max(0, Math.floor(e.x - camX) - 2); x < Math.min(game.width, Math.ceil(e.x + e.w - camX) + 2); x++) {
+          const i = (y * game.width + x) * 4
+          if (data[i] === 0x2a && data[i + 1] === 0x1e && data[i + 2] === 0x14 && y < 192) lowest = Math.max(lowest, y)
+        }
+      }
+      return lowest
+    }
+    return api
+      .elements()
+      .filter((e) => e.name === 'pip' || e.name === 'gear-goomba')
+      .map((e) => ({ name: e.name, lowest: lowestOutline(e) }))
+  })
+  check(
+    feet.length === 2 && feet.every((f) => f.lowest === 191),
+    'Pip and the Gear-Goomba stand on the ground, not in it (lowest outline row 191)',
+    JSON.stringify(feet),
+  )
+
+  // Background in a gap: behind the Echo gap, below the ground's top, only the sky gradient shows.
+  await openFrozen('?level=1-1&x=770&y=178')
+  const gap = await page.evaluate(() => {
+    const api = window.__echoSkyRun
+    const sky = document.querySelector('#sky')
+    const k = sky.height / 224
+    const { data } = sky.getContext('2d').getImageData(0, 0, sky.width, sky.height)
+    const camX = api.cameraX()
+    let worst = 0
+    let samples = 0
+    for (let col = 51; col <= 61; col++) {
+      const sx = Math.round((col * 16 + 8 - camX) * k)
+      if (sx < 0 || sx >= sky.width) continue
+      for (let y = 192; y < 224; y += 2) {
+        const i = (Math.round((y + 0.5) * k) * sky.width + sx) * 4
+        const want = api.skyAt(y + 0.5)
+        for (let c = 0; c < 3; c++) worst = Math.max(worst, Math.abs(data[i + c] - want[c]))
+        samples++
+      }
+    }
+    return { worst, samples }
+  })
+  check(gap.samples > 20 && gap.worst <= 6, 'a gap shows only the sky gradient (±6 per channel)', JSON.stringify(gap))
+
+  // Flicker, standing: with the live loop running and Pip still, the ground band never changes.
+  await page.goto(`${URL}?level=1-1&x=120&y=178`, { waitUntil: 'load' })
+  await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+  const standing = await page.evaluate(async () => {
+    const api = window.__echoSkyRun
+    api.hideControls()
+    api.resume()
+    const game = document.querySelector('#game')
+    const ctx = game.getContext('2d')
+    const band = () => Array.from(ctx.getImageData(0, 192, game.width, 32).data).join(',')
+    await new Promise((r) => setTimeout(r, 300))
+    const first = band()
+    let changed = 0
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => requestAnimationFrame(r))
+      if (band() !== first) changed++
+    }
+    return { changed }
+  })
+  check(standing.changed === 0, 'no flicker while standing: the ground band holds over 10 frames', JSON.stringify(standing))
+
+  // Flicker, running: frame to frame, the ground band only shifts by the camera's own move.
+  const running = await page.evaluate(async () => {
+    const api = window.__echoSkyRun
+    const game = document.querySelector('#game')
+    const ctx = game.getContext('2d')
+    const W = game.width
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ArrowRight', bubbles: true }))
+    await new Promise((r) => setTimeout(r, 500))
+    let prev = null
+    let mismatched = 0
+    let compared = 0
+    let moved = 0
+    for (let i = 0; i < 30; i++) {
+      await new Promise((r) => requestAnimationFrame(r))
+      const cam = api.cameraX()
+      const data = ctx.getImageData(0, 192, W, 32).data
+      if (prev) {
+        const d = cam - prev.cam
+        if (d !== 0) moved++
+        for (let y = 0; y < 32; y += 3) {
+          for (let x = Math.max(0, -d); x < Math.min(W, W - d); x += 3) {
+            const a = (y * W + x + d) * 4
+            const b = (y * W + x) * 4
+            compared++
+            if (prev.data[a] !== data[b] || prev.data[a + 3] !== data[b + 3]) mismatched++
+          }
+        }
+      }
+      prev = { cam, data }
+    }
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'ArrowRight', bubbles: true }))
+    return { moved, compared, mismatched }
+  })
+  check(
+    running.moved > 5 && running.compared > 1000 && running.mismatched === 0,
+    'no flicker while running: the ground band moves only with the camera',
+    JSON.stringify(running),
+  )
+
+  // Juice wiring, on the live loop: a stomp holds the fixed step for exactly 3 steps.
+  await page.goto(`${URL}?level=1-1&x=282&y=120`, { waitUntil: 'load' })
+  await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+  const stomp = await page.evaluate(async () => {
+    const api = window.__echoSkyRun
+    api.hideControls()
+    const before = api.juice().heldSteps
+    api.resume()
+    for (let i = 0; i < 180 && api.state().score === 0; i++) await new Promise((r) => requestAnimationFrame(r))
+    for (let i = 0; i < 12; i++) await new Promise((r) => requestAnimationFrame(r))
+    return { score: api.state().score, held: api.juice().heldSteps - before }
+  })
+  check(stomp.score > 0 && stomp.held === 3, 'a stomp holds the live fixed step for exactly 3 steps', JSON.stringify(stomp))
+
+  // A death: the screen shakes for 1–8 frames, the pop holds ≤ 16 steps, control is back within 18.
+  // Pip starts on the ground just before the small gap and walks into it; the spawn URL makes that
+  // ground spot the respawn, so he dies exactly once.
+  await page.goto(`${URL}?level=1-1&x=420&y=178`, { waitUntil: 'load' })
+  await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+  const death = await page.evaluate(async () => {
+    const api = window.__echoSkyRun
+    api.hideControls()
+    const before = api.juice().heldSteps
+    api.resume()
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ArrowRight', bubbles: true }))
+    for (let i = 0; i < 240 && api.state().deaths === 0; i++) await new Promise((r) => requestAnimationFrame(r))
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'ArrowRight', bubbles: true }))
+    let shakeFrames = 0
+    let peak = 0
+    for (let i = 0; i < 40; i++) {
+      const j = api.juice()
+      if (j.shakeX !== 0 || j.shakeY !== 0) shakeFrames++
+      peak = Math.max(peak, Math.abs(j.shakeX), Math.abs(j.shakeY))
+      await new Promise((r) => requestAnimationFrame(r))
+    }
+    return { deaths: api.state().deaths, held: api.juice().heldSteps - before, shakeFrames, peak }
+  })
+  check(
+    death.deaths === 1 && death.shakeFrames >= 1 && death.shakeFrames <= 8 && death.peak <= 2,
+    'a death shakes the screen for 1–8 frames, at most 2 px',
+    JSON.stringify(death),
+  )
+  check(
+    death.held > 0 && death.held <= 16 && death.held + 2 <= 18,
+    'the death pop holds ≤ 16 steps, so control is back within 18',
+    JSON.stringify(death),
+  )
+
+  // Squash, stretch and dust, through the same advance() the loop uses.
+  await page.goto(`${URL}?level=1-1&x=120&y=178`, { waitUntil: 'load' })
+  await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+  const squash = await page.evaluate(() => {
+    const api = window.__echoSkyRun
+    api.hideControls()
+    api.pause()
+    for (let i = 0; i < 30 && !api.state().grounded; i++) api.step({})
+    api.step({ jump: true, jumpPressed: true })
+    const stretch = api.juice()
+    let landed = api.juice()
+    for (let i = 0; i < 120; i++) {
+      const s = api.step({})
+      if (s.grounded) {
+        landed = api.juice()
+        break
+      }
+    }
+    return { stretchSy: stretch.sy, landSy: landed.sy, dust: landed.dust }
+  })
+  check(
+    squash.stretchSy > 1 && squash.landSy < 1 && squash.dust > 0,
+    'a jump stretches Pip, a landing squashes him and kicks up dust',
+    JSON.stringify(squash),
   )
 
   check(errors.length === 0, 'no console errors', errors.slice(0, 3).join(' | '))

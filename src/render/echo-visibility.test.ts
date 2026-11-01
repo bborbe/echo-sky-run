@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PALETTE } from './renderer.ts'
+import { BACKGROUND_COLOURS, PALETTE } from './renderer.ts'
 
 /** Relative luminance per WCAG, from a `#rrggbb` string. */
 function luminance(hex: string): number {
@@ -27,6 +27,14 @@ describe('Echo visibility', () => {
   // a pale blue sky, which is a contrast failure, not a taste one.
   it('draws an outline that stands out against the sky', () => {
     expect(contrast(PALETTE.echoOutline, PALETTE.sky)).toBeGreaterThanOrEqual(3)
+  })
+
+  // Style C paints a sky gradient and three parallax layers behind the Echo, not one flat sky: the
+  // dark edge has to hold against every colour back there, or the Echo vanishes over a hill.
+  it('draws an edge that stands out against every background colour', () => {
+    for (const colour of BACKGROUND_COLOURS) {
+      expect(contrast(PALETTE.echoOutline, colour), colour).toBeGreaterThanOrEqual(3)
+    }
   })
 
   it('draws a fill that reads against the sky even in greyscale', () => {

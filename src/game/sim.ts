@@ -24,6 +24,7 @@ import {
   createEnemy,
   createEnemyField,
   dropShell,
+  type Enemy,
   STOMP_BOUNCE,
   stepEnemies,
   touchShell,
@@ -76,7 +77,15 @@ export interface SimState {
   /** Consecutive stomps without landing. Resets on any landing, including on an Echo. */
   combo: number
   score: number
+  /**
+   * The enemies stomped in the last step — the renderer's squash and hit-stop read it. The same
+   * reused array every step (the per-frame path allocates nothing); valid until the next step.
+   */
+  stomped: readonly Enemy[]
 }
+
+/** No stomps yet: the value before the first step. */
+const NO_STOMPS: readonly Enemy[] = []
 
 /**
  * The score a stomp chain is worth. The first stomp is 100 and each further one doubles, capped at
@@ -156,6 +165,7 @@ export function createSim(map: TileMap): SimState {
     deaths: 0,
     combo: 0,
     score: 0,
+    stomped: NO_STOMPS,
   }
 }
 
@@ -223,6 +233,7 @@ export function stepSim(sim: SimState, input: SimInput): void {
 
   // Enemies move after the player, so a stomp is tested against the position he actually reached.
   const events = stepEnemies(sim.enemies, playerBox(sim.player), sim.player.vy, map)
+  sim.stomped = events.stomped
 
   // Shells: hold the run key to carry one, touch it without to kick it away, release to drop it.
   const facing: -1 | 1 = input.left && !input.right ? -1 : 1
