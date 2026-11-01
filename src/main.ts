@@ -14,6 +14,7 @@ import { skyColourAt } from './render/parallax.ts'
 import { PipAnimator } from './render/pose.ts'
 import { INK } from './render/art/palette.ts'
 import { Renderer, PALETTE, type MenuView } from './render/renderer.ts'
+import { loadSave, recordBest, storeSave, type Save } from './save/save.ts'
 import { createControlsCard, ECHO_HINT } from './ui/controls-card.ts'
 import { escapeLeavesFullscreen, toggleFullscreen, watchFullscreen } from './ui/fullscreen.ts'
 import { mountGamepad } from './ui/gamepad-shell.ts'
@@ -32,36 +33,11 @@ if (!canvas) throw new Error('missing #game canvas')
 const skyCanvas = document.querySelector<HTMLCanvasElement>('#sky')
 if (!skyCanvas) throw new Error('missing #sky canvas')
 
-/** The spec's storage key. It holds the best time today; unlocked levels and relics join it later. */
-const STORAGE_KEY = 'echo-sky-run.v1'
-
-interface Save {
-  bestSeconds?: number
-}
-
 /**
- * The best time, or null when there is none. Every access is guarded: a browser in private mode, or
- * one with storage disabled, throws on the first read, and a level that cannot start is worse than
- * one that forgets its record.
+ * The save is versioned and migrated on read (`src/save/save.ts`): the key keeps the name G1 wrote,
+ * the payload carries the schema version, and G1's unversioned `{ bestSeconds }` store is upgraded in
+ * place rather than dropped. Settings are not part of it — they live under their own key.
  */
-function loadBest(): number | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw === null) return null
-    const parsed = JSON.parse(raw) as Save
-    return typeof parsed.bestSeconds === 'number' ? parsed.bestSeconds : null
-  } catch {
-    return null
-  }
-}
-
-function saveBest(seconds: number): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ bestSeconds: seconds } satisfies Save))
-  } catch {
-    // Storage unavailable: the run still counts, it just is not remembered.
-  }
-}
 
 /** localStorage, or null where reading it throws (private mode, storage disabled). */
 function storage(): Storage | null {
@@ -267,7 +243,7 @@ const isHalted = (): boolean => isPaused() || frozen || seamHalted
 let tick = 0
 /** Set once the tally for this run has been recorded, so a finished level is not saved every frame. */
 let recorded = false
-let bestSeconds: number | null = loadBest()
+let save: Save = loadSave(storage())
 
 const held = new Set<string>()
 const edge = { jump: false, echo: false }
@@ -401,7 +377,7 @@ function menuView(): MenuView | null {
     music: volumes.music,
     effects: volumes.effects,
     runSeconds: sim.frames / 60,
-    bestSeconds,
+    bestSeconds: save.bestSeconds,
   }
 }
 
@@ -588,10 +564,10 @@ function frame(now: number): void {
   // Record the run once it is finished: the first finish, and every faster one after it.
   if (sim.goalReached && !recorded) {
     recorded = true
-    const seconds = sim.frames / 60
-    if (bestSeconds === null || seconds < bestSeconds) {
-      bestSeconds = seconds
-      saveBest(seconds)
+    const next = recordBest(save, sim.frames / 60)
+    if (next !== save) {
+      save = next
+      storeSave(storage(), save)
     }
   }
 
@@ -609,7 +585,7 @@ function frame(now: number): void {
     usedBlocks: sim.usedBlocks,
     paused: isPaused(),
     runSeconds: sim.frames / 60,
-    bestSeconds,
+    bestSeconds: save.bestSeconds,
     tick,
     // A seam-driven step has no stepper phase, so it draws the current state rather than blending
     // back towards the previous one.

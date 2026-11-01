@@ -14,7 +14,7 @@ import { tileMask, tileShape } from './art/tiles.ts'
 import { bake, paint, type Baked } from './atlas.ts'
 import { spriteOrigin } from './anchor.ts'
 import { Background } from './background.ts'
-import { Camera, VIEW_H } from './camera.ts'
+import { Camera, logicalViewWidth, VIEW_H } from './camera.ts'
 import { Juice } from './juice.ts'
 import { isVolumeRow, type GameScreen, type MenuItem } from '../ui/screens.ts'
 
@@ -168,8 +168,7 @@ export class Renderer {
    * pixels, stretched over the whole window and drawn nearest-neighbour, so there are never bars.
    */
   fit(): void {
-    const scale = Math.max(window.innerHeight, 1) / VIEW_H
-    const viewW = Math.max(TILE, Math.round(window.innerWidth / scale))
+    const viewW = logicalViewWidth(window.innerWidth, window.innerHeight)
 
     this.viewW = viewW
     this.camera.setViewWidth(viewW)

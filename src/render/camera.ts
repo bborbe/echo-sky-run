@@ -5,10 +5,21 @@
 // the view up to 30% of the screen ahead of a sprinting Pip, and the operator rejected it ("the
 // screen does now annoying things ... move in direction of the movement"). The rule this file keeps
 // is that the scroll offset is a function of where Pip IS, never of which way he is going.
-import { PLAYER_W } from '../physics/constants.ts'
+import { PLAYER_W, TILE } from '../physics/constants.ts'
 
 /** The logical view height is fixed at 14 tiles. */
 export const VIEW_H = 224
+
+/**
+ * The logical view width for a window: the height is fixed at `VIEW_H`, so the width follows the
+ * window's aspect and rounds to whole pixels. It lives beside `VIEW_H` rather than inside the
+ * renderer so the level toolkit's blind-jump check measures the view the game actually draws,
+ * instead of re-deriving the arithmetic and measuring a viewport that does not exist.
+ */
+export function logicalViewWidth(innerWidth: number, innerHeight: number): number {
+  const scale = Math.max(innerHeight, 1) / VIEW_H
+  return Math.max(TILE, Math.round(innerWidth / scale))
+}
 
 /**
  * The dead zone: Pip may drift this far either side of the view's centre before the camera follows.
