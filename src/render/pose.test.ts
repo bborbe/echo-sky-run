@@ -69,4 +69,30 @@ describe('Pip pose selection', () => {
     a.update(STAND)
     expect(a.facing).toBe(-1)
   })
+
+  // Play gate 1: "the char animation does not stop at level end". The finished run is frozen with
+  // Pip's last speed still in it; the animator must not read that speed as running.
+  it('settles into idle once the run is finished, even though the frozen state still has speed', () => {
+    const a = new PipAnimator()
+    a.update({ vx: 2.25, vy: 0, grounded: true, inputDir: 1 })
+    expect(a.pose).toBe('run')
+    const finished: PoseInput = { vx: 2.25, vy: 0, grounded: true, inputDir: 1, finished: true }
+    a.update(finished)
+    expect(a.pose).toBe('idle')
+    const frames = new Set<number>()
+    for (let i = 0; i < 30; i++) {
+      a.update(finished)
+      expect(a.pose).toBe('idle')
+      frames.add(a.frame)
+    }
+    // An idle breath at most — never a run cycle's four frames in half a second.
+    expect(frames.size).toBeLessThanOrEqual(2)
+  })
+
+  it('keeps facing the way Pip finished', () => {
+    const a = new PipAnimator()
+    a.update({ vx: 2, vy: 0, grounded: true, inputDir: 1 })
+    a.update({ vx: 2, vy: 0, grounded: true, inputDir: -1, finished: true })
+    expect(a.facing).toBe(1)
+  })
 })

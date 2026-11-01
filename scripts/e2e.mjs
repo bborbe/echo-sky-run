@@ -250,6 +250,25 @@ try {
   })
 
   check(run.won, 'level 1-1 is cleared', JSON.stringify(run))
+
+  // Play gate 1: "the char animation does not stop at level end". After the flag, Pip stands idle
+  // even with right still held — the frozen run must not keep animating a stride.
+  const afterGoal = await page.evaluate(() => {
+    const game = window.__echoSkyRun
+    const poses = new Set()
+    const frames = new Set()
+    for (let i = 0; i < 40; i++) {
+      const s = game.step({ right: true, sprint: true })
+      poses.add(s.pose)
+      frames.add(s.poseFrame)
+    }
+    return { poses: [...poses], frames: [...frames] }
+  })
+  check(
+    afterGoal.poses.length === 1 && afterGoal.poses[0] === 'idle' && afterGoal.frames.length <= 2,
+    'after the goal Pip stands idle instead of running in place',
+    JSON.stringify(afterGoal),
+  )
   check(run.echoesPlaced === 1, 'the gap is crossed on exactly one mid-air Echo', `placed=${run.echoesPlaced}`)
 
   // The tally records the run from the frame loop, so give it a frame to see goalReached.
@@ -262,6 +281,33 @@ try {
     typeof stored?.bestSeconds === 'number' && stored.bestSeconds > 0,
     'the best time is stored under echo-sky-run.v1',
     JSON.stringify(stored),
+  )
+
+  // Play gate 1: "the quali of the text is not very good readable". The tally is a pixel font on an
+  // opaque panel, so every pixel inside the panel is one of a handful of palette inks — an
+  // anti-aliased grey from a system font would show up here as a colour outside the set.
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+  const tallyText = await page.evaluate(() => {
+    const api = window.__echoSkyRun
+    const box = api.overlayBox()
+    if (!box) return { ok: false, why: 'no overlay panel' }
+    const game = document.querySelector('#game')
+    const { data } = game.getContext('2d').getImageData(box.x, box.y, box.w, box.h)
+    const hex = (i) => '#' + [data[i], data[i + 1], data[i + 2]].map((v) => v.toString(16).padStart(2, '0')).join('').toUpperCase()
+    const allowed = new Set(api.overlayInks())
+    const stray = new Map()
+    const inks = new Set()
+    for (let i = 0; i < data.length; i += 4) {
+      const h = hex(i)
+      if (allowed.has(h) && data[i + 3] === 255) inks.add(h)
+      else stray.set(h, (stray.get(h) ?? 0) + 1)
+    }
+    return { ok: true, box, inks: [...inks], stray: [...stray.entries()].slice(0, 5) }
+  })
+  check(
+    tallyText.ok && tallyText.stray.length === 0 && tallyText.inks.length >= 4,
+    'the level-clear text is crisp pixel font: palette inks only, no anti-aliased greys',
+    JSON.stringify(tallyText),
   )
 
   // ---- what is actually on the canvas ------------------------------------------------------

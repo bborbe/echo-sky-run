@@ -9,6 +9,7 @@ import { parseLevel, tileAt } from './physics/tilemap.ts'
 import { Juice, type StepFacts, type StompFact } from './render/juice.ts'
 import { skyColourAt } from './render/parallax.ts'
 import { PipAnimator } from './render/pose.ts'
+import { INK } from './render/art/palette.ts'
 import { Renderer, PALETTE } from './render/renderer.ts'
 import { createControlsCard, ECHO_HINT } from './ui/controls-card.ts'
 import { escapeLeavesFullscreen, toggleFullscreen, watchFullscreen } from './ui/fullscreen.ts'
@@ -147,7 +148,7 @@ function advance(input: SimInput): void {
 
   const p = sim.player
   const inputDir: -1 | 0 | 1 = input.left && !input.right ? -1 : input.right && !input.left ? 1 : 0
-  animator.update({ vx: p.vx, vy: p.vy, grounded: p.grounded, inputDir })
+  animator.update({ vx: p.vx, vy: p.vy, grounded: p.grounded, inputDir, finished: sim.goalReached })
   juice.tick()
   // A finished run does not step; there is nothing for the juice to read.
   if (sim.frames === framesBefore) return
@@ -468,6 +469,9 @@ function snapshot() {
     deaths: sim.deaths,
     signSeen: sim.signSeen,
     goalReached: sim.goalReached,
+    /** The pose being drawn, so the browser check can assert what Pip looks like. */
+    pose: animator.pose,
+    poseFrame: animator.frame,
   }
 }
 
@@ -522,6 +526,10 @@ interface EchoSkyRunTestApi {
   layers(): { name: string; above: number; below: number }[]
   /** The level's tile rows, for the seam and gap probes. */
   tiles(): readonly string[]
+  /** The overlay panel (tally or pause) on the play canvas, or null when none is up. */
+  overlayBox(): { x: number; y: number; w: number; h: number } | null
+  /** The inks the overlay panel may contain: panel, rim and the font's colours. */
+  overlayInks(): string[]
   /** The camera's integer scroll, for the flicker probe. */
   cameraX(): number
   /** The sky gradient's colour at a screen row — what a gap must show. */
@@ -620,6 +628,8 @@ const api: EchoSkyRunTestApi = {
   },
   layers: () => renderer.layerCoverage(),
   tiles: () => map.tiles,
+  overlayBox: () => renderer.overlayBox,
+  overlayInks: () => [INK.panel, INK.brass, INK.brassLight, INK.cream, INK.echo],
   cameraX: () => renderer.cameraX,
   elements: () => {
     const out: { name: string; x: number; y: number; w: number; h: number }[] = []
