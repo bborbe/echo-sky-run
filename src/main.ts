@@ -512,6 +512,8 @@ interface EchoSkyRunTestApi {
   cameraX(): number
   /** The sky gradient's colour at a screen row — what a gap must show. */
   skyAt(y: number): [number, number, number]
+  /** World boxes of what the readability check measures: Pip, the ground under him, enemies, ? blocks, Echoes and their rings. */
+  elements(): { name: string; x: number; y: number; w: number; h: number }[]
 }
 
 const api: EchoSkyRunTestApi = {
@@ -599,6 +601,31 @@ const api: EchoSkyRunTestApi = {
     }
   },
   cameraX: () => renderer.cameraX,
+  elements: () => {
+    const out: { name: string; x: number; y: number; w: number; h: number }[] = []
+    const p = sim.player
+    out.push({ name: 'pip', x: p.x, y: p.y, w: PLAYER_W, h: p.h })
+    const feetRow = Math.floor((p.y + p.h) / TILE)
+    if (tileAt(map, Math.floor(p.x / TILE), feetRow) === '#') {
+      out.push({ name: 'ground', x: Math.floor(p.x / TILE) * TILE - TILE, y: feetRow * TILE, w: 3 * TILE, h: TILE })
+    }
+    for (const e of sim.enemies.enemies) {
+      const name = e.kind === 'gear-goomba' ? 'gear-goomba' : e.mode === 'walk' ? 'steam-turtle' : 'shell'
+      out.push({ name, x: e.x, y: e.y, w: e.w, h: e.h })
+    }
+    for (let row = 0; row < map.rows; row++) {
+      for (let col = 0; col < map.cols; col++) {
+        if (tileAt(map, col, row) === '?') out.push({ name: 'qblock', x: col * TILE, y: row * TILE, w: TILE, h: TILE })
+      }
+    }
+    for (const e of sim.field.echoes) {
+      out.push({ name: 'echo-platform', x: e.x, y: e.y, w: e.w, h: e.h })
+      // The ring sits above the ghost: same placement as the renderer, ghost height from Pip's form.
+      const ghostH = (sim.power === 'super' ? 28 : 16) + 2
+      out.push({ name: 'echo-ring', x: e.x + (e.w - 13) / 2, y: e.y - ghostH + 1 - 14, w: 13, h: 13 })
+    }
+    return out
+  },
   skyAt: (y: number) => skyColourAt(y),
   frameTimings: () => {
     const sorted = [...frameTimes].sort((a, b) => a - b)
