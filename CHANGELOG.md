@@ -20,6 +20,17 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
   - "Brass Clockwork Skies" is an original 16-bar F-major loop at 120 bpm with brass lead, music box, oom-pah bass and clockwork ticks. Its release tail is folded onto the start, so the wrap is seamless.
   - 17 effect recipes cover every sound event 1-1 raises, plus spin, coin and switch for later levels.
   - Vitest renders every sound and checks level, length and pairwise distinctness, the seam sample for sample, and the step-to-event mapping driven through `stepSim`.
+  - The bank renders in a Web Worker. Audio unlocks on the first key or click, and the sound that input raises still plays.
+  - The music stops while paused, behind the controls card, after the flag and on a hidden tab (which also suspends the AudioContext). It resumes where it stopped and plays on through a death.
+  - The pause panel has MUSIC and EFFECTS slider bars (Space or pad A picks a row, ←/→ adjust), stored under `echo-sky-run.settings.v1`.
+  - `?audiolog=1` traces every sound, and `?vol=0` mutes agent-driven browsers.
+  - `make e2e` checks:
+    - the unlock and the first sound;
+    - a real jump on the effects analyser;
+    - music pause, hidden-tab and resume;
+    - the volume bars and the reload;
+    - p99 with sound on;
+    - all 17 events in the trace.
 
 ## v0.5.1
 

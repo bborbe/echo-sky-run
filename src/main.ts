@@ -1,3 +1,6 @@
+import { AudioEngine } from './audio/engine.ts'
+import { SoundWatcher } from './audio/events.ts'
+import { loadVolumes, saveVolumes, VolumeMenu } from './audio/settings.ts'
 import { BUILD_LABEL } from './build-info.ts'
 import { mountDebugOverlay, readEchoSpot, readFreeze, readSpawn, spawnQuery } from './debug/overlay.ts'
 import { ECHO_LIFE_F, placeEcho } from './echo/echo.ts'
@@ -50,6 +53,39 @@ function saveBest(seconds: number): void {
     // Storage unavailable: the run still counts, it just is not remembered.
   }
 }
+
+/** localStorage, or null where reading it throws (private mode, storage disabled). */
+function storage(): Storage | null {
+  try {
+    return window.localStorage
+  } catch {
+    return null
+  }
+}
+
+const params = new URLSearchParams(location.search)
+
+/**
+ * Sound. The bank renders in a worker from page load; the context starts on the first key or click.
+ * `?vol=0` mutes the master for agent-driven browsers, `?audiolog=1` keeps the trace the browser
+ * check reads.
+ */
+const audio = new AudioEngine({
+  volumes: loadVolumes(storage()),
+  muted: params.get('vol') === '0',
+  log: params.get('audiolog') === '1',
+  worker:
+    typeof Worker === 'undefined'
+      ? null
+      : () => new Worker(new URL('./audio/render.worker.ts', import.meta.url), { type: 'module' }),
+  now: () => performance.now(),
+})
+/** Reads each fixed step for the sounds it raised. */
+const sounds = new SoundWatcher()
+/** The pause panel's volume rows. */
+const volumeMenu = new VolumeMenu(audio.volumes())
+/** The pause the player opened (Esc, P, Start) shows the volume rows; a test-seam pause does not. */
+let menuOpen = false
 
 const map = parseLevel(LEVEL_1_1_ROWS)
 const renderer = new Renderer(canvas, skyCanvas)
@@ -144,7 +180,9 @@ function advance(input: SimInput): void {
 
   prevX = before.x
   prevY = before.y
+  sounds.before(sim, input)
   stepSim(sim, input)
+  for (const sound of sounds.after(sim, input)) audio.play(sound)
 
   const p = sim.player
   const inputDir: -1 | 0 | 1 = input.left && !input.right ? -1 : input.right && !input.left ? 1 : 0
@@ -245,6 +283,8 @@ function resetGame(): void {
   tick = 0
   recorded = false
   signShown = false
+  // A new run starts the music from the top; a death inside a run never does.
+  audio.restartMusic()
   stepper.reset()
   animator.reset()
   juice.reset()
@@ -267,17 +307,23 @@ function readInput(): SimInput {
 window.addEventListener('keydown', (event) => {
   if (event.ctrlKey || event.metaKey || event.altKey) return
 
+  // The browser starts audio only inside a real gesture. Unlock first, so the sound this very press
+  // raises plays. A pad's synthetic key is not a gesture and cannot unlock.
+  if (event.isTrusted) audio.unlock()
+
   // Any key dismisses the card, and the press that dismisses it is not also a game input — otherwise
   // reading the controls costs the player a jump.
   if (controls.visible()) {
     event.preventDefault()
     controls.hide()
+    audio.play('ui-close')
     return
   }
 
   if (event.code === 'KeyH') {
     event.preventDefault()
     controls.show()
+    audio.play('ui-open')
     return
   }
 
@@ -300,7 +346,22 @@ window.addEventListener('keydown', (event) => {
   if (event.code === 'Escape' || (event.code === 'KeyP' && !overlay.visible())) {
     event.preventDefault()
     paused = !paused
+    menuOpen = paused
+    audio.play(paused ? 'ui-open' : 'ui-close')
     if (paused) releaseAll()
+    return
+  }
+
+  // The pause panel's volume rows own the arrows and Space while it is up, so adjusting the volume
+  // never latches a jump or a step for the moment the game resumes.
+  if (menuOpen && paused && VolumeMenu.owns(event.code)) {
+    event.preventDefault()
+    const action = volumeMenu.key(event.code)
+    if (action === 'volume') {
+      audio.setVolume(volumeMenu.row, volumeMenu.volumes[volumeMenu.row])
+      saveVolumes(storage(), volumeMenu.volumes)
+    }
+    if (action !== 'none') audio.play('ui-tick')
     return
   }
 
@@ -325,6 +386,11 @@ window.addEventListener('keyup', (event) => {
   held.delete(event.code)
 })
 
+// A click is a gesture too: a player who clicks the page before pressing a key hears the game.
+window.addEventListener('pointerdown', (event) => {
+  if (event.isTrusted) audio.unlock()
+})
+
 // A key still physically down when the tab loses focus never delivers keyup, so the player would
 // keep running after refocus. Drop every held key and any latched edge.
 function releaseAll(): void {
@@ -344,6 +410,7 @@ document.addEventListener('visibilitychange', () => {
   } else {
     tabHidden = false
   }
+  audio.setHidden(document.hidden)
 })
 
 /** Frame durations for the debug overlay's p99. A long stall is clamped: a tab switch is not a frame. */
@@ -387,6 +454,10 @@ function frame(now: number): void {
     })
   }
 
+  // The music sounds only while the game runs: not paused, not behind the controls card, not frozen,
+  // not after the flag. It keeps its place across a stop, and only a new run rewinds it.
+  audio.setMusic(!isHalted() && !controls.visible() && !sim.goalReached)
+
   // The sign's hint, once per run.
   if (sim.signSeen && !signShown) {
     signShown = true
@@ -428,6 +499,10 @@ function frame(now: number): void {
     poseFrame: animator.frame,
     facing: animator.facing,
     juice,
+    volumeMenu:
+      menuOpen && paused
+        ? { music: volumeMenu.volumes.music, effects: volumeMenu.volumes.effects, row: volumeMenu.row }
+        : null,
   })
 
   const stats = frameStats(frameMs, steps)
@@ -538,6 +613,22 @@ interface EchoSkyRunTestApi {
   skyAt(y: number): [number, number, number]
   /** World boxes of what the readability check measures: Pip, the ground under him, enemies, ? blocks, Echoes and their rings. */
   elements(): { name: string; x: number; y: number; w: number; h: number }[]
+  /**
+   * The sound engine as the browser check sees it: lock state, the `?audiolog=1` trace, the volumes
+   * the settings hold and the gains the audio graph holds, the bus levels read before the volume,
+   * the music position, and the pause panel's volume rows.
+   */
+  audio(): {
+    state: string
+    unlocked: boolean
+    ready: boolean
+    log: { t: number; event: string; recipe: string; played: boolean }[] | null
+    volumes: { music: number; effects: number }
+    gains: { music: number; effects: number } | null
+    levels: { music: number; effects: number }
+    musicTime: number
+    menu: { open: boolean; row: string }
+  }
 }
 
 const api: EchoSkyRunTestApi = {
@@ -545,10 +636,12 @@ const api: EchoSkyRunTestApi = {
   palette: PALETTE,
   pause() {
     paused = true
+    menuOpen = false
     renderAlpha = 1
   },
   resume() {
     paused = false
+    menuOpen = false
     frozen = false
     tabHidden = false
     renderAlpha = null
@@ -660,6 +753,17 @@ const api: EchoSkyRunTestApi = {
     return out
   },
   skyAt: (y: number) => skyColourAt(y),
+  audio: () => ({
+    state: audio.state,
+    unlocked: audio.unlocked,
+    ready: audio.ready,
+    log: audio.log === null ? null : audio.log.map((e) => ({ ...e })),
+    volumes: audio.volumes(),
+    gains: audio.gains(),
+    levels: audio.levels(),
+    musicTime: audio.musicTime(),
+    menu: { open: menuOpen && paused, row: volumeMenu.row },
+  }),
   frameTimings: () => {
     const sorted = [...frameTimes].sort((a, b) => a - b)
     const samples = sorted.length
