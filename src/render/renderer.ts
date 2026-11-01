@@ -5,9 +5,10 @@ import { SMALL_W, TILE } from '../physics/constants.ts'
 import type { PlayerState } from '../physics/player.ts'
 import { CHECKPOINT, GOAL, isOneWay, isSolid, QUESTION, SIGN, tileAt, type TileMap } from '../physics/tilemap.ts'
 import { CATALOGUE, animation } from './art/catalogue.ts'
+import { FONT, GLYPH_GAP, GLYPH_W, OVERLAY_TEXT, textWidth } from './art/font.ts'
 import { ECHO_KEYS, RING_SIZE, SPAWN_RING_RADII, ghostMask, litSegments, spawnRingMask } from './art/fx.ts'
 import type { Mask } from './art/mask.ts'
-import { INK, SKY } from './art/palette.ts'
+import { INK, SKY, type InkName } from './art/palette.ts'
 import { PIP_SMALL, PIP_SUPER, type PipPose } from './art/pip.ts'
 import { tileMask, tileShape } from './art/tiles.ts'
 import { bake, paint, type Baked } from './atlas.ts'
@@ -23,9 +24,6 @@ import { Juice } from './juice.ts'
  */
 export { VIEW_H }
 
-const FLAG = '#f2f2f2'
-/** The tally's action prompt: dimmer than the times, because it is a hint and not a result. */
-const TALLY_PROMPT = '#9fb3c4'
 
 /**
  * The colours the browser check looks for on the canvases. Exported so the check asserts these
@@ -90,6 +88,8 @@ export class Renderer {
   private readonly flashGhosts = new Map<string, Baked>()
   private readonly rings: readonly HTMLCanvasElement[]
   private readonly spawnRings: readonly HTMLCanvasElement[]
+  /** Font glyphs baked per ink, on first use. */
+  private readonly glyphs = new Map<InkName, Map<string, HTMLCanvasElement>>()
   /** The level's static tiles, baked once per map. */
   private level: { map: TileMap; canvas: HTMLCanvasElement } | null = null
 
@@ -174,6 +174,7 @@ export class Renderer {
     this.drawParticles(juice)
     ctx.restore()
 
+    this.overlayBox = null
     if (state.goalReached) this.drawTally(state.runSeconds, state.bestSeconds)
     else if (state.paused) this.drawPaused()
   }
@@ -380,45 +381,79 @@ export class Renderer {
     }
   }
 
+  /** One line of pixel text, its top-left on whole pixels, every glyph pixel a palette ink. */
+  private text(line: string, x: number, y: number, ink: InkName): void {
+    let cache = this.glyphs.get(ink)
+    if (!cache) {
+      cache = new Map()
+      this.glyphs.set(ink, cache)
+    }
+    let gx = Math.round(x)
+    const gy = Math.round(y)
+    for (const ch of line) {
+      let img = cache.get(ch)
+      if (!img) {
+        const glyph = FONT[ch] ?? FONT[' ']
+        img = paint(glyph, { '#': ink })
+        cache.set(ch, img)
+      }
+      this.ctx.drawImage(img, gx, gy)
+      gx += GLYPH_W + GLYPH_GAP
+    }
+  }
+
+  /** A line of pixel text centred on `cx`. */
+  private centred(line: string, cx: number, y: number, ink: InkName): void {
+    this.text(line, Math.round(cx - textWidth(line) / 2), y, ink)
+  }
+
+  /** An opaque panel with a brass rim — text on it sits on one known colour, never on the world. */
+  private panel(x: number, y: number, w: number, h: number): void {
+    const ctx = this.ctx
+    ctx.fillStyle = INK.brass
+    ctx.fillRect(x, y, w, h)
+    ctx.fillStyle = INK.panel
+    ctx.fillRect(x + 1, y + 1, w - 2, h - 2)
+  }
+
+  /** The overlay panel's box, for the browser check's text probe. Null when no overlay is up. */
+  overlayBox: { x: number; y: number; w: number; h: number } | null = null
+
   /** A pause has to look like one, or a player cannot tell a stopped game from a broken one. */
   private drawPaused(): void {
-    const ctx = this.ctx
-    const w = 120
-    const h = 40
+    const w = textWidth(OVERLAY_TEXT.pausedHint) + 20
+    const h = 36
     const x = Math.round((this.viewW - w) / 2)
     const y = Math.round((VIEW_H - h) / 2)
-    ctx.fillStyle = 'rgba(20, 30, 40, 0.85)'
-    ctx.fillRect(x, y, w, h)
-    ctx.fillStyle = FLAG
-    ctx.font = '10px monospace'
-    ctx.textAlign = 'center'
-    ctx.fillText('PAUSED', x + w / 2, y + 18)
-    ctx.fillStyle = TALLY_PROMPT
-    ctx.fillText('Esc / P / Start: resume', x + w / 2, y + 32)
+    this.panel(x, y, w, h)
+    this.overlayBox = { x, y, w, h }
+    this.centred(OVERLAY_TEXT.paused, x + w / 2, y + 8, 'brassLight')
+    this.centred(OVERLAY_TEXT.pausedHint, x + w / 2, y + 21, 'echo')
   }
 
   /**
    * The level-clear tally: this run's time, the best time, and the way out. The prompt matters as
    * much as the numbers — the run is frozen, so without it a player who wants another go has no
-   * visible way to start one (operator playtest, 2026-11-01).
+   * visible way to start one (operator playtest, 2026-11-01). Pixel font on an opaque panel, the
+   * prompt in bright cyan: play gate 1 found the old system-font text soft and its hint too dim.
    */
   private drawTally(runSeconds: number, bestSeconds: number | null): void {
-    const ctx = this.ctx
     const w = Math.min(this.viewW - 32, 220)
-    const h = 80
+    const h = 76
     const x = Math.round((this.viewW - w) / 2)
     const y = Math.round((VIEW_H - h) / 2)
-
-    ctx.fillStyle = 'rgba(20, 30, 40, 0.85)'
-    ctx.fillRect(x, y, w, h)
-    ctx.fillStyle = FLAG
-    ctx.font = '10px monospace'
-    ctx.textAlign = 'center'
-    ctx.fillText('LEVEL CLEAR', x + w / 2, y + 18)
-    ctx.fillText(`TIME ${formatTime(runSeconds)}`, x + w / 2, y + 34)
-    ctx.fillText(bestSeconds === null ? 'BEST --' : `BEST ${formatTime(bestSeconds)}`, x + w / 2, y + 50)
-    ctx.fillStyle = TALLY_PROMPT
-    ctx.fillText('Jump / A: retry · H: controls', x + w / 2, y + 68)
+    this.panel(x, y, w, h)
+    this.overlayBox = { x, y, w, h }
+    const cx = x + w / 2
+    this.centred(OVERLAY_TEXT.clear, cx, y + 9, 'brassLight')
+    this.centred(`${OVERLAY_TEXT.time} ${formatTime(runSeconds)}`, cx, y + 25, 'cream')
+    this.centred(
+      bestSeconds === null ? OVERLAY_TEXT.noBest : `${OVERLAY_TEXT.best} ${formatTime(bestSeconds)}`,
+      cx,
+      y + 37,
+      'cream',
+    )
+    this.centred(OVERLAY_TEXT.clearHint, cx, y + 58, 'echo')
   }
 }
 

@@ -47,6 +47,9 @@ export const INK = {
 
   // the Mushroom
   capRed: '#C8402A',
+
+  /** The overlay panel behind the pixel font: opaque, so text sits on one known colour. */
+  panel: '#1C1826',
 } as const
 
 /**

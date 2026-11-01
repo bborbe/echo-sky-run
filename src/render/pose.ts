@@ -11,6 +11,11 @@ export interface PoseInput {
   readonly grounded: boolean
   /** The direction the player is pushing: -1 left, 1 right, 0 neither. */
   readonly inputDir: -1 | 0 | 1
+  /**
+   * The run is over (goal reached). The simulation freezes a finished run with Pip's last speed
+   * still in it, so speed no longer means running: Pip stands idle, facing the way he finished.
+   */
+  readonly finished?: boolean
 }
 
 /** Frames the landing crouch is held. */
@@ -47,6 +52,14 @@ export class PipAnimator {
 
   /** Advance one fixed step. */
   update(p: PoseInput): void {
+    if (p.finished) {
+      this.landTimer = 0
+      this.stride = 0
+      this.idleTimer += 1
+      this.set('idle', Math.floor(this.idleTimer / IDLE_BREATH_F))
+      return
+    }
+
     if (p.inputDir !== 0) this.facing = p.inputDir
     else if (Math.abs(p.vx) > 0.2) this.facing = p.vx > 0 ? 1 : -1
 
