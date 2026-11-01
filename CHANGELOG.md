@@ -10,6 +10,8 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- feat: `F` toggles browser fullscreen, reusing Driftline's `fullscreen.ts` — the canvas re-fits on every fullscreen change, and an Esc that leaves fullscreen is not also read as a pause request
+
 - fix: the Echo platform is visible. It was pale blue at 55% opacity over a pale blue sky, which is invisible rather than subtle — play gate 2 reported "I can't see them". It now draws a dark outline, a solid fill that survives a greyscale read, a ghost body above it, and a bright flash for its first six frames. A test asserts the outline and fill contrast against the sky colour.
 - fix: the Echo platform holds a landing. It was 12 px — exactly Pip's width, anchored at his left edge — so a landing at speed carried him off it in a few frames. It is now 32 px and centred, and an Echo grips harder than the level's tiles, because at ground friction a sprint needs ~72 px to stop, far more than a foothold has. A test lands Pip on it at run and sprint speed and asserts he is still standing 90 frames later; it failed against the first, width-only fix, which is how the insufficiency was caught.
 - fix: the camera used a hardcoded 16 px player height, so it sat 6 px high while Pip was Super.

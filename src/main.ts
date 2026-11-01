@@ -6,6 +6,7 @@ import { FixedStepper } from './physics/loop.ts'
 import { parseLevel, tileAt } from './physics/tilemap.ts'
 import { Renderer, PALETTE } from './render/renderer.ts'
 import { createControlsCard, ECHO_HINT } from './ui/controls-card.ts'
+import { escapeLeavesFullscreen, toggleFullscreen, watchFullscreen } from './ui/fullscreen.ts'
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game')
 if (!canvas) throw new Error('missing #game canvas')
@@ -44,6 +45,8 @@ function saveBest(seconds: number): void {
 const map = parseLevel(LEVEL_1_1_ROWS)
 const renderer = new Renderer(canvas)
 window.addEventListener('resize', () => renderer.fit())
+// Fullscreen changes the window size, so the canvas has to re-fit on every change, not just a resize.
+watchFullscreen(() => renderer.fit())
 
 // Shown on first start and whenever H asks for it. While it is up the game does not advance, so a
 // player reading the controls is not losing a run behind the card.
@@ -146,6 +149,18 @@ window.addEventListener('keydown', (event) => {
   if (event.code === 'KeyH') {
     event.preventDefault()
     controls.show()
+    return
+  }
+
+  if (event.code === 'KeyF') {
+    event.preventDefault()
+    toggleFullscreen()
+    return
+  }
+
+  // Esc leaves fullscreen natively. Swallowing that same keydown as a pause would make one press
+  // do two things, so a press inside the exit grace window is left to the browser.
+  if (event.code === 'Escape' && escapeLeavesFullscreen(document.fullscreenElement !== null, performance.now())) {
     return
   }
 
