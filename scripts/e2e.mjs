@@ -1031,6 +1031,291 @@ try {
     JSON.stringify(squash),
   )
 
+  // ---- sound (spec § 9 Sound, goal SC3) ------------------------------------------------------
+  // Every page below loads with ?audiolog=1. The traces are pooled across pages: the union must hold
+  // all 17 events 1-1 can raise, each started on the effects bus (played: true) with its own recipe.
+  const SOUND_EVENTS = [
+    'jump', 'land', 'echo-place', 'echo-expire', 'echo-refuse', 'stomp', 'block', 'mushroom-appear',
+    'mushroom-collect', 'shell-kick', 'power-down', 'death', 'checkpoint', 'goal', 'ui-open', 'ui-close',
+    'ui-tick',
+  ]
+  const trace = []
+  const audioState = () => page.evaluate(() => window.__echoSkyRun.audio())
+  const keepTrace = async () => {
+    const a = await audioState()
+    if (a.log) trace.push(...a.log)
+  }
+  const openAudioPage = async (query = '') => {
+    await page.goto(`${URL}?audiolog=1${query}`, { waitUntil: 'load' })
+    await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+  }
+  /** Poll a bus level in the page for up to `ms`; returns the max, or the min when `want` is 'min'. */
+  const busLevel = (bus, ms, want = 'max') =>
+    page.evaluate(
+      ({ bus, ms, want }) =>
+        new Promise((resolve) => {
+          const api = window.__echoSkyRun
+          const t0 = performance.now()
+          let best = want === 'max' ? 0 : Infinity
+          const tick = () => {
+            const v = api.audio().levels[bus]
+            best = want === 'max' ? Math.max(best, v) : Math.min(best, v)
+            if (performance.now() - t0 >= ms) return resolve(best)
+            requestAnimationFrame(tick)
+          }
+          tick()
+        }),
+      { bus, ms, want },
+    )
+  /** Time until a bus falls below `level`, polled per frame up to `ms`; -1 when it never does. */
+  const quietWithin = (bus, level, ms) =>
+    page.evaluate(
+      ({ bus, level, ms }) =>
+        new Promise((resolve) => {
+          const api = window.__echoSkyRun
+          const t0 = performance.now()
+          const tick = () => {
+            const dt = performance.now() - t0
+            if (api.audio().levels[bus] < level) return resolve(Math.round(dt))
+            if (dt >= ms) return resolve(-1)
+            requestAnimationFrame(tick)
+          }
+          tick()
+        }),
+      { bus, level, ms },
+    )
+
+  // Locked until a gesture, then the first input's own sound plays.
+  await openAudioPage()
+  const locked = await audioState()
+  check(
+    locked.state === 'locked' && !locked.unlocked,
+    'before any input the sound engine is locked, with no AudioContext',
+    JSON.stringify({ state: locked.state, unlocked: locked.unlocked }),
+  )
+  await page.keyboard.press('z')
+  await page.waitForTimeout(300)
+  const unlocked = await audioState()
+  const firstSound = (unlocked.log ?? []).find((e) => e.event === 'ui-close')
+  check(
+    unlocked.unlocked && unlocked.state === 'running',
+    'the first key unlocks audio: the context is running',
+    JSON.stringify({ state: unlocked.state }),
+  )
+  check(
+    firstSound?.played === true && firstSound.recipe === 'ui-close',
+    'the sound that first key raised was played, not dropped',
+    JSON.stringify(firstSound ?? null),
+  )
+  await page.waitForFunction(() => window.__echoSkyRun.audio().ready, null, { timeout: 10000 })
+
+  // A real jump, in real time, reaches the effects bus. The analyser sits before the volume gain.
+  await page.evaluate(() => {
+    window.__echoSkyRun.reset()
+    window.__echoSkyRun.resume()
+  })
+  await page.waitForTimeout(400)
+  const preJump = await busLevel('effects', 120, 'min')
+  await page.keyboard.down('ArrowUp')
+  const jumpLevel = await busLevel('effects', 150)
+  await page.keyboard.up('ArrowUp')
+  check(
+    preJump < 0.01 && jumpLevel >= 0.05,
+    'a real jump sounds on the effects bus within 150 ms (silent before it)',
+    JSON.stringify({ preJump, jumpLevel }),
+  )
+
+  // The music plays while the game runs, and the frame budget holds with it on.
+  const musicOn = await busLevel('music', 1500)
+  check(musicOn >= 0.05, 'the world 1 music plays while the game runs', `peak=${musicOn.toFixed(3)}`)
+  await page.waitForTimeout(1500)
+  const audioTimings = await page.evaluate(() => window.__echoSkyRun.frameTimings())
+  check(
+    audioTimings.samples >= 60 && audioTimings.p99Ms < 18,
+    'p99 frame time stays under 18 ms with the music and effects running',
+    JSON.stringify(audioTimings),
+  )
+
+  // Pause: the music stops within 500 ms and its position freezes; resume picks up where it stopped.
+  await page.keyboard.press('Escape')
+  const pauseQuietMs = await quietWithin('music', 0.005, 500)
+  const tPaused = (await audioState()).musicTime
+  await page.waitForTimeout(500)
+  const tStill = (await audioState()).musicTime
+  check(
+    pauseQuietMs >= 0 && Math.abs(tStill - tPaused) < 1e-6,
+    'pausing stops the music within 500 ms and freezes its position',
+    JSON.stringify({ pauseQuietMs, tPaused, tStill }),
+  )
+
+  // The volume rows, driven with the pad-reachable keys only: Space (pad A) and ←/→ (D-pad).
+  const menuShown = await audioState()
+  await page.keyboard.press('ArrowLeft')
+  await page.keyboard.press('ArrowLeft')
+  await page.keyboard.press('Space')
+  await page.keyboard.press('ArrowRight')
+  await page.waitForTimeout(150)
+  const adjusted = await audioState()
+  const pauseLines = await page.evaluate(() => window.__echoSkyRun.overlayLines())
+  check(
+    menuShown.menu.open &&
+      adjusted.volumes.music === 0.3 &&
+      adjusted.volumes.effects === 0.9 &&
+      Math.abs(adjusted.gains.music - 0.3) < 1e-6 &&
+      Math.abs(adjusted.gains.effects - 0.9) < 1e-6 &&
+      pauseLines.includes('MUSIC 30') &&
+      pauseLines.includes('EFFECTS 90'),
+    'Space and ←/→ set both volume bars, and the bus gains follow',
+    JSON.stringify({ volumes: adjusted.volumes, gains: adjusted.gains, pauseLines }),
+  )
+
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(300)
+  const tResumed = (await audioState()).musicTime
+  const musicBack = await busLevel('music', 1000)
+  check(
+    tResumed > tPaused && tResumed < tPaused + 1 && musicBack >= 0.05,
+    'resuming continues the music from where it paused',
+    JSON.stringify({ tPaused, tResumed, musicBack }),
+  )
+
+  // A hidden tab stops the music and suspends the context; showing the tab brings it back.
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  const hiddenQuietMs = await quietWithin('music', 0.005, 500)
+  await page.waitForTimeout(300)
+  const hiddenState = (await audioState()).state
+  check(
+    hiddenQuietMs >= 0 && hiddenState === 'suspended',
+    'a hidden tab silences the music within 500 ms and suspends the AudioContext',
+    JSON.stringify({ hiddenQuietMs, hiddenState }),
+  )
+  await page.evaluate(() => {
+    delete document.hidden
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await page.waitForTimeout(300)
+  check((await audioState()).state === 'running', 'showing the tab again resumes the AudioContext')
+  await keepTrace()
+
+  // The volumes survive a reload: read back through the engine and the drawn rows.
+  await page.reload({ waitUntil: 'load' })
+  await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+  const reloaded = await audioState()
+  await page.keyboard.press('z')
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(200)
+  const reloadedGains = (await audioState()).gains
+  const reloadedLines = await page.evaluate(() => window.__echoSkyRun.overlayLines())
+  check(
+    reloaded.volumes.music === 0.3 &&
+      reloaded.volumes.effects === 0.9 &&
+      Math.abs((reloadedGains?.music ?? -1) - 0.3) < 1e-6 &&
+      Math.abs((reloadedGains?.effects ?? -1) - 0.9) < 1e-6 &&
+      reloadedLines.includes('MUSIC 30') &&
+      reloadedLines.includes('EFFECTS 90'),
+    'both volumes survive a reload',
+    JSON.stringify({ volumes: reloaded.volumes, gains: reloadedGains, lines: reloadedLines }),
+  )
+  await keepTrace()
+
+  // The scripted 1-1 run, through the same advance() the frame loop uses.
+  await openAudioPage()
+  await page.evaluate(() => window.__echoSkyRun.pause())
+  await page.keyboard.press('z')
+  await page.waitForFunction(() => window.__echoSkyRun.audio().ready, null, { timeout: 10000 })
+  const soundRun = await page.evaluate(() => {
+    const game = window.__echoSkyRun
+    game.reset()
+    game.pause()
+    let echoed = false
+    for (let i = 0; i < 3000; i++) {
+      const s = game.state()
+      const enemyNear = game.enemyXs().some((ex) => ex > s.x && ex - s.x < 40)
+      const jumpPressed = s.grounded && (game.lipMissingAt(s.x) || enemyNear)
+      const echoPressed = !echoed && !s.grounded && s.x >= game.echoAtX && s.airCharges > 0
+      if (echoPressed) echoed = true
+      const next = game.step({ right: true, jump: true, jumpPressed, sprint: true, echoPressed })
+      if (next.goalReached) return { won: true }
+    }
+    return { won: false }
+  })
+  check(soundRun.won, 'the sound run clears 1-1', JSON.stringify(soundRun))
+  await keepTrace()
+
+  // Short segments for the events the clean run avoids, each from a debug spawn URL.
+  const segment = async (query, script) => {
+    await openAudioPage(query)
+    await page.evaluate(() => window.__echoSkyRun.pause())
+    await page.keyboard.press('z')
+    await page.waitForFunction(() => window.__echoSkyRun.audio().ready, null, { timeout: 10000 })
+    const out = await page.evaluate(script)
+    await keepTrace()
+    return out
+  }
+  // Echo placed, refused (no charge left) and expired, on the flat start.
+  await segment('&level=1-1&x=40&y=178', () => {
+    const g = window.__echoSkyRun
+    for (let i = 0; i < 30 && !g.state().grounded; i++) g.step({})
+    g.step({ jump: true, jumpPressed: true })
+    for (let i = 0; i < 8; i++) g.step({ jump: true })
+    g.step({ echoPressed: true })
+    g.step({ echoPressed: true })
+    for (let i = 0; i < 300; i++) g.step({})
+  })
+  // A stomp, falling onto the Gear-Goomba.
+  await segment('&level=1-1&x=282&y=120', () => {
+    const g = window.__echoSkyRun
+    for (let i = 0; i < 120; i++) g.step({})
+  })
+  // The ? block and its Mushroom rising, then taken: the power tests' driver — jump into the block,
+  // and chase the Mushroom the moment it appears, before it walks into the first pit.
+  const mushroomRun = await segment('&level=1-1&x=386&y=178', () => {
+    const g = window.__echoSkyRun
+    for (let i = 0; i < 30 && !g.state().grounded; i++) g.step({})
+    for (let i = 0; i < 90 && g.state().mushrooms === 0; i++) g.step({ jump: true, jumpPressed: i === 0 })
+    for (let i = 0; i < 400 && g.state().power !== 'super' && g.state().deaths === 0; i++) g.step({ right: true })
+    return { power: g.state().power, deaths: g.state().deaths }
+  })
+  // A hit on Super Pip: the checkpoint grants Super, then he walks back into the Steam-Turtle.
+  const hitRun = await segment('&level=1-1&x=692&y=178', () => {
+    const g = window.__echoSkyRun
+    for (let i = 0; i < 30 && g.state().power !== 'super'; i++) g.step({})
+    const superAtStart = g.state().power === 'super'
+    for (let i = 0; i < 600 && g.state().power === 'super'; i++) g.step({ left: true })
+    return { superAtStart, power: g.state().power }
+  })
+  // A shell: drop onto the Steam-Turtle where it will be when he lands, then walk into the shell.
+  const shellRun = await segment('&level=1-1&x=552&y=100', () => {
+    const g = window.__echoSkyRun
+    for (let i = 0; i < 60; i++) g.step({})
+    const shellX = g.enemyXs()[1] ?? null
+    for (let i = 0; i < 120; i++) g.step({ left: shellX !== null && g.state().x > shellX })
+    return { shellX, x: g.state().x, deaths: g.state().deaths }
+  })
+  check(
+    mushroomRun.power === 'super' && hitRun.superAtStart && hitRun.power === 'small',
+    'the sound segments reach the Mushroom and the Super → Small hit',
+    JSON.stringify({ mushroomRun, hitRun, shellRun }),
+  )
+  // A death in the first pit.
+  await segment('&level=1-1&x=430&y=178', () => {
+    const g = window.__echoSkyRun
+    for (let i = 0; i < 300 && g.state().deaths === 0; i++) g.step({ right: true })
+  })
+
+  const heard = new Set(trace.filter((e) => e.played).map((e) => e.event))
+  const missingSounds = SOUND_EVENTS.filter((e) => !heard.has(e))
+  check(missingSounds.length === 0, 'every one of the 17 sound events of 1-1 is in the audiolog, played', `missing=${JSON.stringify(missingSounds)}`)
+  const wrongRecipe = trace.filter((e) => e.recipe !== e.event)
+  check(
+    trace.length > 0 && wrongRecipe.length === 0,
+    'each audiolog entry carries its event\'s own recipe id',
+    `entries=${trace.length} wrong=${JSON.stringify(wrongRecipe.slice(0, 3))}`,
+  )
+
   check(errors.length === 0, 'no console errors', errors.slice(0, 3).join(' | '))
 } catch (err) {
   failed = true
