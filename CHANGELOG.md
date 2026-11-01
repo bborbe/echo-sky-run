@@ -8,6 +8,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- fix: the tutorial sign before the Echo gap reads `C/Y` — a player holding a pad sees their own button on it, not only the keyboard's. It drew `C` alone.
+
 ## v0.5.0
 
 - feat: controller support, ported from Driftline's `gamepad-shell.ts`. The pad presses the game's own keys, so the spec's § 6 mapping lands in the one input path the keyboard already uses — A jump, B spin, X run/carry, Y Echo, Start pause, stick and D-pad to move. The pad is polled every frame (hot-plug needs no event), and a button already down when the pad appears counts as a press: browsers reveal a pad only once a button is pressed, so that press is the player's first input and must not be swallowed.
