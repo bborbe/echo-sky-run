@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.2.0
 
 - feat: level 1-1 "Meadow Ledge" is playable — a 256x224 canvas scaled by a whole-number factor, a tile-string level with a 10-tile gap that no single jump clears, the goal flag, and the goal check
 - fix: the Echo's top edge now sits at the player's feet instead of one Echo-height below them, so a mid-air Echo actually catches the player instead of being fallen through
