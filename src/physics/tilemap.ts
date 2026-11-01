@@ -1,11 +1,7 @@
-import { TILE } from './constants.ts'
-
 /** Level tiles are one character each, so a level is a list of equal-length strings. */
 export const EMPTY = '.'
 export const SOLID = '#'
 export const ONEWAY = '='
-export const GOAL = 'F'
-export const SPAWN = 'S'
 
 export interface TileMap {
   readonly cols: number
@@ -36,20 +32,3 @@ export function isOneWay(ch: string): boolean {
   return ch === ONEWAY
 }
 
-/** Find the spawn marker, or the top-left of the map when there is none. */
-export function findSpawn(map: TileMap): { x: number; y: number } {
-  for (let row = 0; row < map.rows; row++) {
-    const col = map.tiles[row].indexOf(SPAWN)
-    if (col >= 0) return { x: col * TILE, y: row * TILE }
-  }
-  return { x: 0, y: 0 }
-}
-
-/** Find the goal marker, or null when the level has none. */
-export function findGoal(map: TileMap): { x: number; y: number } | null {
-  for (let row = 0; row < map.rows; row++) {
-    const col = map.tiles[row].indexOf(GOAL)
-    if (col >= 0) return { x: col * TILE, y: row * TILE }
-  }
-  return null
-}

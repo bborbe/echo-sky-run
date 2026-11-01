@@ -27,8 +27,9 @@ export class FixedStepper {
       steps += 1
     }
 
-    // A long stall (tab restored, a breakpoint) must not queue an unbounded catch-up burst.
-    if (this.accumulator > DT * this.maxSteps) this.accumulator = 0
+    // Anything still queued could not be consumed (the step cap was hit): drop it, so a long stall
+    // does not leave the renderer interpolating past the current step.
+    if (this.accumulator >= DT) this.accumulator = 0
 
     return steps
   }
