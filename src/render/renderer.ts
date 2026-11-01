@@ -3,9 +3,17 @@ import { PLAYER_H, PLAYER_W, TILE } from '../physics/constants.ts'
 import type { PlayerState } from '../physics/player.ts'
 import { GOAL, isOneWay, isSolid, tileAt, type TileMap } from '../physics/tilemap.ts'
 
-/** The logical canvas. Every pixel is drawn at this size, then scaled by an integer factor. */
-export const VIEW_W = 256
+/**
+ * The logical view height is fixed at 14 tiles. The scale is `window height / VIEW_H` and may be
+ * fractional; the logical width follows from the window's aspect, so a wider window shows more of
+ * the level rather than bigger pixels. Nothing is letterboxed.
+ */
 export const VIEW_H = 224
+
+/** The camera lets Pip drift this far either side of the view's centre before it follows. */
+export const CAMERA_DEADZONE_X = 16
+/** The camera scrolls vertically once Pip is this close to the top or bottom edge. */
+export const CAMERA_MARGIN_Y = 48
 
 const SKY = '#7fc4e8'
 const SKY_LOW = '#b9e2f2'
@@ -33,29 +41,40 @@ export interface RenderState {
 export class Renderer {
   private readonly canvas: HTMLCanvasElement
   private readonly ctx: CanvasRenderingContext2D
+  private viewW = VIEW_H
+  private camX = 0
+  private camY = 0
 
   constructor(canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d')
     if (!ctx) throw new Error('no 2d context')
     this.canvas = canvas
     this.ctx = ctx
-    canvas.width = VIEW_W
-    canvas.height = VIEW_H
-    ctx.imageSmoothingEnabled = false
+    this.fit()
   }
 
-  /** Fit the window with the largest whole-number scale, so no pixel is ever resampled. */
-  fit(): number {
-    const scale = Math.max(
-      1,
-      Math.floor(Math.min(window.innerWidth / VIEW_W, window.innerHeight / VIEW_H)),
-    )
-    this.canvas.style.width = `${VIEW_W * scale}px`
-    this.canvas.style.height = `${VIEW_H * scale}px`
+  /** Current logical view width in pixels. */
+  get width(): number {
+    return this.viewW
+  }
+
+  /**
+   * Size the canvas to the window. The backing store is `viewW x 224` logical pixels; the element is
+   * stretched over the whole window and drawn nearest-neighbour, so there are never any bars.
+   */
+  fit(): void {
+    const scale = Math.max(window.innerHeight, 1) / VIEW_H
+    const viewW = Math.max(TILE, Math.round(window.innerWidth / scale))
+
+    this.viewW = viewW
+    this.canvas.width = viewW
+    this.canvas.height = VIEW_H
+    this.canvas.style.width = `${window.innerWidth}px`
+    this.canvas.style.height = `${window.innerHeight}px`
     // `imageSmoothingEnabled` governs drawImage inside the canvas; the browser's upscale of the
     // element is a separate filter, and `auto` would bilinearly blur every pixel.
     this.canvas.style.imageRendering = 'pixelated'
-    return scale
+    this.ctx.imageSmoothingEnabled = false
   }
 
   draw(state: RenderState): void {
@@ -63,35 +82,51 @@ export class Renderer {
     // Draw between the last two fixed steps, so a display faster than 60 Hz does not judder.
     const px = state.prevX + (state.player.x - state.prevX) * state.alpha
     const py = state.prevY + (state.player.y - state.prevY) * state.alpha
-    const camX = this.cameraX(state.map, px)
+
+    this.updateCamera(state.map, px, py)
 
     const sky = ctx.createLinearGradient(0, 0, 0, VIEW_H)
     sky.addColorStop(0, SKY)
     sky.addColorStop(1, SKY_LOW)
     ctx.fillStyle = sky
-    ctx.fillRect(0, 0, VIEW_W, VIEW_H)
+    ctx.fillRect(0, 0, this.viewW, VIEW_H)
 
     ctx.save()
-    ctx.translate(-Math.round(camX), 0)
-    this.drawTiles(state.map, camX)
+    ctx.translate(-Math.round(this.camX), -Math.round(this.camY))
+    this.drawTiles(state.map)
     for (const echo of state.echoes) this.drawEcho(echo, state.tick)
     this.drawPlayer(px, py)
     ctx.restore()
   }
 
-  private cameraX(map: TileMap, playerX: number): number {
+  /** Horizontal deadzone around the view centre, plus the vertical edge margins, clamped to the level. */
+  private updateCamera(map: TileMap, playerX: number, playerY: number): void {
     const worldW = map.cols * TILE
-    if (worldW <= VIEW_W) return 0
-    const want = playerX + PLAYER_W / 2 - VIEW_W / 2
-    return Math.max(0, Math.min(want, worldW - VIEW_W))
+    const worldH = map.rows * TILE
+    const centre = playerX + PLAYER_W / 2
+    const viewCentre = this.camX + this.viewW / 2
+
+    let wantX = this.camX
+    if (centre > viewCentre + CAMERA_DEADZONE_X) wantX = centre - CAMERA_DEADZONE_X - this.viewW / 2
+    else if (centre < viewCentre - CAMERA_DEADZONE_X) wantX = centre + CAMERA_DEADZONE_X - this.viewW / 2
+    this.camX = clamp(wantX, 0, Math.max(0, worldW - this.viewW))
+
+    const top = playerY
+    const bottom = playerY + PLAYER_H
+    let wantY = this.camY
+    if (bottom > this.camY + VIEW_H - CAMERA_MARGIN_Y) wantY = bottom - (VIEW_H - CAMERA_MARGIN_Y)
+    else if (top < this.camY + CAMERA_MARGIN_Y) wantY = top - CAMERA_MARGIN_Y
+    this.camY = clamp(wantY, 0, Math.max(0, worldH - VIEW_H))
   }
 
-  private drawTiles(map: TileMap, camX: number): void {
+  private drawTiles(map: TileMap): void {
     const ctx = this.ctx
-    const firstCol = Math.floor(camX / TILE)
-    const lastCol = Math.min(map.cols - 1, firstCol + Math.ceil(VIEW_W / TILE))
+    const firstCol = Math.max(0, Math.floor(this.camX / TILE))
+    const lastCol = Math.min(map.cols - 1, Math.ceil((this.camX + this.viewW) / TILE))
+    const firstRow = Math.max(0, Math.floor(this.camY / TILE))
+    const lastRow = Math.min(map.rows - 1, Math.ceil((this.camY + VIEW_H) / TILE))
 
-    for (let row = 0; row < map.rows; row++) {
+    for (let row = firstRow; row <= lastRow; row++) {
       for (let col = firstCol; col <= lastCol; col++) {
         const ch = tileAt(map, col, row)
         const x = col * TILE
@@ -143,4 +178,8 @@ export class Renderer {
     ctx.fillStyle = PIP_VISOR
     ctx.fillRect(px + 2, py + 3, PLAYER_W - 4, 5)
   }
+}
+
+function clamp(value: number, low: number, high: number): number {
+  return Math.max(low, Math.min(value, high))
 }

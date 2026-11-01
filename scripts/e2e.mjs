@@ -40,6 +40,49 @@ try {
   const meta = await page.getAttribute('meta[name="commit"]', 'content')
   check(/^[0-9a-f]{7,40}$/.test(meta || ''), 'page carries a real commit SHA', meta || 'missing')
 
+  // ---- the canvas fills the window, with no letterbox bars --------------------------------
+  const logicalWidths = []
+  for (const vp of [
+    { width: 960, height: 540 },
+    { width: 1920, height: 1080 },
+    { width: 1920, height: 540 },
+  ]) {
+    await page.setViewportSize(vp)
+    await page.waitForTimeout(250)
+    const box = await page.evaluate(() => {
+      const c = document.querySelector('#game')
+      const r = c.getBoundingClientRect()
+      return {
+        rectW: Math.round(r.width),
+        rectH: Math.round(r.height),
+        winW: window.innerWidth,
+        winH: window.innerHeight,
+        logicalW: c.width,
+        logicalH: c.height,
+        scrollW: document.documentElement.scrollWidth,
+        scrollH: document.documentElement.scrollHeight,
+      }
+    })
+    const fills = box.rectW === box.winW && box.rectH === box.winH
+    const noBars = box.scrollW <= box.winW && box.scrollH <= box.winH
+    check(
+      fills && noBars && box.logicalH === 224,
+      `canvas fills the window at ${vp.width}x${vp.height} with no bars`,
+      JSON.stringify(box),
+    )
+    logicalWidths.push(box.logicalW)
+  }
+  // Same aspect at a bigger size keeps the logical width; a wider aspect shows more of the level.
+  check(
+    logicalWidths[2] > logicalWidths[0],
+    'a wider window shows more of the level',
+    `960x540=${logicalWidths[0]} 1920x1080=${logicalWidths[1]} 1920x540=${logicalWidths[2]}`,
+  )
+
+  // Back to the shot viewport for the playthrough.
+  await page.setViewportSize({ width: 960, height: 540 })
+  await page.waitForTimeout(150)
+
   // ---- input layer, driven by real events with the frame loop live -------------------------
   await page.evaluate(() => window.__echoSkyRun.reset())
   await page.waitForTimeout(120)

@@ -10,7 +10,6 @@ if (!canvas) throw new Error('missing #game canvas')
 
 const map = parseLevel(LEVEL_1_1_ROWS)
 const renderer = new Renderer(canvas)
-renderer.fit()
 window.addEventListener('resize', () => renderer.fit())
 
 const stepper = new FixedStepper()
