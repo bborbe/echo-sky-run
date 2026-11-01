@@ -1,8 +1,9 @@
 import { BUILD_LABEL } from './build-info.ts'
 import { createSim, stepSim, type SimInput, type SimState } from './game/sim.ts'
 import { LEVEL_1_1_ECHO_AT_X, LEVEL_1_1_ROWS } from './levels/level1-1.ts'
+import { TILE } from './physics/constants.ts'
 import { FixedStepper } from './physics/loop.ts'
-import { parseLevel } from './physics/tilemap.ts'
+import { parseLevel, tileAt } from './physics/tilemap.ts'
 import { Renderer, PALETTE } from './render/renderer.ts'
 import { createControlsCard, ECHO_HINT } from './ui/controls-card.ts'
 
@@ -256,6 +257,7 @@ function snapshot() {
     combo: sim.combo,
     score: sim.score,
     frames: sim.frames,
+    deaths: sim.deaths,
     signSeen: sim.signSeen,
     goalReached: sim.goalReached,
   }
@@ -282,6 +284,9 @@ interface EchoSkyRunTestApi {
   hideControls(): void
   /** True while the sign's hint overlay is on screen. */
   hintShown(): boolean
+  lipMissingAt(x: number): boolean
+  enemyXs(): number[]
+  spawnX(): number
 }
 
 const api: EchoSkyRunTestApi = {
@@ -327,6 +332,16 @@ const api: EchoSkyRunTestApi = {
   hideControls: () => controls.hide(),
   /** The sign's hint is a transient overlay, so the check asserts its presence, not its text. */
   hintShown: () => document.getElementById('echo-hint') !== null,
+  /** True when the floor under Pip's leading edge at `x` is missing — the bot's jump trigger. */
+  lipMissingAt: (x: number) => {
+    const feetRow = Math.floor((sim.player.y + sim.player.h) / TILE)
+    const col = Math.floor((x + 12) / TILE)
+    return tileAt(map, col, feetRow) !== '#'
+  },
+  /** Live enemy positions, so the check can jump over them instead of walking into them. */
+  enemyXs: () => sim.enemies.enemies.filter((e) => e.mode !== 'carried').map((e) => e.x),
+  /** Where Pip starts, so a reset assertion compares against the level rather than a literal. */
+  spawnX: () => sim.respawn.x,
 }
 
 ;(window as unknown as { __echoSkyRun: EchoSkyRunTestApi }).__echoSkyRun = api

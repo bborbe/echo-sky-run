@@ -35,6 +35,29 @@ try {
   await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
   check(true, 'game booted and exposed its simulation')
 
+  // ---- the controls card -------------------------------------------------------------------
+  // Checked before anything else, because it is on screen at load and swallows the first key: the
+  // input checks below would otherwise be measuring the card rather than the game.
+  const card = await page.evaluate(() => window.__echoSkyRun.controls())
+  check(card.visible, 'the controls card is shown on first start')
+  check(
+    card.labels.includes('Echo') && card.labels.includes('Jump') && card.labels.includes('Move'),
+    'the card lists the mappings',
+    JSON.stringify(card.labels),
+  )
+
+  await page.keyboard.press('z')
+  const dismissed = await page.evaluate(() => window.__echoSkyRun.controls())
+  check(!dismissed.visible, 'any key dismisses the card')
+
+  await page.keyboard.press('h')
+  const reopened = await page.evaluate(() => window.__echoSkyRun.controls())
+  check(reopened.visible, 'H brings the card back')
+
+  await page.keyboard.press('z')
+  const closedAgain = await page.evaluate(() => window.__echoSkyRun.controls())
+  check(!closedAgain.visible, 'the card closes again')
+
   // A build whose Vite define never substituted would carry the literal '%VITE_COMMIT_SHA%', which
   // is non-empty — so the check has to be SHA-shaped, not merely present.
   const meta = await page.getAttribute('meta[name="commit"]', 'content')
@@ -106,11 +129,18 @@ try {
 
   const plainR = await page.evaluate(() => {
     const game = window.__echoSkyRun
+    // Move first, so "reset" is proven by the position coming back rather than by it never leaving.
+    game.step({ right: true })
+    game.step({ right: true })
     const ev = new KeyboardEvent('keydown', { code: 'KeyR', cancelable: true, bubbles: true })
     window.dispatchEvent(ev)
-    return { prevented: ev.defaultPrevented, x: game.state().x }
+    return { prevented: ev.defaultPrevented, x: game.state().x, spawnX: game.spawnX() }
   })
-  check(plainR.prevented && plainR.x === 32, 'a plain R still resets the run', JSON.stringify(plainR))
+  check(
+    plainR.prevented && plainR.x === plainR.spawnX,
+    'a plain R still resets the run',
+    JSON.stringify(plainR),
+  )
 
   const blurReleased = await page.evaluate(async () => {
     const game = window.__echoSkyRun
@@ -148,6 +178,12 @@ try {
 
     for (let i = 0; i < 3000; i++) {
       const s = game.state()
+      // Jump from the lip and over the walkers, the way a player who can see what is coming plays.
+      // Jumping on a fixed rhythm instead walks straight into the Gear-Goomba, and a hit while Small
+      // is now death — which is the level working, not the bot failing.
+      const enemyNear = game.enemyXs().some((ex) => ex > s.x && ex - s.x < 40)
+      const jumpPressed = s.grounded && (game.lipMissingAt(s.x) || enemyNear)
+
       // Mid-gap, airborne, past the point where a plain hop comes up short. `echoAtX` is the level's
       // own answer, so a level tweak cannot desynchronise the browser check from the unit test.
       const wantEcho = !wantEchoOnce && !s.grounded && s.x >= game.echoAtX && s.airCharges > 0
@@ -156,7 +192,7 @@ try {
       const next = game.step({
         right: true,
         jump: true,
-        jumpPressed: true,
+        jumpPressed,
         sprint: true,
         echoPressed: wantEcho,
       })
@@ -166,13 +202,27 @@ try {
       previousEchoes = next.echoes
 
       if (next.goalReached) return { won: true, frames: i + 1, echoesPlaced, x: next.x }
-      if (next.y > 400) return { won: false, fell: true, frames: i + 1, x: next.x }
+      // A pit now respawns Pip at the checkpoint rather than letting him leave the world, so a
+      // death — not a runaway y — is what says the run failed.
+      if (next.deaths > 0) return { won: false, died: true, frames: i + 1, x: next.x }
     }
     return { won: false, timedOut: true }
   })
 
   check(run.won, 'level 1-1 is cleared', JSON.stringify(run))
   check(run.echoesPlaced === 1, 'the gap is crossed on exactly one mid-air Echo', `placed=${run.echoesPlaced}`)
+
+  // The tally records the run from the frame loop, so give it a frame to see goalReached.
+  await page.waitForTimeout(200)
+  const stored = await page.evaluate(() => {
+    const raw = localStorage.getItem('echo-sky-run.v1')
+    return raw ? JSON.parse(raw) : null
+  })
+  check(
+    typeof stored?.bestSeconds === 'number' && stored.bestSeconds > 0,
+    'the best time is stored under echo-sky-run.v1',
+    JSON.stringify(stored),
+  )
 
   // ---- what is actually on the canvas ------------------------------------------------------
   // Wait for two rendered frames first: the read otherwise races the first paint and sees a blank

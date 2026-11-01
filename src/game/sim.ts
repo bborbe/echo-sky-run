@@ -87,6 +87,20 @@ function overlapsTile(p: PlayerState, tile: { x: number; y: number }): boolean {
   return p.x + PLAYER_W > tile.x && p.x < tile.x + TILE && p.y + p.h > tile.y && p.y < tile.y + TILE
 }
 
+/**
+ * The goal flag is taller than its tile: it is drawn two tiles up, and the second jump off an Echo
+ * lands a player high enough to sail over a single-tile trigger. Matching the drawn shape is what
+ * makes "touch the flag" mean what it looks like.
+ */
+function overlapsGoal(p: PlayerState, goal: { x: number; y: number }): boolean {
+  return (
+    p.x + PLAYER_W > goal.x &&
+    p.x < goal.x + TILE &&
+    p.y + p.h > goal.y - 2 * TILE &&
+    p.y < goal.y + TILE
+  )
+}
+
 function blockKey(col: number, row: number): string {
   return `${col},${row}`
 }
@@ -237,5 +251,5 @@ export function stepSim(sim: SimState, input: SimInput): void {
   // The sign teaches the Echo just before the gap that needs it, once per run.
   if (sim.sign !== null && overlapsTile(sim.player, sim.sign)) sim.signSeen = true
 
-  if (overlapsTile(sim.player, sim.goal)) sim.goalReached = true
+  if (overlapsGoal(sim.player, sim.goal)) sim.goalReached = true
 }

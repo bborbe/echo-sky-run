@@ -24,6 +24,8 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 - feat: a controls card on first start lists the keyboard and pad mappings and the one line that explains the Echo — "C leaves a ghost platform where you are — jump on it"; any key dismisses it, H brings it back, and it switches to pad labels the moment a controller is connected
 - feat: a sign before the Echo gap shows the `C` key and its hint the first time Pip walks past it, so the one move the level is about is taught before it is demanded
 - feat: a practice ledge before the checkpoint sits above what a plain jump can reach, with the floor left intact below it — the place to learn the mid-air Echo where falling costs nothing
+- fix: the goal flag now triggers over its drawn height, not a single tile — the second jump off an Echo lands a player high enough to sail over a one-tile trigger, so touching the flag meant less than it looked
+- fix: level 1-1 is 80 tiles wide instead of 72, so there is floor to land on after the Echo gap; at the old width the Echo jump carried Pip clean over the goal and into the closing wall
 
 ## v0.3.0
 
