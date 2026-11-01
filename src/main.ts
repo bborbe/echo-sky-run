@@ -4,6 +4,7 @@ import { LEVEL_1_1_ECHO_AT_X, LEVEL_1_1_ROWS } from './levels/level1-1.ts'
 import { FixedStepper } from './physics/loop.ts'
 import { parseLevel } from './physics/tilemap.ts'
 import { Renderer, PALETTE } from './render/renderer.ts'
+import { createControlsCard } from './ui/controls-card.ts'
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game')
 if (!canvas) throw new Error('missing #game canvas')
@@ -42,6 +43,11 @@ function saveBest(seconds: number): void {
 const map = parseLevel(LEVEL_1_1_ROWS)
 const renderer = new Renderer(canvas)
 window.addEventListener('resize', () => renderer.fit())
+
+// Shown on first start and whenever H asks for it. While it is up the game does not advance, so a
+// player reading the controls is not losing a run behind the card.
+const controls = createControlsCard(document.body)
+controls.show()
 
 const stepper = new FixedStepper()
 let sim: SimState = createSim(map)
@@ -108,6 +114,21 @@ function readInput(): SimInput {
 
 window.addEventListener('keydown', (event) => {
   if (event.ctrlKey || event.metaKey || event.altKey) return
+
+  // Any key dismisses the card, and the press that dismisses it is not also a game input — otherwise
+  // reading the controls costs the player a jump.
+  if (controls.visible()) {
+    event.preventDefault()
+    controls.hide()
+    return
+  }
+
+  if (event.code === 'KeyH') {
+    event.preventDefault()
+    controls.show()
+    return
+  }
+
   if (!GAME_KEYS.has(event.code)) return
   event.preventDefault()
   if (event.repeat) return
@@ -116,6 +137,11 @@ window.addEventListener('keydown', (event) => {
   held.add(event.code)
   if (event.code === 'KeyR') resetGame()
 })
+
+// The card switches to pad labels the moment a controller is connected, so the player never has to
+// translate a keyboard he is not holding.
+window.addEventListener('gamepadconnected', () => controls.setPad(true))
+window.addEventListener('gamepaddisconnected', () => controls.setPad(false))
 
 window.addEventListener('keyup', (event) => {
   held.delete(event.code)
@@ -144,7 +170,7 @@ function frame(now: number): void {
   const elapsed = (now - last) / 1000
   last = now
 
-  if (!paused) {
+  if (!paused && !controls.visible()) {
     stepper.advance(elapsed, () => {
       prevX = sim.player.x
       prevY = sim.player.y
@@ -223,6 +249,10 @@ interface EchoSkyRunTestApi {
   reset(): void
   step(input: Partial<SimInput>): ReturnType<typeof snapshot>
   state(): ReturnType<typeof snapshot>
+  /** The controls card, so the browser check asserts its labels and its dismissal. */
+  controls(): { visible: boolean; pad: boolean; labels: string[] }
+  showControls(): void
+  hideControls(): void
 }
 
 const api: EchoSkyRunTestApi = {
@@ -259,6 +289,13 @@ const api: EchoSkyRunTestApi = {
     return snapshot()
   },
   state: snapshot,
+  controls: () => ({
+    visible: controls.visible(),
+    pad: controls.isPad(),
+    labels: Array.from(document.querySelectorAll('#controls-card dt')).map((el) => el.textContent ?? ''),
+  }),
+  showControls: () => controls.show(),
+  hideControls: () => controls.hide(),
 }
 
 ;(window as unknown as { __echoSkyRun: EchoSkyRunTestApi }).__echoSkyRun = api

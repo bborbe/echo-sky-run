@@ -21,6 +21,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 - feat: the checkpoint flag grants Super if Pip is still Small, so the second half is played with the tier the first half earned
 - feat: a level-clear tally shows the run time and the best time, and the best time persists in `localStorage` under `echo-sky-run.v1`
 - feat: the game pauses when the tab is hidden, so a player who switches away does not come back to a run that carried on without him
+- feat: a controls card on first start lists the keyboard and pad mappings and the one line that explains the Echo — "C leaves a ghost platform where you are — jump on it"; any key dismisses it, H brings it back, and it switches to pad labels the moment a controller is connected
 
 ## v0.3.0
 
