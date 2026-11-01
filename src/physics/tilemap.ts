@@ -6,6 +6,14 @@ export const SOLID = '#'
 export const ONEWAY = '='
 export const GOAL = 'F'
 export const SPAWN = 'S'
+/** A Gear-Goomba spawns in this cell, standing on the cell's floor. */
+export const GEAR_GOOMBA = 'g'
+/** A Steam-Turtle spawns in this cell, standing on the cell's floor. */
+export const STEAM_TURTLE = 't'
+/** A ? block: solid until hit from below, then it releases its contents. */
+export const QUESTION = '?'
+/** The midpoint checkpoint flag. */
+export const CHECKPOINT = 'C'
 
 export interface TileMap {
   readonly cols: number
@@ -43,5 +51,35 @@ export function findTile(map: TileMap, ch: string): { x: number; y: number } | n
     if (col >= 0) return { x: col * TILE, y: row * TILE }
   }
   return null
+}
+
+/** Every cell matching a character, in row-major order. */
+export function findTiles(map: TileMap, ch: string): { x: number; y: number }[] {
+  const found: { x: number; y: number }[] = []
+  for (let row = 0; row < map.rows; row++) {
+    for (let col = 0; col < map.cols; col++) {
+      if (map.tiles[row][col] === ch) found.push({ x: col * TILE, y: row * TILE })
+    }
+  }
+  return found
+}
+
+/**
+ * Where the level's enemies stand. An enemy is anchored by its feet: the bottom of its spawn cell is
+ * the floor it stands on, so a two-tile-tall turtle straddles the cell above the one it is written in
+ * without the author having to offset it.
+ */
+export function findEnemySpawns(map: TileMap): { kind: 'gear-goomba' | 'steam-turtle'; x: number; y: number }[] {
+  const spawns: { kind: 'gear-goomba' | 'steam-turtle'; x: number; y: number }[] = []
+  for (const [ch, kind] of [
+    [GEAR_GOOMBA, 'gear-goomba'],
+    [STEAM_TURTLE, 'steam-turtle'],
+  ] as const) {
+    const h = kind === 'gear-goomba' ? 16 : 24
+    for (const cell of findTiles(map, ch)) {
+      spawns.push({ kind, x: cell.x, y: cell.y + TILE - h })
+    }
+  }
+  return spawns
 }
 

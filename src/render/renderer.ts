@@ -1,7 +1,8 @@
 import { isBlinking, type Echo } from '../echo/echo.ts'
+import type { Enemy } from '../game/enemies.ts'
 import { PLAYER_H, PLAYER_W, TILE } from '../physics/constants.ts'
 import type { PlayerState } from '../physics/player.ts'
-import { GOAL, isOneWay, isSolid, tileAt, type TileMap } from '../physics/tilemap.ts'
+import { CHECKPOINT, GOAL, isOneWay, isSolid, QUESTION, tileAt, type TileMap } from '../physics/tilemap.ts'
 
 /**
  * The logical view height is fixed at 14 tiles. The scale is `window height / VIEW_H` and may be
@@ -25,6 +26,13 @@ const FLAG_POLE = '#8a8a8a'
 const PIP_BODY = '#e8663c'
 const PIP_VISOR = '#2b3a4a'
 const ECHO_BODY = 'rgba(120, 220, 255, 0.55)'
+const GOOMBA_BODY = '#8c4a2f'
+const GOOMBA_EYE = '#f2f2f2'
+const TURTLE_BODY = '#2f7a4a'
+const SHELL_BODY = '#c9a227'
+const QUESTION_BLOCK = '#c9a227'
+const CHECKPOINT_POLE = '#8a8a8a'
+const CHECKPOINT_FLAG = '#5dbb63'
 
 /**
  * The renderer's palette. Exported so the browser check asserts these colours instead of repeating
@@ -49,6 +57,7 @@ export interface RenderState {
   readonly prevX: number
   readonly prevY: number
   readonly echoes: readonly Echo[]
+  readonly enemies: readonly Enemy[]
   readonly tick: number
   /** Blend factor between the last two fixed steps. */
   readonly alpha: number
@@ -111,6 +120,7 @@ export class Renderer {
     ctx.translate(-Math.round(this.camX), -Math.round(this.camY))
     this.drawTiles(state.map)
     for (const echo of state.echoes) this.drawEcho(echo, state.tick)
+    for (const enemy of state.enemies) this.drawEnemy(enemy)
     this.drawPlayer(px, py)
     ctx.restore()
   }
@@ -158,6 +168,16 @@ export class Renderer {
         } else if (isOneWay(ch)) {
           ctx.fillStyle = PLANK
           ctx.fillRect(x, y, TILE, 4)
+        } else if (ch === QUESTION) {
+          ctx.fillStyle = QUESTION_BLOCK
+          ctx.fillRect(x, y, TILE, TILE)
+          ctx.fillStyle = PIP_VISOR
+          ctx.fillRect(x + 6, y + 4, 4, 8)
+        } else if (ch === CHECKPOINT) {
+          ctx.fillStyle = CHECKPOINT_POLE
+          ctx.fillRect(x + 7, y - TILE * 2, 2, TILE * 3)
+          ctx.fillStyle = CHECKPOINT_FLAG
+          ctx.fillRect(x + 9, y - TILE * 2, 9, 7)
         } else if (ch === GOAL) {
           ctx.fillStyle = FLAG_POLE
           ctx.fillRect(x + 7, y - TILE * 2, 2, TILE * 3)
@@ -183,6 +203,36 @@ export class Renderer {
     this.ctx.fillStyle = ECHO_BODY
     this.ctx.fillRect(x, y - PLAYER_H, PLAYER_W, PLAYER_H)
     this.ctx.fillRect(x, y, PLAYER_W, 4)
+  }
+
+  private drawEnemy(enemy: Enemy): void {
+    const ctx = this.ctx
+    const x = Math.round(enemy.x)
+    const y = Math.round(enemy.y)
+
+    if (enemy.kind === 'gear-goomba') {
+      ctx.fillStyle = GOOMBA_BODY
+      ctx.fillRect(x, y, enemy.w, enemy.h)
+      ctx.fillStyle = GOOMBA_EYE
+      ctx.fillRect(x + 3, y + 4, 3, 3)
+      ctx.fillRect(x + enemy.w - 6, y + 4, 3, 3)
+      return
+    }
+
+    // A shell is the same object once stomped, so it is drawn from its current box rather than a
+    // separate sprite — the shrink to SHELL_H is what reads as "it went into its shell".
+    if (enemy.mode === 'walk') {
+      ctx.fillStyle = TURTLE_BODY
+      ctx.fillRect(x, y, enemy.w, enemy.h)
+      ctx.fillStyle = SHELL_BODY
+      ctx.fillRect(x + 1, y + enemy.h - 10, enemy.w - 2, 8)
+      return
+    }
+
+    ctx.fillStyle = SHELL_BODY
+    ctx.fillRect(x, y, enemy.w, enemy.h)
+    ctx.fillStyle = TURTLE_BODY
+    ctx.fillRect(x + 2, y + 3, enemy.w - 4, enemy.h - 6)
   }
 
   private drawPlayer(x: number, y: number): void {

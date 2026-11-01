@@ -99,16 +99,24 @@ describe('level 1-1', () => {
 
   it('cannot be cleared by a plain sprint jump from the pit edge', () => {
     // The best a player can do without an Echo: full sprint, jumping from the last frame the feet
-    // are still on the near ledge. If this clears, the gap is not doing its job.
+    // are still on the near ledge. The bot jumps when the floor under its leading edge is gone, so
+    // it clears the small gap and then launches from the Echo gap's lip rather than mid-run. If
+    // this clears, the gap is not doing its job.
     const sim = createSim(MAP)
     let jumped = false
     let fell = false
 
-    for (let i = 0; i < 400 && !fell && !sim.goalReached; i++) {
+    const lipMissing = (): boolean => {
       const p = sim.player
-      const atEdge = p.grounded && p.x + PLAYER_W >= GAP_FIRST_X
-      const jumpPressed = !jumped && atEdge
-      if (jumpPressed) jumped = true
+      const feetRow = Math.floor((p.y + PLAYER_H) / TILE)
+      const col = Math.floor((p.x + PLAYER_W) / TILE)
+      return tileAt(sim.map, col, feetRow) !== '#'
+    }
+
+    for (let i = 0; i < 600 && !fell && !sim.goalReached; i++) {
+      const p = sim.player
+      const jumpPressed = p.grounded && lipMissing()
+      if (jumpPressed && p.x + PLAYER_W >= GAP_FIRST_X) jumped = true
 
       stepSim(sim, { ...IDLE, right: true, jump: true, jumpPressed, sprint: true })
 

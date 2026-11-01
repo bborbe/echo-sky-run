@@ -9,7 +9,8 @@ import {
 import type { Box } from '../physics/collision.ts'
 import { PLAYER_H, PLAYER_W, TILE } from '../physics/constants.ts'
 import { createPlayer, stepPlayer, type PlayerInput, type PlayerState } from '../physics/player.ts'
-import { findTile, GOAL, SPAWN, type TileMap } from '../physics/tilemap.ts'
+import { findEnemySpawns, findTile, GOAL, SPAWN, type TileMap } from '../physics/tilemap.ts'
+import { createEnemy, createEnemyField, STOMP_BOUNCE, stepEnemies, type EnemyField } from './enemies.ts'
 
 export interface SimInput extends PlayerInput {
   /** The Echo key went down this frame. */
@@ -21,7 +22,20 @@ export interface SimState {
   readonly goal: { x: number; y: number }
   player: PlayerState
   field: EchoField
+  enemies: EnemyField
   goalReached: boolean
+  /** Consecutive stomps without landing. Resets on any landing, including on an Echo. */
+  combo: number
+  score: number
+}
+
+/**
+ * The score a stomp chain is worth. The first stomp is 100 and each further one doubles, capped at
+ * 1000 — the spec's 100, 200, 400, 800, 1000… sequence.
+ */
+export function comboValue(chain: number): number {
+  if (chain <= 0) return 0
+  return Math.min(100 * 2 ** (chain - 1), 1000)
 }
 
 function playerBox(p: PlayerState): Box {
@@ -42,7 +56,21 @@ export function createSim(map: TileMap): SimState {
   const goal = findTile(map, GOAL)
   if (goal === null) throw new Error('level has no goal tile')
 
-  return { map, goal, player: createPlayer(spawn.x, spawn.y), field: createEchoField(), goalReached: false }
+  const enemies = createEnemyField()
+  for (const spawnPoint of findEnemySpawns(map)) {
+    enemies.enemies.push(createEnemy(spawnPoint.kind, spawnPoint.x, spawnPoint.y))
+  }
+
+  return {
+    map,
+    goal,
+    player: createPlayer(spawn.x, spawn.y),
+    field: createEchoField(),
+    enemies,
+    goalReached: false,
+    combo: 0,
+    score: 0,
+  }
 }
 
 /**
@@ -57,6 +85,19 @@ export function stepSim(sim: SimState, input: SimInput): void {
   if (input.echoPressed) placeEcho(sim.field, playerBox(sim.player), map)
 
   stepPlayer(sim.player, input, map, echoPlatforms(sim.field))
+
+  // Enemies move after the player, so a stomp is tested against the position he actually reached.
+  const events = stepEnemies(sim.enemies, playerBox(sim.player), sim.player.vy, map)
+
+  for (const _ of events.stomped) {
+    sim.combo += 1
+    sim.score += comboValue(sim.combo)
+    sim.player.vy = -STOMP_BOUNCE
+    sim.player.grounded = false
+  }
+
+  // A stomp chain is broken by landing, and an Echo landing counts as landing.
+  if (sim.player.grounded) sim.combo = 0
 
   tickEchoes(sim.field)
   refreshAirCharges(sim.field, playerBox(sim.player), map, echoPlatforms(sim.field))

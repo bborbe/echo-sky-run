@@ -122,6 +122,7 @@ function frame(now: number): void {
     prevX,
     prevY,
     echoes: sim.field.echoes,
+    enemies: sim.enemies.enemies,
     tick,
     // A seam-driven step has no stepper phase, so it draws the current state rather than blending
     // back towards the previous one.
@@ -142,6 +143,9 @@ function snapshot() {
     meter: sim.player.meter,
     echoes: sim.field.echoes.length,
     airCharges: sim.field.airCharges,
+    enemies: sim.enemies.enemies.length,
+    combo: sim.combo,
+    score: sim.score,
     goalReached: sim.goalReached,
   }
 }
