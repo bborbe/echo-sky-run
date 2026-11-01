@@ -1,12 +1,30 @@
 import { describe, expect, it } from 'vitest'
-import { debugToggle, debugVisible, readEchoSpot, readFreeze, readSpawn, spawnQuery } from './overlay.ts'
+import {
+  DEBUG_COPY_KEY,
+  debugToggle,
+  debugVisible,
+  readEchoSpot,
+  readFreeze,
+  readLevel,
+  readSpawn,
+  spawnQuery,
+} from './overlay.ts'
 
 describe('debug overlay visibility', () => {
-  it('opens on ?debug=1 and stays shut on a plain URL', () => {
-    expect(debugVisible('?debug=1')).toBe(true)
-    expect(debugVisible('')).toBe(false)
-    expect(debugVisible('?debug=0')).toBe(false)
-    expect(debugVisible('?level=1-1&x=10&y=20')).toBe(false)
+  it('opens on ?debug=1 and on the ?dev=1 alias', () => {
+    expect(debugVisible('?debug=1', false)).toBe(true)
+    expect(debugVisible('?dev=1', false)).toBe(true)
+  })
+
+  it('stays shut on a plain production URL', () => {
+    expect(debugVisible('', false)).toBe(false)
+    expect(debugVisible('?level=1-1&x=10&y=20', false)).toBe(false)
+  })
+
+  it('is on by default in the dev build, and ?debug=0 overrides it there', () => {
+    expect(debugVisible('', true)).toBe(true)
+    expect(debugVisible('?debug=0', true)).toBe(false)
+    expect(debugVisible('?debug=0', false)).toBe(false)
   })
 
   it('toggles on a backtick, and only on a clean one', () => {
@@ -15,6 +33,20 @@ describe('debug overlay visibility', () => {
     expect(debugToggle('Backquote', false, true, false)).toBe(false)
     expect(debugToggle('Backquote', false, false, true)).toBe(false)
     expect(debugToggle('KeyP', false, false, false)).toBe(false)
+  })
+
+  it('copies the spawn URL on O, so P stays the pause key', () => {
+    expect(DEBUG_COPY_KEY).toBe('KeyO')
+    expect(DEBUG_COPY_KEY).not.toBe('KeyP')
+  })
+})
+
+describe('debug level', () => {
+  it('reads the level id from ?level=, defaulting to 1-1', () => {
+    expect(readLevel('?level=1-2')).toBe('1-2')
+    expect(readLevel('?level=1-1&x=10&y=20')).toBe('1-1')
+    expect(readLevel('')).toBe('1-1')
+    expect(readLevel('?level=')).toBe('1-1')
   })
 })
 

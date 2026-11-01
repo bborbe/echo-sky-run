@@ -1,5 +1,5 @@
 import { BUILD_LABEL } from './build-info.ts'
-import { mountDebugOverlay, readEchoSpot, readFreeze, readSpawn, spawnQuery } from './debug/overlay.ts'
+import { mountDebugOverlay, readEchoSpot, readFreeze, readLevel, readSpawn, spawnQuery } from './debug/overlay.ts'
 import { ECHO_LIFE_F, placeEcho } from './echo/echo.ts'
 import { createSim, stepSim, type SimInput, type SimState } from './game/sim.ts'
 import { LEVEL_1_1_ECHO_AT_X, LEVEL_1_1_ROWS } from './levels/level1-1.ts'
@@ -62,12 +62,17 @@ watchFullscreen(() => renderer.fit())
 const controls = createControlsCard(document.body)
 controls.show()
 
-// `?debug=1` opens it; a plain URL keeps it hidden until a backtick. Its P copies the spot Pip is
-// standing on, so a visual bug can be reopened exactly there.
+// On by default on the dev server, `?debug=1` forces it on and `?debug=0` hides it; a production
+// build hides it unless `?debug=1` is set, so a shipped screenshot carries no debug noise. O copies
+// the spot Pip is standing on, so a visual bug can be reopened exactly there — P stays the pause.
 const overlay = mountDebugOverlay({
   search: location.search,
   spawnLink: () => ({ query: spawnQuery(sim.player.x, sim.player.y), copied: 'Spawn URL copied' }),
+  devBuild: import.meta.env.DEV,
 })
+
+/** The level id the URL asked for, so the overlay's level row reflects what is actually running. */
+const levelId = readLevel(location.search)
 
 // The pad presses the game's own keys, so nothing downstream knows a controller exists — and the
 // card switches to pad labels the moment one connects.
@@ -293,11 +298,12 @@ window.addEventListener('keydown', (event) => {
     return
   }
 
-  // The debug overlay owns the backtick, and P while it is up. With the overlay hidden, P is the
-  // spec's pause key — the same key doing two jobs, split by whether the overlay is on screen.
+  // The debug overlay owns the backtick and O. P is the spec's pause key whether the overlay is on
+  // screen or not — it used to be split by visibility, which with the overlay on by default in the
+  // dev build would have left the play gates with no pause at all.
   overlay.onKeyDown(event)
 
-  if (event.code === 'Escape' || (event.code === 'KeyP' && !overlay.visible())) {
+  if (event.code === 'Escape' || event.code === 'KeyP') {
     event.preventDefault()
     paused = !paused
     if (paused) releaseAll()
@@ -358,6 +364,39 @@ function frameStats(frameMs: number, steps: number) {
   const p99 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.99))] ?? 0
   const mean = frameTimes.reduce((sum, ms) => sum + ms, 0) / Math.max(1, frameTimes.length)
   return { fps: mean > 0 ? 1000 / mean : 0, frameMs, frameP99Ms: p99, steps }
+}
+
+/**
+ * The overlay's view of the world, pushed from both the frame loop and the browser check's `step`
+ * seam — a seam run never yields a frame, so without this the readout would lag a scripted play by
+ * however many steps it took between animation frames.
+ */
+function pushOverlay(stats: { fps: number; frameMs: number; frameP99Ms: number; steps: number }): void {
+  const oldest = sim.field.echoes.reduce((min, e) => Math.min(min, e.life), Number.POSITIVE_INFINITY)
+  overlay.update({
+    ...stats,
+    x: sim.player.x,
+    y: sim.player.y,
+    vx: sim.player.vx,
+    vy: sim.player.vy,
+    grounded: sim.player.grounded,
+    power: sim.power,
+    meter: sim.player.meter,
+    echoes: sim.field.echoes.length,
+    charge: sim.field.airCharges,
+    life: Number.isFinite(oldest) ? oldest : 0,
+    level: levelId,
+    checkpoint: {
+      exists: sim.checkpoint !== null,
+      claimed:
+        sim.checkpoint !== null &&
+        sim.respawn.x === sim.checkpoint.x &&
+        sim.respawn.y === sim.checkpoint.y,
+    },
+    // A finished run outranks the death pop: the flag is reached, the tally is up, and reporting
+    // DEAD there would send a bug report after the wrong state.
+    runState: sim.goalReached ? 'clear' : juice.dying() ? 'dead' : 'playing',
+  })
 }
 
 let last = performance.now()
@@ -430,19 +469,7 @@ function frame(now: number): void {
     juice,
   })
 
-  const stats = frameStats(frameMs, steps)
-  const oldest = sim.field.echoes.reduce((min, e) => Math.min(min, e.life), Number.POSITIVE_INFINITY)
-  overlay.update({
-    ...stats,
-    x: sim.player.x,
-    y: sim.player.y,
-    vx: sim.player.vx,
-    vy: sim.player.vy,
-    meter: sim.player.meter,
-    echoes: sim.field.echoes.length,
-    charge: sim.field.airCharges,
-    life: Number.isFinite(oldest) ? oldest : 0,
-  })
+  pushOverlay(frameStats(frameMs, steps))
 
   requestAnimationFrame(frame)
 }
@@ -573,6 +600,8 @@ const api: EchoSkyRunTestApi = {
       ...input,
     })
     tick += 1
+    // The overlay repaints on the frame loop, which a seam run never reaches between steps.
+    pushOverlay(frameStats(0, 1))
     return snapshot()
   },
   state: snapshot,
@@ -598,12 +627,8 @@ const api: EchoSkyRunTestApi = {
   pad: () => ({ id: gamepad.id(), held: gamepad.heldCount() }),
   debug: () => ({
     visible: overlay.visible(),
-    fields: Object.fromEntries(
-      Array.from(document.querySelectorAll<HTMLElement>('#debug-overlay .value')).map((el) => [
-        el.dataset.field ?? '',
-        el.textContent ?? '',
-      ]),
-    ),
+    // The overlay is a canvas, so the field map comes from the overlay itself rather than the DOM.
+    fields: { ...overlay.values() },
     spawnUrl: overlay.lastSpawnUrl(),
   }),
   paused: () => isPaused(),
