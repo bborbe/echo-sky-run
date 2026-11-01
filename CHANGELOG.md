@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.3.0
 
 - feat: level 1-1 "Meadow Ledge" is playable — a tile-string level with a 13-tile gap wider than any sprint jump, the goal flag, and the goal check
 - feat: the canvas fills the whole browser window with no letterbox bars — a fixed 224 px logical height, a fractional scale drawn nearest-neighbour, and a logical width that follows the window, so a wider window shows more of the level; the camera follows with a 16 px deadzone and re-fits on resize
