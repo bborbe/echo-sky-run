@@ -177,10 +177,13 @@ function releaseAll(): void {
 window.addEventListener('blur', releaseAll)
 document.addEventListener('visibilitychange', () => {
   // The spec pauses on a hidden tab. Without this a player who switches away comes back to a run
-  // that carried on without him — and a run timer that kept counting.
+  // that carried on without him — and a run timer that kept counting. The else branch matters just
+  // as much: without it the pause is a one-way latch and the game never resumes.
   if (document.hidden) {
     releaseAll()
     paused = true
+  } else {
+    paused = false
   }
 })
 

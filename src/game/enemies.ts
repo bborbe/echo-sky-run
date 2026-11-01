@@ -2,7 +2,7 @@
 // DOM, a clock or a random source, so the level's own test and the browser drive the same rules.
 
 import { moveBox, type Box } from '../physics/collision.ts'
-import { EPS, GRAVITY_FALL, MAX_FALL } from '../physics/constants.ts'
+import { EPS, GRAVITY_FALL, MAX_FALL, TILE } from '../physics/constants.ts'
 import type { TileMap } from '../physics/tilemap.ts'
 
 /** Gear-Goomba is one tile square. */
@@ -132,6 +132,10 @@ export function stepEnemies(field: EnemyField, player: Box, playerVy: number, ma
       e.vx = e.mode === 'sliding' ? -e.vx : -Math.sign(e.vx) * ENEMY_WALK_SPEED
     }
     if (moved.hitTop || moved.hitBottom) e.vy = 0
+
+    // An enemy that walks off a ledge would otherwise fall forever and be iterated every frame as
+    // an invisible body. The same bound that kills Pip kills it.
+    if (e.y > map.rows * TILE) e.dead = true
   }
 
   // --- 2. a sliding shell is a projectile: it kills the walkers it runs into
@@ -157,6 +161,10 @@ export function stepEnemies(field: EnemyField, player: Box, playerVy: number, ma
       else toShell(e)
       continue
     }
+
+    // A resting shell is an object to pick up or kick, not a hazard — the caller handles it through
+    // touchShell. Only a sliding shell hurts on contact.
+    if (e.mode === 'shell') continue
 
     if (overlaps(player, enemyBox(e))) hit = true
   }

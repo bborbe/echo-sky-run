@@ -134,4 +134,47 @@ describe('tier transitions', () => {
     expect(sim.player.y).toBe(startY)
     expect(sim.power).toBe('small')
   })
+
+  it('a resting shell never damages Pip', () => {
+    const sim = createSim(BLOCK_MAP)
+    // A shell already at rest, overlapping him. The stomp → shell transition is enemies.test.ts's job.
+    sim.enemies.enemies.push({
+      kind: 'steam-turtle',
+      x: sim.player.x,
+      y: sim.player.y + sim.player.h - 16,
+      vx: 0,
+      vy: 0,
+      w: 16,
+      h: 16,
+      mode: 'shell',
+      dead: false,
+    })
+
+    const deathsBefore = sim.deaths
+    stepSim(sim, IDLE)
+
+    expect(sim.deaths).toBe(deathsBefore)
+    expect(sim.power).toBe('small')
+  })
+
+  it('holding the run key carries a shell, and releasing it drops it', () => {
+    const sim = createSim(BLOCK_MAP)
+    sim.enemies.enemies.push({
+      kind: 'steam-turtle',
+      x: sim.player.x,
+      y: sim.player.y + sim.player.h - 24,
+      vx: 0,
+      vy: 0,
+      w: 16,
+      h: 24,
+      mode: 'shell',
+      dead: false,
+    })
+
+    stepSim(sim, { ...IDLE, sprint: true })
+    expect(sim.enemies.carried).not.toBeNull()
+
+    stepSim(sim, { ...IDLE, sprint: false })
+    expect(sim.enemies.carried).toBeNull()
+  })
 })

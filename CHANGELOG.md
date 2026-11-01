@@ -26,6 +26,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 - feat: a practice ledge before the checkpoint sits above what a plain jump can reach, with the floor left intact below it — the place to learn the mid-air Echo where falling costs nothing
 - fix: the goal flag now triggers over its drawn height, not a single tile — the second jump off an Echo lands a player high enough to sail over a one-tile trigger, so touching the flag meant less than it looked
 - fix: level 1-1 is 80 tiles wide instead of 72, so there is floor to land on after the Echo gap; at the old width the Echo jump carried Pip clean over the goal and into the closing wall
+- fix: the tab-hidden pause resumes when the tab comes back — it was a one-way latch, so switching away once froze the game until a reload
+- fix: the shell kick and carry are wired into the simulation. They were implemented and exported but never called, so carrying was unreachable and a resting shell damaged Pip on contact; a resting shell is now an object to pick up or kick, and only a sliding one hurts
+- fix: an enemy that walks off a ledge is removed instead of falling forever as an invisible body
+- fix: the run-time formatter uses integer maths, so a time like 5.1 s no longer renders as `0:05.0`
 
 ## v0.3.0
 

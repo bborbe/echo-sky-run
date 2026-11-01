@@ -308,11 +308,12 @@ function clamp(value: number, low: number, high: number): number {
   return Math.max(low, Math.min(value, high))
 }
 
-/** A run time as `M:SS.t` — the shape the spec's HUD shows. */
+/** A run time as `M:SS.t` — the shape the spec's HUD shows. Integer maths throughout, because a
+ *  float remainder truncates: 5.1 seconds renders `0:05.0` if you take `(rest - whole) * 10`. */
 export function formatTime(seconds: number): string {
-  const minutes = Math.floor(seconds / 60)
-  const rest = seconds - minutes * 60
-  const whole = Math.floor(rest)
-  const tenth = Math.floor((rest - whole) * 10)
+  const tenths = Math.floor(seconds * 10)
+  const minutes = Math.floor(tenths / 600)
+  const whole = Math.floor((tenths % 600) / 10)
+  const tenth = tenths % 10
   return `${minutes}:${String(whole).padStart(2, '0')}.${tenth}`
 }

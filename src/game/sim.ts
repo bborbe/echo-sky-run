@@ -20,7 +20,15 @@ import {
   tileAt,
   type TileMap,
 } from '../physics/tilemap.ts'
-import { createEnemy, createEnemyField, STOMP_BOUNCE, stepEnemies, type EnemyField } from './enemies.ts'
+import {
+  createEnemy,
+  createEnemyField,
+  dropShell,
+  STOMP_BOUNCE,
+  stepEnemies,
+  touchShell,
+  type EnemyField,
+} from './enemies.ts'
 import {
   applyHit,
   collectMushrooms,
@@ -200,6 +208,11 @@ export function stepSim(sim: SimState, input: SimInput): void {
 
   // Enemies move after the player, so a stomp is tested against the position he actually reached.
   const events = stepEnemies(sim.enemies, playerBox(sim.player), sim.player.vy, map)
+
+  // Shells: hold the run key to carry one, touch it without to kick it away, release to drop it.
+  const facing: -1 | 1 = input.left && !input.right ? -1 : 1
+  if (sim.enemies.carried !== null && !input.sprint) dropShell(sim.enemies, facing)
+  touchShell(sim.enemies, playerBox(sim.player), facing, input.sprint)
 
   for (const _ of events.stomped) {
     sim.combo += 1
