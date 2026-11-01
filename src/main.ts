@@ -1,4 +1,5 @@
 import { BUILD_LABEL } from './build-info.ts'
+import { mountDebugOverlay, readSpawn, spawnQuery } from './debug/overlay.ts'
 import { createSim, stepSim, type SimInput, type SimState } from './game/sim.ts'
 import { LEVEL_1_1_ECHO_AT_X, LEVEL_1_1_ROWS } from './levels/level1-1.ts'
 import { TILE } from './physics/constants.ts'
@@ -6,6 +7,8 @@ import { FixedStepper } from './physics/loop.ts'
 import { parseLevel, tileAt } from './physics/tilemap.ts'
 import { Renderer, PALETTE } from './render/renderer.ts'
 import { createControlsCard, ECHO_HINT } from './ui/controls-card.ts'
+import { escapeLeavesFullscreen, toggleFullscreen, watchFullscreen } from './ui/fullscreen.ts'
+import { mountGamepad } from './ui/gamepad-shell.ts'
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game')
 if (!canvas) throw new Error('missing #game canvas')
@@ -44,11 +47,24 @@ function saveBest(seconds: number): void {
 const map = parseLevel(LEVEL_1_1_ROWS)
 const renderer = new Renderer(canvas)
 window.addEventListener('resize', () => renderer.fit())
+// Fullscreen changes the window size, so the canvas has to re-fit on every change, not just a resize.
+watchFullscreen(() => renderer.fit())
 
 // Shown on first start and whenever H asks for it. While it is up the game does not advance, so a
 // player reading the controls is not losing a run behind the card.
 const controls = createControlsCard(document.body)
 controls.show()
+
+// `?debug=1` opens it; a plain URL keeps it hidden until a backtick. Its P copies the spot Pip is
+// standing on, so a visual bug can be reopened exactly there.
+const overlay = mountDebugOverlay({
+  search: location.search,
+  spawnLink: () => ({ query: spawnQuery(sim.player.x, sim.player.y), copied: 'Spawn URL copied' }),
+})
+
+// The pad presses the game's own keys, so nothing downstream knows a controller exists — and the
+// card switches to pad labels the moment one connects.
+const gamepad = mountGamepad(navigator, { onConnect: (connected) => controls.setPad(connected) })
 
 /** Set once the sign's hint has been shown for this run, so walking past twice does not repeat it. */
 let signShown = false
@@ -68,11 +84,30 @@ function showSignHint(): void {
   setTimeout(() => el.remove(), 6000)
 }
 
+/**
+ * A `?level=1-1&x=&y=` URL starts Pip where it says, which is what the debug overlay's P copies.
+ * Read once: a spawn is a property of the page load, not something a run changes.
+ */
+const spawnPoint = readSpawn(location.search)
+
+function newSim(): SimState {
+  const next = createSim(map)
+  if (spawnPoint !== null) {
+    next.player.x = spawnPoint.x
+    next.player.y = spawnPoint.y
+    next.respawn = { x: spawnPoint.x, y: spawnPoint.y }
+  }
+  return next
+}
+
 const stepper = new FixedStepper()
-let sim: SimState = createSim(map)
+let sim: SimState = newSim()
 let prevX = sim.player.x
 let prevY = sim.player.y
+/** The player asked for a pause; the tab being hidden is tracked separately so one does not clear the other. */
 let paused = false
+let tabHidden = false
+const isPaused = (): boolean => paused || tabHidden
 let tick = 0
 /** Set once the tally for this run has been recorded, so a finished level is not saved every frame. */
 let recorded = false
@@ -103,7 +138,7 @@ const GAME_KEYS = new Set([
 const JUMP_KEYS = new Set(['Space', 'ArrowUp', 'KeyW'])
 
 function resetGame(): void {
-  sim = createSim(map)
+  sim = newSim()
   prevX = sim.player.x
   prevY = sim.player.y
   // `held` mirrors the physical keyboard, not the game, and is deliberately left alone: a key still
@@ -149,6 +184,37 @@ window.addEventListener('keydown', (event) => {
     return
   }
 
+  if (event.code === 'KeyF') {
+    event.preventDefault()
+    toggleFullscreen()
+    return
+  }
+
+  // Esc leaves fullscreen natively. Swallowing that same keydown as a pause would make one press
+  // do two things, so a press inside the exit grace window is left to the browser.
+  if (event.code === 'Escape' && escapeLeavesFullscreen(document.fullscreenElement !== null, performance.now())) {
+    return
+  }
+
+  // The debug overlay owns the backtick, and P while it is up. With the overlay hidden, P is the
+  // spec's pause key — the same key doing two jobs, split by whether the overlay is on screen.
+  overlay.onKeyDown(event)
+
+  if (event.code === 'Escape' || (event.code === 'KeyP' && !overlay.visible())) {
+    event.preventDefault()
+    paused = !paused
+    if (paused) releaseAll()
+    return
+  }
+
+  // A finished run is frozen by the sim, so a jump is the tally's "retry" — the prompt on the tally
+  // promises exactly that, and without it the only way out is a key the card does not mention.
+  if (sim.goalReached && JUMP_KEYS.has(event.code)) {
+    event.preventDefault()
+    resetGame()
+    return
+  }
+
   if (!GAME_KEYS.has(event.code)) return
   event.preventDefault()
   if (event.repeat) return
@@ -157,11 +223,6 @@ window.addEventListener('keydown', (event) => {
   held.add(event.code)
   if (event.code === 'KeyR') resetGame()
 })
-
-// The card switches to pad labels the moment a controller is connected, so the player never has to
-// translate a keyboard he is not holding.
-window.addEventListener('gamepadconnected', () => controls.setPad(true))
-window.addEventListener('gamepaddisconnected', () => controls.setPad(false))
 
 window.addEventListener('keyup', (event) => {
   held.delete(event.code)
@@ -178,23 +239,40 @@ window.addEventListener('blur', releaseAll)
 document.addEventListener('visibilitychange', () => {
   // The spec pauses on a hidden tab. Without this a player who switches away comes back to a run
   // that carried on without him — and a run timer that kept counting. The else branch matters just
-  // as much: without it the pause is a one-way latch and the game never resumes.
+  // as much: without it the pause is a one-way latch and the game never resumes. It lifts only the
+  // tab's own pause, never one the player asked for.
   if (document.hidden) {
     releaseAll()
-    paused = true
+    tabHidden = true
   } else {
-    paused = false
+    tabHidden = false
   }
 })
+
+/** Frame durations for the debug overlay's p99. A long stall is clamped: a tab switch is not a frame. */
+const frameTimes: number[] = []
+const FRAME_WINDOW = 120
+const FRAME_CLAMP_MS = 250
+
+function frameStats(frameMs: number, steps: number) {
+  frameTimes.push(Math.min(frameMs, FRAME_CLAMP_MS))
+  if (frameTimes.length > FRAME_WINDOW) frameTimes.shift()
+  const sorted = [...frameTimes].sort((a, b) => a - b)
+  const p99 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.99))] ?? 0
+  const mean = frameTimes.reduce((sum, ms) => sum + ms, 0) / Math.max(1, frameTimes.length)
+  return { fps: mean > 0 ? 1000 / mean : 0, frameMs, frameP99Ms: p99, steps }
+}
 
 let last = performance.now()
 
 function frame(now: number): void {
   const elapsed = (now - last) / 1000
+  const frameMs = elapsed * 1000
   last = now
 
-  if (!paused && !controls.visible()) {
-    stepper.advance(elapsed, () => {
+  let steps = 0
+  if (!isPaused() && !controls.visible()) {
+    steps = stepper.advance(elapsed, () => {
       prevX = sim.player.x
       prevY = sim.player.y
       stepSim(sim, readInput())
@@ -231,6 +309,7 @@ function frame(now: number): void {
     mushrooms: sim.powers.mushrooms,
     usedBlocks: sim.usedBlocks,
     goalReached: sim.goalReached,
+    paused: isPaused(),
     runSeconds: sim.frames / 60,
     bestSeconds,
     tick,
@@ -238,6 +317,21 @@ function frame(now: number): void {
     // back towards the previous one.
     alpha: renderAlpha ?? stepper.alpha,
   })
+
+  const stats = frameStats(frameMs, steps)
+  const oldest = sim.field.echoes.reduce((min, e) => Math.min(min, e.life), Number.POSITIVE_INFINITY)
+  overlay.update({
+    ...stats,
+    x: sim.player.x,
+    y: sim.player.y,
+    vx: sim.player.vx,
+    vy: sim.player.vy,
+    meter: sim.player.meter,
+    echoes: sim.field.echoes.length,
+    charge: sim.field.airCharges,
+    life: Number.isFinite(oldest) ? oldest : 0,
+  })
+
   requestAnimationFrame(frame)
 }
 
@@ -290,6 +384,11 @@ interface EchoSkyRunTestApi {
   lipMissingAt(x: number): boolean
   enemyXs(): number[]
   spawnX(): number
+  /** The pad the shell sees, and how many keys it is holding. */
+  pad(): { id: string | null; held: number }
+  /** The debug overlay's state: visibility, each field's rendered value, and the last spawn URL. */
+  debug(): { visible: boolean; fields: Record<string, string>; spawnUrl: string | null }
+  paused(): boolean
 }
 
 const api: EchoSkyRunTestApi = {
@@ -301,6 +400,7 @@ const api: EchoSkyRunTestApi = {
   },
   resume() {
     paused = false
+    tabHidden = false
     renderAlpha = null
   },
   reset() {
@@ -345,6 +445,18 @@ const api: EchoSkyRunTestApi = {
   enemyXs: () => sim.enemies.enemies.filter((e) => e.mode !== 'carried').map((e) => e.x),
   /** Where Pip starts, so a reset assertion compares against the level rather than a literal. */
   spawnX: () => sim.respawn.x,
+  pad: () => ({ id: gamepad.id(), held: gamepad.heldCount() }),
+  debug: () => ({
+    visible: overlay.visible(),
+    fields: Object.fromEntries(
+      Array.from(document.querySelectorAll<HTMLElement>('#debug-overlay .value')).map((el) => [
+        el.dataset.field ?? '',
+        el.textContent ?? '',
+      ]),
+    ),
+    spawnUrl: overlay.lastSpawnUrl(),
+  }),
+  paused: () => isPaused(),
 }
 
 ;(window as unknown as { __echoSkyRun: EchoSkyRunTestApi }).__echoSkyRun = api

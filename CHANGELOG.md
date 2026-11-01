@@ -8,6 +8,14 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- feat: controller support, ported from Driftline's `gamepad-shell.ts`. The pad presses the game's own keys, so the spec's § 6 mapping lands in the one input path the keyboard already uses — A jump, B spin, X run/carry, Y Echo, Start pause, stick and D-pad to move. The pad is polled every frame (hot-plug needs no event), and a button already down when the pad appears counts as a press: browsers reveal a pad only once a button is pressed, so that press is the player's first input and must not be swallowed.
+- feat: a debug overlay, modelled on Driftline's `src/debug/overlay.ts` — `?debug=1` or a backtick, showing fps, frame time (last and p99), sim steps per frame, Pip's x/y/velocity, the speed meter, Echo count / charge / lifetime and the build commit. P copies the current spot as a `?level=1-1&x=&y=` URL, and that URL starts the level there.
+- feat: pause on Esc / P / Start, with a PAUSED plate. A pause the player asked for is kept across a tab switch; the tab's own pause still lifts when the tab comes back.
+- feat: `F` toggles browser fullscreen, reusing Driftline's `fullscreen.ts` — the canvas re-fits on every fullscreen change, and an Esc that leaves fullscreen is not also read as a pause request
+- fix: touching the goal freezes the run. The tally shows the time the flag was touched and Pip stops taking input; before, the timer kept counting and Pip walked on behind the tally ("level finishs ... but i can still move and the time did not stop"). The tally now also says how to leave it — "Jump / A: retry · H: controls".
+
 ## v0.4.1
 
 - fix: the Echo platform is visible. It was pale blue at 55% opacity over a pale blue sky, which is invisible rather than subtle — play gate 2 reported "I can't see them". It now draws a dark outline, a solid fill that survives a greyscale read, a ghost body above it, and a bright flash for its first six frames. A test asserts the outline and fill contrast against the sky colour.
