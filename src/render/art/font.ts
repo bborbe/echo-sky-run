@@ -70,15 +70,21 @@ export function missingGlyphs(text: string): string[] {
 
 /** Every fixed line the canvas overlays draw. Uppercase: the font has no lowercase. */
 export const OVERLAY_TEXT = {
+  /** Title screen. */
+  gameTitle: 'ECHO SKY RUN',
+  world: 'WORLD 1 · 1-1',
+  /** Pause menu. The controls line is a hint, not a row: the card opens over the pause. */
   paused: 'PAUSED',
-  pausedHint: 'ESC / P / START: RESUME',
-  pausedControls: 'H: CONTROLS',
+  pausedControls: 'H / LB: CONTROLS',
+  /** Settings: the two sliders, the card and the way back. */
+  settings: 'SETTINGS',
   music: 'MUSIC',
   effects: 'EFFECTS',
-  volumeHint: 'SPACE / A: ROW · < >: VOLUME',
+  settingsHint: '< >: VOLUME · ESC / B: BACK',
+  /** Results: the run's time and the best time, then the two ways on. */
   clear: 'LEVEL CLEAR',
   time: 'TIME',
   best: 'BEST',
   noBest: 'BEST --',
-  clearHint: 'JUMP / A: RETRY · H: CONTROLS',
+  selectHint: 'SPACE / A: SELECT',
 } as const

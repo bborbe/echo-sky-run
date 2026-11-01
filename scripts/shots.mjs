@@ -46,6 +46,12 @@ const POSES = [
   { name: 'echo-far', query: '?level=1-1&x=760&y=178&echo=880,52', idle: 100 },
   { name: 'echo-mid', query: '?level=1-1&x=760&y=178&echo=880,148', idle: 100 },
   { name: 'echo-near', query: '?level=1-1&x=760&y=178&echo=880,174', idle: 100 },
+  // The four screens of the loop, each over the level so the panel's contrast is judged against the
+  // game it covers rather than against an empty canvas.
+  { name: 'title', query: '?level=1-1&x=600&y=178', screen: 'title' },
+  { name: 'pause', query: '?level=1-1&x=600&y=178', screen: 'pause' },
+  { name: 'settings', query: '?level=1-1&x=600&y=178', screen: 'settings' },
+  { name: 'results', query: '?level=1-1&x=600&y=178', screen: 'results' },
 ].filter((p) => ONLY.length === 0 || ONLY.includes(p.name))
 
 mkdirSync(OUT_DIR, { recursive: true })
@@ -134,8 +140,14 @@ try {
         // The controls card is up on first load; a shot of it is a shot of the card, not the game.
         await page.evaluate(() => window.__echoSkyRun.hideControls())
         await page.evaluate(
-          ({ script, idle }) => {
+          ({ script, idle, screen }) => {
             const api = window.__echoSkyRun
+            if (screen) {
+              // A menu screen over the level: open it, then hold the still frame.
+              api.openScreen(screen)
+              api.hold()
+              return
+            }
             if (script === 'stomp') {
               // Fall onto the Steam-Turtle until the stomp lands, then a few frames of the bounce.
               for (let i = 0; i < 120 && api.state().score === 0; i++) api.step({})
@@ -146,7 +158,7 @@ try {
             // Seam steps pause; hold() turns that into a freeze without the PAUSED plate.
             if (script || idle) api.hold()
           },
-          { script: pose.script ?? null, idle: pose.idle ?? 0 },
+          { script: pose.script ?? null, idle: pose.idle ?? 0, screen: pose.screen ?? null },
         )
         // Two frames: the first paints, the second is the still the screenshot captures.
         await page.evaluate(

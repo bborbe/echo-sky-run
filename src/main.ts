@@ -1,6 +1,6 @@
 import { AudioEngine } from './audio/engine.ts'
 import { SoundWatcher } from './audio/events.ts'
-import { loadVolumes, saveVolumes, VolumeMenu } from './audio/settings.ts'
+import { loadVolumes, nudgeVolume, saveVolumes, type Volumes } from './audio/settings.ts'
 import { BUILD_LABEL } from './build-info.ts'
 import { mountDebugOverlay, readEchoSpot, readFreeze, readLevel, readSpawn, spawnQuery } from './debug/overlay.ts'
 import { ECHO_LIFE_F, placeEcho } from './echo/echo.ts'
@@ -13,10 +13,19 @@ import { Juice, type StepFacts, type StompFact } from './render/juice.ts'
 import { skyColourAt } from './render/parallax.ts'
 import { PipAnimator } from './render/pose.ts'
 import { INK } from './render/art/palette.ts'
-import { Renderer, PALETTE } from './render/renderer.ts'
+import { Renderer, PALETTE, type MenuView } from './render/renderer.ts'
 import { createControlsCard, ECHO_HINT } from './ui/controls-card.ts'
 import { escapeLeavesFullscreen, toggleFullscreen, watchFullscreen } from './ui/fullscreen.ts'
 import { mountGamepad } from './ui/gamepad-shell.ts'
+import {
+  activate,
+  backTarget,
+  isVolumeRow,
+  menuFor,
+  moveSelection,
+  type GameScreen,
+  type MenuId,
+} from './ui/screens.ts'
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game')
 if (!canvas) throw new Error('missing #game canvas')
@@ -82,10 +91,16 @@ const audio = new AudioEngine({
 })
 /** Reads each fixed step for the sounds it raised. */
 const sounds = new SoundWatcher()
-/** The pause panel's volume rows. */
-const volumeMenu = new VolumeMenu(audio.volumes())
-/** The pause the player opened (Esc, P, Start) shows the volume rows; a test-seam pause does not. */
-let menuOpen = false
+/** The settings screen's sliders, kept in step with the engine and with localStorage. */
+let volumes: Volumes = audio.volumes()
+/**
+ * The screen that is up. Only `level` steps the simulation. A debug URL (`?level=`, `?x=&y=`,
+ * `?echo=`, `?freeze=1`) is asking for the level itself, so it starts there and skips the title.
+ */
+const debugEntry = ['level', 'x', 'y', 'echo', 'freeze'].some((key) => params.has(key))
+let screen: GameScreen = debugEntry ? 'level' : 'title'
+/** The selected row on the current menu screen. */
+let selected = 0
 
 const map = parseLevel(LEVEL_1_1_ROWS)
 const renderer = new Renderer(canvas, skyCanvas)
@@ -93,10 +108,9 @@ window.addEventListener('resize', () => renderer.fit())
 // Fullscreen changes the window size, so the canvas has to re-fit on every change, not just a resize.
 watchFullscreen(() => renderer.fit())
 
-// Shown on first start and whenever H asks for it. While it is up the game does not advance, so a
-// player reading the controls is not losing a run behind the card.
+// The controls card, opened by H, by pad LB, and from a menu row. It is not shown on load: the
+// title screen is the first thing a player sees, and it carries CONTROLS as a row of its own.
 const controls = createControlsCard(document.body)
-controls.show()
 
 // On by default on the dev server, `?debug=1` forces it on and `?debug=0` hides it; a production
 // build hides it unless `?debug=1` is set, so a shipped screenshot carries no debug noise. O copies
@@ -235,17 +249,21 @@ const stepper = new FixedStepper()
 let sim: SimState = newSim()
 let prevX = sim.player.x
 let prevY = sim.player.y
-/** The player asked for a pause; the tab being hidden is tracked separately so one does not clear the other. */
-let paused = false
 /**
  * `?freeze=1`: hold the simulation on the frame the page loaded. It is not a player pause — a
- * screenshot needs a still frame without the PAUSED banner drawn over the game.
+ * screenshot needs a still frame with no menu drawn over the game.
  */
 let frozen = frozenAtLoad
 let tabHidden = false
-const isPaused = (): boolean => paused || tabHidden
+/**
+ * Set while a test-seam step is driving. The frame loop must not step alongside it, but the screen
+ * stays where it is — a seam run is a run of the level, not a pause.
+ */
+let seamHalted = false
+/** A menu screen stops the game as surely as a pause does; the hidden tab is tracked apart. */
+const isPaused = (): boolean => screen !== 'level' || tabHidden
 /** Everything that stops the fixed step. A frozen page still renders; that is what the shot captures. */
-const isHalted = (): boolean => isPaused() || frozen
+const isHalted = (): boolean => isPaused() || frozen || seamHalted
 let tick = 0
 /** Set once the tally for this run has been recorded, so a finished level is not saved every frame. */
 let recorded = false
@@ -309,6 +327,84 @@ function readInput(): SimInput {
   }
 }
 
+/** Go to a screen. Entering a menu plays `ui-open`; going back into the game plays `ui-close`. */
+function show(next: GameScreen): void {
+  if (next === screen) return
+  screen = next
+  selected = 0
+  audio.play(next === 'level' ? 'ui-close' : 'ui-open')
+}
+
+/**
+ * The menu keys. Only reached while a menu screen is up, and every key it sees is swallowed — an
+ * unknown press on the title does nothing rather than falling through to the game's own handler.
+ */
+function menuKey(code: string): void {
+  // Esc, P and the pad's B (KeyX) are all "back": P is the spec's pause key, so it has to close the
+  // pause it opened rather than doing nothing.
+  if (code === 'Escape' || code === 'KeyP' || code === 'KeyX') {
+    const back = backTarget(screen)
+    if (back !== null) show(back)
+    return
+  }
+  if (code === 'ArrowUp' || code === 'KeyW' || code === 'PadUp') return moveSelectionBy(-1)
+  if (code === 'ArrowDown' || code === 'KeyS' || code === 'PadDown') return moveSelectionBy(1)
+  if (code === 'ArrowLeft' || code === 'KeyA') return adjustVolume(-1)
+  if (code === 'ArrowRight' || code === 'KeyD') return adjustVolume(1)
+  if (code === 'Space' || code === 'Enter' || code === 'KeyK') return confirm(menuFor(screen)[selected]?.id)
+}
+
+function moveSelectionBy(dir: -1 | 1): void {
+  const items = menuFor(screen)
+  const next = moveSelection(items.length, selected, dir)
+  if (next === selected) return
+  selected = next
+  audio.play('ui-tick')
+}
+
+/**
+ * ←/→ move the selected slider one step. On any other row the press does nothing: the settings
+ * screen mixes sliders with plain rows, and a left/right there must not move the selection.
+ */
+function adjustVolume(dir: -1 | 1): void {
+  const item = menuFor(screen)[selected]
+  if (!isVolumeRow(item)) return
+  const row = item.id === 'music' ? 'music' : 'effects'
+  const next = nudgeVolume(volumes, row, dir)
+  if (next === volumes) return
+  volumes = next
+  audio.setVolume(row, volumes[row])
+  saveVolumes(storage(), volumes)
+  audio.play('ui-tick')
+}
+
+/** Confirm the selected row. A run that starts or restarts begins from a clean level. */
+function confirm(id: MenuId | undefined): void {
+  if (id === undefined) return
+  const outcome = activate(screen, id)
+  if (outcome.controls) {
+    controls.show()
+    audio.play('ui-open')
+    return
+  }
+  if (outcome.restart) resetGame()
+  show(outcome.screen)
+}
+
+/** The menu the renderer draws: the screen's rows, the selection, and the numbers it shows. */
+function menuView(): MenuView | null {
+  if (screen === 'level') return null
+  return {
+    screen,
+    items: menuFor(screen),
+    index: selected,
+    music: volumes.music,
+    effects: volumes.effects,
+    runSeconds: sim.frames / 60,
+    bestSeconds,
+  }
+}
+
 window.addEventListener('keydown', (event) => {
   if (event.ctrlKey || event.metaKey || event.altKey) return
 
@@ -349,33 +445,19 @@ window.addEventListener('keydown', (event) => {
   // dev build would have left the play gates with no pause at all.
   overlay.onKeyDown(event)
 
+  // A menu screen owns every key: a stray press on the title must not start a run, and one on the
+  // pause must not move Pip. The three that work everywhere — H, F and dismissing the controls card
+  // — are handled above this point.
+  if (screen !== 'level') {
+    event.preventDefault()
+    menuKey(event.code)
+    return
+  }
+
   if (event.code === 'Escape' || event.code === 'KeyP') {
     event.preventDefault()
-    paused = !paused
-    menuOpen = paused
-    audio.play(paused ? 'ui-open' : 'ui-close')
-    if (paused) releaseAll()
-    return
-  }
-
-  // The pause panel's volume rows own the arrows and Space while it is up, so adjusting the volume
-  // never latches a jump or a step for the moment the game resumes.
-  if (menuOpen && paused && VolumeMenu.owns(event.code)) {
-    event.preventDefault()
-    const action = volumeMenu.key(event.code)
-    if (action === 'volume') {
-      audio.setVolume(volumeMenu.row, volumeMenu.volumes[volumeMenu.row])
-      saveVolumes(storage(), volumeMenu.volumes)
-    }
-    if (action !== 'none') audio.play('ui-tick')
-    return
-  }
-
-  // A finished run is frozen by the sim, so a jump is the tally's "retry" — the prompt on the tally
-  // promises exactly that, and without it the only way out is a key the card does not mention.
-  if (sim.goalReached && JUMP_KEYS.has(event.code)) {
-    event.preventDefault()
-    resetGame()
+    releaseAll()
+    show('pause')
     return
   }
 
@@ -513,6 +595,9 @@ function frame(now: number): void {
     }
   }
 
+  // The flag hands the run to the results screen, which carries the time and the best time.
+  if (sim.goalReached && screen === 'level') show('results')
+
   renderer.draw({
     map,
     player: sim.player,
@@ -522,7 +607,6 @@ function frame(now: number): void {
     enemies: sim.enemies.enemies,
     mushrooms: sim.powers.mushrooms,
     usedBlocks: sim.usedBlocks,
-    goalReached: sim.goalReached,
     paused: isPaused(),
     runSeconds: sim.frames / 60,
     bestSeconds,
@@ -538,10 +622,7 @@ function frame(now: number): void {
     poseFrame: animator.frame,
     facing: animator.facing,
     juice,
-    volumeMenu:
-      menuOpen && paused
-        ? { music: volumeMenu.volumes.music, effects: volumeMenu.volumes.effects, row: volumeMenu.row }
-        : null,
+    menu: menuView(),
   })
 
   pushOverlay(frameStats(frameMs, steps))
@@ -590,6 +671,12 @@ interface EchoSkyRunTestApi {
   pause(): void
   resume(): void
   reset(): void
+  /** The screen that is up. Only `level` steps the simulation. */
+  screen(): GameScreen
+  /** The menu on screen: its rows and the selected index. Null while the level plays. */
+  menu(): { screen: GameScreen; index: number; items: string[] } | null
+  /** Go to a screen the way a player would, without the sound — the screenshot tool's shortcut. */
+  openScreen(name: GameScreen): void
   step(input: Partial<SimInput>): ReturnType<typeof snapshot>
   state(): ReturnType<typeof snapshot>
   /** The controls card, so the browser check asserts its labels and its dismissal. */
@@ -662,26 +749,42 @@ const api: EchoSkyRunTestApi = {
   echoAtX: LEVEL_1_1_ECHO_AT_X,
   palette: PALETTE,
   pause() {
-    paused = true
-    menuOpen = false
+    screen = 'pause'
+    selected = 0
     renderAlpha = 1
   },
   resume() {
-    paused = false
-    menuOpen = false
+    screen = 'level'
     frozen = false
+    seamHalted = false
     tabHidden = false
     renderAlpha = null
   },
   reset() {
     resetGame()
+    screen = 'level'
+    selected = 0
+    renderAlpha = null
+  },
+  screen: () => screen,
+  menu: () => {
+    if (screen === 'level') return null
+    const items = menuFor(screen)
+    return { screen, index: selected, items: items.map((item) => item.label) }
+  },
+  openScreen(name) {
+    resetGame()
+    screen = name
+    selected = 0
+    seamHalted = false
+    frozen = false
     renderAlpha = null
   },
   step(input) {
     // Take over the simulation: a seam step must not race the live frame loop. It goes through the
     // same advance() as the loop, so the pose and the juice follow — but never holds: a seam step is
     // always exactly one simulation step.
-    paused = true
+    seamHalted = true
     renderAlpha = 1
     advance({
       left: false,
@@ -727,7 +830,7 @@ const api: EchoSkyRunTestApi = {
   paused: () => isPaused(),
   frozen: () => frozen,
   hold() {
-    paused = false
+    seamHalted = false
     frozen = true
     renderAlpha = 1
   },
@@ -787,7 +890,7 @@ const api: EchoSkyRunTestApi = {
     gains: audio.gains(),
     levels: audio.levels(),
     musicTime: audio.musicTime(),
-    menu: { open: menuOpen && paused, row: volumeMenu.row },
+    menu: { open: screen !== 'level', row: menuFor(screen)[selected]?.id ?? '' },
   }),
   frameTimings: () => {
     const sorted = [...frameTimes].sort((a, b) => a - b)
