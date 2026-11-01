@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run --project fast --passWithNoTests",
     "test:all": "vitest run --passWithNoTests",
-    "test:slow": "vitest run --project slow --passWithNoTests"
+    "test:slow": "vitest run --project slow --passWithNoTests",
+    "e2e": "node scripts/e2e.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

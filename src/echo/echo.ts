@@ -29,9 +29,14 @@ export function createEchoField(): EchoField {
   return { echoes: [], airCharges: ECHO_AIR_CHARGES }
 }
 
-/** Where an Echo placed from this player box lands: a thin top at the player's feet. */
+/**
+ * Where an Echo placed from this player box lands: a thin platform whose TOP edge is exactly at the
+ * player's feet. Putting the top at the feet is load-bearing — a one-way surface only catches a box
+ * whose bottom was at or above it, so a box placed with the player's feet at its *bottom* is already
+ * past it and the player falls straight through.
+ */
 export function echoBoxAt(player: Box): Box {
-  return { x: player.x, y: player.y + player.h - ECHO_H, w: ECHO_W, h: ECHO_H }
+  return { x: player.x, y: player.y + player.h, w: ECHO_W, h: ECHO_H }
 }
 
 /** True when a placement from this player box would be accepted. */

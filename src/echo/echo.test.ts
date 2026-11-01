@@ -50,7 +50,7 @@ describe('placement', () => {
 
   it('lands the Echo as a thin top at the player feet', () => {
     const box = echoBoxAt(airborne(32, 20))
-    expect(box.y).toBe(20 + PLAYER_H - 4)
+    expect(box.y).toBe(20 + PLAYER_H)
     expect(box.x).toBe(32)
     expect(box.w).toBe(PLAYER_W)
     expect(box.h).toBe(4)
