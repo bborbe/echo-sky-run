@@ -4,7 +4,7 @@ import { LEVEL_1_1_ECHO_AT_X, LEVEL_1_1_ROWS } from './levels/level1-1.ts'
 import { FixedStepper } from './physics/loop.ts'
 import { parseLevel } from './physics/tilemap.ts'
 import { Renderer, PALETTE } from './render/renderer.ts'
-import { createControlsCard } from './ui/controls-card.ts'
+import { createControlsCard, ECHO_HINT } from './ui/controls-card.ts'
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game')
 if (!canvas) throw new Error('missing #game canvas')
@@ -48,6 +48,24 @@ window.addEventListener('resize', () => renderer.fit())
 // player reading the controls is not losing a run behind the card.
 const controls = createControlsCard(document.body)
 controls.show()
+
+/** Set once the sign's hint has been shown for this run, so walking past twice does not repeat it. */
+let signShown = false
+
+/**
+ * The sign's hint. It sits over the level rather than pausing it: the player is about to attempt the
+ * gap, and a modal at that moment is a worse interruption than a line at the bottom of the screen.
+ */
+function showSignHint(): void {
+  const el = document.createElement('div')
+  el.id = 'echo-hint'
+  el.textContent = ECHO_HINT
+  el.style.cssText =
+    'position:fixed;left:50%;bottom:48px;transform:translateX(-50%);padding:10px 16px;border-radius:8px;' +
+    'background:rgba(20,30,40,.92);color:#5dbb63;font:13px ui-monospace,monospace;z-index:10'
+  document.body.append(el)
+  setTimeout(() => el.remove(), 6000)
+}
 
 const stepper = new FixedStepper()
 let sim: SimState = createSim(map)
@@ -95,6 +113,7 @@ function resetGame(): void {
   edge.echo = false
   tick = 0
   recorded = false
+  signShown = false
   stepper.reset()
 }
 
@@ -182,6 +201,12 @@ function frame(now: number): void {
     })
   }
 
+  // The sign's hint, once per run.
+  if (sim.signSeen && !signShown) {
+    signShown = true
+    showSignHint()
+  }
+
   // Record the run once it is finished: the first finish, and every faster one after it.
   if (sim.goalReached && !recorded) {
     recorded = true
@@ -230,6 +255,8 @@ function snapshot() {
     mushrooms: sim.powers.mushrooms.length,
     combo: sim.combo,
     score: sim.score,
+    frames: sim.frames,
+    signSeen: sim.signSeen,
     goalReached: sim.goalReached,
   }
 }
@@ -253,6 +280,8 @@ interface EchoSkyRunTestApi {
   controls(): { visible: boolean; pad: boolean; labels: string[] }
   showControls(): void
   hideControls(): void
+  /** True while the sign's hint overlay is on screen. */
+  hintShown(): boolean
 }
 
 const api: EchoSkyRunTestApi = {
@@ -296,6 +325,8 @@ const api: EchoSkyRunTestApi = {
   }),
   showControls: () => controls.show(),
   hideControls: () => controls.hide(),
+  /** The sign's hint is a transient overlay, so the check asserts its presence, not its text. */
+  hintShown: () => document.getElementById('echo-hint') !== null,
 }
 
 ;(window as unknown as { __echoSkyRun: EchoSkyRunTestApi }).__echoSkyRun = api

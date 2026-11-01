@@ -3,7 +3,7 @@ import type { Enemy } from '../game/enemies.ts'
 import type { Mushroom } from '../game/power.ts'
 import { PLAYER_H, PLAYER_W, TILE } from '../physics/constants.ts'
 import type { PlayerState } from '../physics/player.ts'
-import { CHECKPOINT, GOAL, isOneWay, isSolid, QUESTION, tileAt, type TileMap } from '../physics/tilemap.ts'
+import { CHECKPOINT, GOAL, isOneWay, isSolid, QUESTION, SIGN, tileAt, type TileMap } from '../physics/tilemap.ts'
 
 /**
  * The logical view height is fixed at 14 tiles. The scale is `window height / VIEW_H` and may be
@@ -211,6 +211,16 @@ export class Renderer {
         } else if (isOneWay(ch)) {
           ctx.fillStyle = PLANK
           ctx.fillRect(x, y, TILE, 4)
+        } else if (ch === SIGN) {
+          // A post with a plate showing the Echo key. It is the level's only instruction.
+          ctx.fillStyle = CHECKPOINT_POLE
+          ctx.fillRect(x + 7, y - TILE, 2, TILE * 2)
+          ctx.fillStyle = PLANK
+          ctx.fillRect(x + 1, y - TILE, 14, 10)
+          ctx.fillStyle = PIP_VISOR
+          ctx.font = '8px monospace'
+          ctx.textAlign = 'center'
+          ctx.fillText('C', x + 8, y - TILE + 8)
         } else if (ch === CHECKPOINT) {
           ctx.fillStyle = CHECKPOINT_POLE
           ctx.fillRect(x + 7, y - TILE * 2, 2, TILE * 3)

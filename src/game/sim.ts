@@ -15,6 +15,7 @@ import {
   findTile,
   GOAL,
   QUESTION,
+  SIGN,
   SPAWN,
   tileAt,
   type TileMap,
@@ -43,6 +44,10 @@ export interface SimState {
   readonly goal: { x: number; y: number }
   /** The midpoint flag, or null when the level has none. */
   readonly checkpoint: { x: number; y: number } | null
+  /** The tutorial sign before the Echo gap, or null. */
+  readonly sign: { x: number; y: number } | null
+  /** Set the first time Pip walks past the sign; the shell shows its hint once. */
+  signSeen: boolean
   /** Where a death puts Pip back: the level start until the checkpoint is touched. */
   respawn: { x: number; y: number }
   player: PlayerState
@@ -105,6 +110,8 @@ export function createSim(map: TileMap): SimState {
     map,
     goal,
     checkpoint: findTile(map, CHECKPOINT),
+    sign: findTile(map, SIGN),
+    signSeen: false,
     respawn: { x: spawn.x, y: spawn.y },
     player: createPlayer(spawn.x, spawn.y, heightOf('small')),
     field: createEchoField(),
@@ -226,6 +233,9 @@ export function stepSim(sim: SimState, input: SimInput): void {
     sim.deaths += 1
     respawnPlayer(sim)
   }
+
+  // The sign teaches the Echo just before the gap that needs it, once per run.
+  if (sim.sign !== null && overlapsTile(sim.player, sim.sign)) sim.signSeen = true
 
   if (overlapsTile(sim.player, sim.goal)) sim.goalReached = true
 }

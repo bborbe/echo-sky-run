@@ -14,6 +14,8 @@ export const STEAM_TURTLE = 't'
 export const QUESTION = '?'
 /** The midpoint checkpoint flag. */
 export const CHECKPOINT = 'C'
+/** A tutorial sign. Walking past it shows its hint, once. */
+export const SIGN = 'i'
 
 export interface TileMap {
   readonly cols: number

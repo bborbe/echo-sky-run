@@ -22,6 +22,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 - feat: a level-clear tally shows the run time and the best time, and the best time persists in `localStorage` under `echo-sky-run.v1`
 - feat: the game pauses when the tab is hidden, so a player who switches away does not come back to a run that carried on without him
 - feat: a controls card on first start lists the keyboard and pad mappings and the one line that explains the Echo — "C leaves a ghost platform where you are — jump on it"; any key dismisses it, H brings it back, and it switches to pad labels the moment a controller is connected
+- feat: a sign before the Echo gap shows the `C` key and its hint the first time Pip walks past it, so the one move the level is about is taught before it is demanded
 
 ## v0.3.0
 
