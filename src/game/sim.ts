@@ -9,7 +9,7 @@ import {
 import type { Box } from '../physics/collision.ts'
 import { PLAYER_H, PLAYER_W, TILE } from '../physics/constants.ts'
 import { createPlayer, stepPlayer, type PlayerInput, type PlayerState } from '../physics/player.ts'
-import { findEnemySpawns, findTile, GOAL, SPAWN, type TileMap } from '../physics/tilemap.ts'
+import { findEnemySpawns, findTile, CHECKPOINT, GOAL, SPAWN, type TileMap } from '../physics/tilemap.ts'
 import { createEnemy, createEnemyField, STOMP_BOUNCE, stepEnemies, type EnemyField } from './enemies.ts'
 
 export interface SimInput extends PlayerInput {
@@ -20,10 +20,16 @@ export interface SimInput extends PlayerInput {
 export interface SimState {
   readonly map: TileMap
   readonly goal: { x: number; y: number }
+  /** The midpoint flag, or null when the level has none. */
+  readonly checkpoint: { x: number; y: number } | null
+  /** Where a death puts Pip back: the level start until the checkpoint is touched. */
+  respawn: { x: number; y: number }
   player: PlayerState
   field: EchoField
   enemies: EnemyField
   goalReached: boolean
+  /** Deaths this run — the tally shows it, and a test asserts the respawn happened. */
+  deaths: number
   /** Consecutive stomps without landing. Resets on any landing, including on an Echo. */
   combo: number
   score: number
@@ -42,8 +48,8 @@ function playerBox(p: PlayerState): Box {
   return { x: p.x, y: p.y, w: PLAYER_W, h: PLAYER_H }
 }
 
-function overlapsGoal(p: PlayerState, goal: { x: number; y: number }): boolean {
-  return p.x + PLAYER_W > goal.x && p.x < goal.x + TILE && p.y + PLAYER_H > goal.y && p.y < goal.y + TILE
+function overlapsTile(p: PlayerState, tile: { x: number; y: number }): boolean {
+  return p.x + PLAYER_W > tile.x && p.x < tile.x + TILE && p.y + PLAYER_H > tile.y && p.y < tile.y + TILE
 }
 
 /**
@@ -64,13 +70,27 @@ export function createSim(map: TileMap): SimState {
   return {
     map,
     goal,
+    checkpoint: findTile(map, CHECKPOINT),
+    respawn: { x: spawn.x, y: spawn.y },
     player: createPlayer(spawn.x, spawn.y),
     field: createEchoField(),
     enemies,
     goalReached: false,
+    deaths: 0,
     combo: 0,
     score: 0,
   }
+}
+
+/**
+ * Put Pip back at the last checkpoint. A death ends every Echo (the spec's edge case) and breaks the
+ * stomp chain, because both belong to the run that ended. Enemies are left as they are: respawning
+ * them would let a player farm the same stomp by dying on purpose.
+ */
+export function respawnPlayer(sim: SimState): void {
+  sim.player = createPlayer(sim.respawn.x, sim.respawn.y)
+  sim.field = createEchoField()
+  sim.combo = 0
 }
 
 /**
@@ -102,5 +122,17 @@ export function stepSim(sim: SimState, input: SimInput): void {
   tickEchoes(sim.field)
   refreshAirCharges(sim.field, playerBox(sim.player), map, echoPlatforms(sim.field))
 
-  if (overlapsGoal(sim.player, sim.goal)) sim.goalReached = true
+  // The checkpoint claims the respawn point the first time Pip reaches it, and keeps it thereafter.
+  if (sim.checkpoint !== null && overlapsTile(sim.player, sim.checkpoint)) {
+    sim.respawn = { x: sim.checkpoint.x, y: sim.checkpoint.y }
+  }
+
+  // A pit kills regardless of tier, and puts Pip back with no key press — on the same frame, which
+  // is what makes the 300 ms bound trivially true.
+  if (sim.player.y > map.rows * TILE) {
+    sim.deaths += 1
+    respawnPlayer(sim)
+  }
+
+  if (overlapsTile(sim.player, sim.goal)) sim.goalReached = true
 }

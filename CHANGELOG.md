@@ -13,6 +13,8 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 - feat: Gear-Goomba and Steam-Turtle — 16×16 and 16×24 walkers at 0.5 px/f that turn at walls, die to a stomp, and turn a stomped turtle into a shell that slides at 3 px/f when kicked and follows Pip when carried with Shift
 - feat: stomp bounce at −4.5 px/f and the combo score, 100, 200, 400, 800, 1000… per chain without landing
 - feat: level 1-1 is rebuilt to the spec's shape — a flat start with no enemies, then a Gear-Goomba, a ? block, a Steam-Turtle, a small gap, the checkpoint and the 13-tile Echo gap — with a 19-tile floor between the two gaps so a sprint jump out of the small one lands before the Echo gap rather than on its lip
+- feat: the checkpoint flag claims the respawn point the first time Pip reaches it
+- feat: a pit kills regardless of tier and puts Pip back at the last checkpoint on the same frame, with no key press; a death ends every Echo and breaks the stomp chain
 
 ## v0.3.0
 
