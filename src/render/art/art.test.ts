@@ -152,6 +152,17 @@ describe('hitbox and sprite sizes (spec § 4)', () => {
     }
   })
 
+  it('draws each hazard at exactly the spec § 4 sprite size', () => {
+    const drawn = (name: string): { w: number; h: number } => {
+      const { w, h } = unionBounds(animation(name).frames)
+      return { w, h }
+    }
+    expect(drawn('goomba-walk')).toEqual({ w: 18, h: 18 })
+    expect(drawn('turtle-walk')).toEqual({ w: 18, h: 27 })
+    expect(drawn('turtle-shell')).toEqual({ w: 18, h: 18 })
+    expect(drawn('turtle-shell-kicked')).toEqual({ w: 18, h: 18 })
+  })
+
   it('never draws a hazard frame smaller than its hitbox', () => {
     for (const [name, hitW, hitH] of hazards) {
       animation(name).frames.forEach((frame, i) => {

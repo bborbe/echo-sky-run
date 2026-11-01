@@ -507,7 +507,21 @@ interface EchoSkyRunTestApi {
   /** Turn a seam pause into a freeze: the sim stays still and no PAUSED plate is drawn (screenshots). */
   hold(): void
   /** The juice the loop is running: holds, shake, and fixed steps held so far. */
-  juice(): { hitStop: number; deathHold: number; shake: number; shakeX: number; shakeY: number; heldSteps: number }
+  juice(): {
+    hitStop: number
+    deathHold: number
+    shake: number
+    shakeX: number
+    shakeY: number
+    heldSteps: number
+    sx: number
+    sy: number
+    dust: number
+  }
+  /** Opaque pixels per parallax layer above and below the haze line. */
+  layers(): { name: string; above: number; below: number }[]
+  /** The level's tile rows, for the seam and gap probes. */
+  tiles(): readonly string[]
   /** The camera's integer scroll, for the flicker probe. */
   cameraX(): number
   /** The sky gradient's colour at a screen row — what a gap must show. */
@@ -591,6 +605,7 @@ const api: EchoSkyRunTestApi = {
   },
   juice: () => {
     const o = juice.shakeOffset()
+    const scale = juice.pipScale()
     return {
       hitStop: juice.hitStop,
       deathHold: juice.deathHold,
@@ -598,8 +613,13 @@ const api: EchoSkyRunTestApi = {
       shakeX: o.x,
       shakeY: o.y,
       heldSteps,
+      sx: scale.sx,
+      sy: scale.sy,
+      dust: juice.particles.filter((p) => p.active && p.kind === 'dust').length,
     }
   },
+  layers: () => renderer.layerCoverage(),
+  tiles: () => map.tiles,
   cameraX: () => renderer.cameraX,
   elements: () => {
     const out: { name: string; x: number; y: number; w: number; h: number }[] = []

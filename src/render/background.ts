@@ -3,7 +3,7 @@
 // is a handful of drawImage calls at sub-pixel offsets, which is what makes the parallax glide.
 
 import { VIEW_H } from './camera.ts'
-import { LAYERS, SKY_STOPS, parallaxOffset, type Layer, type Shape } from './parallax.ts'
+import { HAZE_TOP, LAYERS, SKY_STOPS, parallaxOffset, type Layer, type Shape } from './parallax.ts'
 
 /** The painted canvas's resolution per logical pixel: soft art needs no more. */
 export const BG_SCALE = 3
@@ -124,6 +124,30 @@ export class Background {
     ctx.fillStyle = sun
     ctx.fillRect(0, 0, sky.width, 160 * k)
     this.sky = sky
+  }
+
+  /**
+   * Opaque pixels in each layer's strip above and below the haze line. A layer that draws nothing,
+   * or anything below the line, fails the browser check.
+   */
+  layerCoverage(): { name: string; above: number; below: number }[] {
+    const k = BG_SCALE
+    return this.strips.map(({ layer, canvas }) => {
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('no 2d context')
+      const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data
+      const split = HAZE_TOP * k
+      let above = 0
+      let below = 0
+      for (let y = 0; y < canvas.height; y++) {
+        for (let x = 0; x < canvas.width; x++) {
+          if (data[(y * canvas.width + x) * 4 + 3] === 0) continue
+          if (y < split) above++
+          else below++
+        }
+      }
+      return { name: layer.name, above, below }
+    })
   }
 
   /** Paint one frame for the camera's position, plus a halo behind each Echo (world coordinates). */

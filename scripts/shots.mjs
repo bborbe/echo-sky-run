@@ -37,7 +37,7 @@ const POSES = [
   { name: '1-1', query: '?level=1-1&x=600&y=178' },
   { name: 'gear-goomba', query: '?level=1-1&x=236&y=178' },
   { name: 'steam-turtle', query: '?level=1-1&x=520&y=178' },
-  { name: 'shell', query: '?level=1-1&x=580&y=100', script: 'stomp' },
+  { name: 'shell', query: '?level=1-1&x=568&y=100', script: 'stomp' },
   { name: 'qblock', query: '?level=1-1&x=356&y=178' },
   { name: 'small-gap', query: '?level=1-1&x=420&y=178' },
   { name: 'echo-gap', query: '?level=1-1&x=770&y=178' },

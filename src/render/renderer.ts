@@ -11,6 +11,7 @@ import { INK, SKY } from './art/palette.ts'
 import { PIP_SMALL, PIP_SUPER, type PipPose } from './art/pip.ts'
 import { tileMask, tileShape } from './art/tiles.ts'
 import { bake, paint, type Baked } from './atlas.ts'
+import { spriteOrigin } from './anchor.ts'
 import { Background } from './background.ts'
 import { Camera, VIEW_H } from './camera.ts'
 import { Juice } from './juice.ts'
@@ -77,11 +78,6 @@ export interface RenderState {
 /** Draw-ready frames for every animation, both facings. */
 type Atlas = ReadonlyMap<string, Baked>
 
-/** The sprite anchor: centred on the hitbox, feet on its floor. */
-function anchorX(boxX: number, boxW: number, spriteW: number): number {
-  return Math.round(boxX + boxW / 2 - spriteW / 2)
-}
-
 export class Renderer {
   private readonly canvas: HTMLCanvasElement
   private readonly ctx: CanvasRenderingContext2D
@@ -114,6 +110,11 @@ export class Renderer {
   /** Current logical view width in pixels. */
   get width(): number {
     return this.viewW
+  }
+
+  /** Opaque pixels per parallax layer above and below the haze line — the browser check's layer probe. */
+  layerCoverage(): { name: string; above: number; below: number }[] {
+    return this.background.layerCoverage()
   }
 
   /** The camera's scroll, for the browser check's flicker probe. */
@@ -279,9 +280,8 @@ export class Renderer {
     } else {
       img = this.frame('turtle-shell', 0, 1)
     }
-    const x = anchorX(enemy.x, enemy.w, img.width)
-    const y = Math.round(enemy.y + enemy.h) - img.height
-    this.ctx.drawImage(img, x, y)
+    const o = spriteOrigin(enemy, img.width, img.height)
+    this.ctx.drawImage(img, o.x, o.y)
   }
 
   private ghost(pose: PipPose, frame: number, facing: -1 | 1, superForm: boolean, flash: boolean): HTMLCanvasElement {
@@ -364,9 +364,8 @@ export class Renderer {
     const { sx, sy } = state.juice.pipScale()
     const w = Math.round(img.width * sx)
     const h = Math.round(img.height * sy)
-    const x = Math.round(px + SMALL_W / 2 - w / 2)
-    const y = Math.round(py + state.player.h) - h
-    this.ctx.drawImage(img, x, y, w, h)
+    const o = spriteOrigin({ x: px, y: py, w: SMALL_W, h: state.player.h }, w, h)
+    this.ctx.drawImage(img, o.x, o.y, w, h)
   }
 
   private drawParticles(juice: Juice): void {
