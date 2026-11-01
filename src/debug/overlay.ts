@@ -1,13 +1,12 @@
-// Debug overlay: a corner readout of the state you cannot see on the canvas, on by default in the
-// dev build and a backtick away, with O copying the current spot as a spawn URL so a visual bug can
-// be reproduced exactly. Modelled on Driftline's src/debug/overlay.ts for the visibility rule.
+// Debug overlay: a thin readout of the state you cannot see on the canvas, on by default in the dev
+// build and a backtick away, with O copying the current spot as a spawn URL so a visual bug can be
+// reproduced exactly. Modelled on Driftline's src/debug/overlay.ts for the visibility rule.
 //
-// The text is the game's own 5×7 bitmap font on its own pixelated canvas, not a DOM panel: a system
-// font anti-aliases, and the browser's nearest-neighbour upscale turns those greys into blurry
-// blocks (play gate 1). A bitmap font on an integer scale has no greys to scale.
+// It is a small monospace strip along the top edge, not a game-styled panel (operator, 2026-11-01:
+// "the debug infos should a the border ... small .. so they dont distract the view — does not have
+// to match the game style ... is only for debugging while development"). It sits over the sky, never
+// over the ground where Pip runs.
 import { APP_VERSION, COMMIT_SHA } from '../build-info.ts'
-import { FONT, GLYPH_GAP, GLYPH_H, GLYPH_W, textWidth } from '../render/art/font.ts'
-import { INK } from '../render/art/palette.ts'
 
 /** The query parameter that forces the overlay on (`1`) or off (`0`) at load. */
 export const DEBUG_PARAM = 'debug'
@@ -79,10 +78,7 @@ export interface DebugOverlay {
   onKeyDown(event: KeyboardEvent): void
   /** The last spawn URL copied, so a check can assert it without the clipboard. */
   lastSpawnUrl(): string | null
-  /**
-   * The rendered field values, keyed by field. The browser check reads this instead of scraping the
-   * DOM — the overlay is a canvas now, so there are no elements to scrape.
-   */
+  /** The rendered field values, keyed by field — what a check reads instead of the DOM text. */
   values(): Readonly<Record<string, string>>
 }
 
@@ -140,43 +136,46 @@ export function readFreeze(search: string): boolean {
   return new URLSearchParams(search).get('freeze') === '1'
 }
 
-/** One row per field: the label a reader scans, and the key a check reads it by. */
+/** One chip per field: the short label a reader scans, and the key a check reads it by. */
 const ROWS: readonly (readonly [string, string])[] = [
-  ['version', 'VERSION'],
-  ['commit', 'BUILD'],
-  ['level', 'LEVEL'],
-  ['checkpoint', 'CHECKPOINT'],
+  ['version', 'VER'],
+  ['commit', 'SHA'],
+  ['level', 'LVL'],
+  ['checkpoint', 'CP'],
   ['state', 'STATE'],
   ['fps', 'FPS'],
-  ['frame', 'FRAME MS'],
-  ['p99', 'P99 MS'],
+  ['frame', 'MS'],
+  ['p99', 'P99'],
   ['steps', 'STEPS'],
   ['x', 'X'],
   ['y', 'Y'],
   ['vx', 'VX'],
   ['vy', 'VY'],
-  ['grounded', 'GROUNDED'],
-  ['power', 'POWER'],
-  ['charge', 'ECHO CHARGE'],
-  ['timer', 'ECHO TIMER'],
-  ['speed', 'METER'],
+  ['grounded', 'GND'],
+  ['power', 'PWR'],
+  ['charge', 'CHG'],
+  ['timer', 'TMR'],
+  ['speed', 'MTR'],
 ]
 
 const STYLE_ID = 'debug-overlay-style'
-/** Rows per column. Eighteen fields at nine rows each is a corner block, not a column to the floor. */
-const COLUMNS = 2
-const ROW_H = GLYPH_H + 3
-const PAD = 4
-const COL_GAP = 10
-/** Integer upscale, so every glyph pixel lands on a whole screen pixel and nothing blurs. */
-const SCALE = 3
 
+/**
+ * A strip along the top edge. Deliberately not in the game's style — it is a development readout,
+ * so it stays small and dim and out of the playfield (operator: "small .. so they dont distract the
+ * view"). The sky is up here; Pip runs along the ground, never under it.
+ */
 const STYLES = `
 #debug-overlay {
-  position: fixed; top: 8px; left: 8px;
-  image-rendering: pixelated; pointer-events: none; z-index: 11;
+  position: fixed; top: 0; left: 0; right: 0;
+  display: flex; flex-wrap: wrap; gap: 0 12px;
+  padding: 2px 8px;
+  background: rgba(10, 14, 20, 0.66); color: #cfe3ee;
+  font: 10px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+  pointer-events: none; z-index: 11;
 }
 #debug-overlay.hidden { display: none; }
+#debug-overlay .k { color: #7fb8cc; margin-right: 3px; }
 #debug-toast {
   position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
   padding: 8px 14px; border-radius: 8px;
@@ -193,23 +192,6 @@ function installStyles(): void {
   style.id = STYLE_ID
   style.textContent = STYLES
   document.head.append(style)
-}
-
-/** A line of text in the bitmap font — one `fillRect` per ink pixel, so no anti-aliasing exists. */
-function drawText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, ink: string): void {
-  ctx.fillStyle = ink
-  let gx = x
-  // The font is uppercase only; a lowercase character would fall back to the blank space glyph.
-  for (const ch of text.toUpperCase()) {
-    const glyph = FONT[ch] ?? FONT[' ']
-    for (let gy = 0; gy < glyph.length; gy++) {
-      const row = glyph[gy]
-      for (let gxi = 0; gxi < row.length; gxi++) {
-        if (row[gxi] === '#') ctx.fillRect(gx + gxi, y + gy, 1, 1)
-      }
-    }
-    gx += GLYPH_W + GLYPH_GAP
-  }
 }
 
 export interface DebugOptions {
@@ -270,51 +252,29 @@ function formatRow(field: string, stats: DebugStats): string {
 export function mountDebugOverlay(options: DebugOptions): DebugOverlay {
   installStyles()
 
-  const canvas = document.createElement('canvas')
-  canvas.id = 'debug-overlay'
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('no 2d context')
-
-  const labelWidth = Math.max(...ROWS.map(([, label]) => textWidth(label)))
-  // Wide enough for the longest value the overlay ever prints — CHECKPOINT's "COL,ROW" and STATE's
-  // "PLAYING" are the two that run long, so the box does not resize as the game runs.
-  const valueWidth = textWidth('CHECKPOINT')
-  const colW = labelWidth + 4 + valueWidth
-  const rowsPerCol = Math.ceil(ROWS.length / COLUMNS)
-  const logicalW = COLUMNS * colW + (COLUMNS - 1) * COL_GAP + PAD * 2
-  const logicalH = rowsPerCol * ROW_H - 3 + PAD * 2
-  canvas.width = logicalW
-  canvas.height = logicalH
-  canvas.style.width = `${logicalW * SCALE}px`
-  canvas.style.height = `${logicalH * SCALE}px`
-  document.body.append(canvas)
+  const root = document.createElement('div')
+  root.id = 'debug-overlay'
+  const values: Record<string, string> = {}
+  const slots = new Map<string, HTMLSpanElement>()
+  for (const [field, label] of ROWS) {
+    const chip = document.createElement('span')
+    const key = document.createElement('span')
+    key.className = 'k'
+    key.textContent = label
+    const value = document.createElement('span')
+    value.textContent = '-'
+    chip.append(key, value)
+    root.append(chip)
+    slots.set(field, value)
+    values[field] = '-'
+  }
+  document.body.append(root)
 
   let shown = debugVisible(options.search, options.devBuild)
   const applyShown = (): void => {
-    canvas.classList.toggle('hidden', !shown)
+    root.classList.toggle('hidden', !shown)
   }
-
-  const values: Record<string, string> = {}
-  let latest: DebugStats | null = null
-
-  const paint = (): void => {
-    ctx.clearRect(0, 0, logicalW, logicalH)
-    ctx.fillStyle = INK.panel
-    ctx.fillRect(0, 0, logicalW, logicalH)
-    if (latest === null) return
-    for (let i = 0; i < ROWS.length; i++) {
-      const [field, label] = ROWS[i]
-      const col = Math.floor(i / rowsPerCol)
-      const row = i % rowsPerCol
-      const x = PAD + col * (colW + COL_GAP)
-      const y = PAD + row * ROW_H
-      drawText(ctx, label, x, y, INK.echo)
-      drawText(ctx, values[field] ?? '-', x + labelWidth + 4, y, INK.cream)
-    }
-  }
-
   applyShown()
-  paint()
 
   let toast: HTMLDivElement | null = null
   let toastTimer = 0
@@ -343,9 +303,11 @@ export function mountDebugOverlay(options: DebugOptions): DebugOverlay {
 
   return {
     update(stats) {
-      latest = stats
-      for (const [field] of ROWS) values[field] = formatRow(field, stats)
-      paint()
+      for (const [field] of ROWS) {
+        const text = formatRow(field, stats)
+        values[field] = text
+        slots.get(field)!.textContent = text
+      }
     },
     visible: () => shown,
     onKeyDown(event) {
