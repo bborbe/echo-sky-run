@@ -248,15 +248,16 @@ export class Renderer {
           ctx.fillStyle = PLANK
           ctx.fillRect(x, y, TILE, 4)
         } else if (ch === SIGN) {
-          // A post with a plate showing the Echo key. It is the level's only instruction.
+          // A post with a plate showing the Echo key on both devices. It is the level's only
+          // instruction, so a player holding a pad has to see their own button on it, not only `C`.
           ctx.fillStyle = CHECKPOINT_POLE
           ctx.fillRect(x + 7, y - TILE, 2, TILE * 2)
           ctx.fillStyle = PLANK
-          ctx.fillRect(x + 1, y - TILE, 14, 10)
+          ctx.fillRect(x, y - TILE, TILE, 10)
           ctx.fillStyle = PIP_VISOR
-          ctx.font = '8px monospace'
+          ctx.font = '7px monospace'
           ctx.textAlign = 'center'
-          ctx.fillText('C', x + 8, y - TILE + 8)
+          ctx.fillText('C/Y', x + TILE / 2, y - TILE + 8)
         } else if (ch === CHECKPOINT) {
           ctx.fillStyle = CHECKPOINT_POLE
           ctx.fillRect(x + 7, y - TILE * 2, 2, TILE * 3)
