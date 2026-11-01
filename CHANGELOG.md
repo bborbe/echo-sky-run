@@ -16,6 +16,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 - fix: Pip stops running when the level is cleared. A finished run is frozen with his last speed still in it, and the pose animator kept reading that speed as a run cycle (play gate 1: "the char animation does not stop at level end"). He now stands idle, facing the way he finished.
 - fix: the level-clear and pause text is a 5×7 pixel font in palette colours, on an opaque brass-rimmed panel, with the hint line in bright cyan. It was a system font on the 224 px canvas, so its anti-aliased greys were scaled up into soft blocks (play gate 1: "the quali of the text is not very good readable"). The e2e asserts the panel holds palette inks only.
 - fix: the pause panel names the way back to the controls with "H: CONTROLS". H opens the card from the pause, and closing the card returns to the pause (play gate 1: "esc ... where is not option to show keybind again"). The pad has no controls button: spec § 6 gives Select to dropping the reserve item.
+- feat: world 1 has sound, all synthesised in code with no sample files (spec § 9 Sound).
+  - "Brass Clockwork Skies" is an original 16-bar F-major loop at 120 bpm with brass lead, music box, oom-pah bass and clockwork ticks. Its release tail is folded onto the start, so the wrap is seamless.
+  - 17 effect recipes cover every sound event 1-1 raises, plus spin, coin and switch for later levels.
+  - Vitest renders every sound and checks level, length and pairwise distinctness, the seam sample for sample, and the step-to-event mapping driven through `stepSim`.
 
 ## v0.5.1
 
