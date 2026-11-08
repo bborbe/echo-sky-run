@@ -8,6 +8,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- chore: restate the do-not-merge contract in the gate workflow
+
 ## v0.6.0
 
 - feat: the level toolkit every later level must pass, and 1-1 passing it. `src/toolkit/` holds four checks, all pure and DOM-free: an autopilot that clears the *populated* level (enemies, ? block, checkpoint) with 0 deaths and records every take-off with its landing; a no-Echo bypass sweep over launch position × speed × vertical launch (jump, sprint jump, and a stomp or shell bounce from three heights) × power tier, proving no launch state crosses an Echo beat without the Echo; and a blind-jump check measuring each landing against the view at take-off, at 960×540. The toolkit derives its own level grammar rather than reading constants — `findPits` walks the grid, `maxJumpReach` measures a sprint jump through the real `stepPlayer`, and a pit wider than that reach is an Echo beat, so a level with an Echo beat and no declared `echoAtX` is refused. `make test` now runs the fast tier **and** the browser playthrough (`make test-unit` is the fast tier alone), because those are the guide's two required checks; a red half fails the target. Every check ships with a known-positive control, so a clean report cannot come from a check that never fires. Applied to 1-1, the checks find one real blind landing — the jump off the Echo carries Pip 42 px past the view's right edge before he comes down, which the tutorial sign is what makes readable. `logicalViewWidth` moved beside `VIEW_H` so the check measures the view the renderer actually draws.
