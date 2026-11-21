@@ -1,16 +1,19 @@
 /**
- * The game loop's screens as a pure state machine: title → level → results → retry or title, and the
+ * The game loop's screens as a pure state machine: tiles → level → results → retry or tiles, and the
  * pause menu that reaches the settings screen. DOM-free and canvas-free, so the navigation rules are
  * unit tests and the shell and the renderer only apply what this decides.
  *
  * `GameScreen` rather than `Screen`: the DOM already owns that name.
+ *
+ * `tiles` is the level-select screen that replaced the old title: one row per catalogue level, so the
+ * first screen is the game's shop window rather than a START button that always begins 1-1.
  */
 
-export type GameScreen = 'title' | 'level' | 'pause' | 'settings' | 'results'
+export type GameScreen = 'tiles' | 'level' | 'pause' | 'settings' | 'results'
 
 /** What a menu row does. `music` and `effects` are the settings screen's volume sliders. */
 export type MenuId =
-  | 'start'
+  | 'level'
   | 'controls'
   | 'resume'
   | 'restart'
@@ -19,24 +22,28 @@ export type MenuId =
   | 'effects'
   | 'back'
   | 'retry'
-  | 'title'
+  | 'menu'
 
 export interface MenuItem {
   readonly id: MenuId
   /** The label the pixel font draws. Uppercase: the font has no lowercase. */
   readonly label: string
+  /** The level a tile row starts. Absent on every non-tile row. */
+  readonly level?: string
 }
 
-/** The rows each menu screen shows, in drawing order. */
+/**
+ * The rows each menu screen shows, in drawing order. The tile view's rows are the catalogue itself
+ * (see `menuFor`'s `tiles` argument), so its static entry is empty — it exists so the screen is part
+ * of this model rather than a special case beside it.
+ */
 export const MENUS: Readonly<Record<Exclude<GameScreen, 'level'>, readonly MenuItem[]>> = {
-  title: [
-    { id: 'start', label: 'START' },
-    { id: 'controls', label: 'CONTROLS' },
-  ],
+  tiles: [],
   pause: [
     { id: 'resume', label: 'RESUME' },
     { id: 'restart', label: 'RESTART' },
     { id: 'settings', label: 'SETTINGS' },
+    { id: 'menu', label: 'QUIT' },
   ],
   settings: [
     { id: 'music', label: 'MUSIC' },
@@ -46,14 +53,20 @@ export const MENUS: Readonly<Record<Exclude<GameScreen, 'level'>, readonly MenuI
   ],
   results: [
     { id: 'retry', label: 'RETRY' },
-    { id: 'title', label: 'TITLE' },
+    { id: 'menu', label: 'MENU' },
   ],
 }
 
 const NO_ITEMS: readonly MenuItem[] = []
 
-export function menuFor(screen: GameScreen): readonly MenuItem[] {
-  return screen === 'level' ? NO_ITEMS : MENUS[screen]
+/**
+ * The rows a screen shows. `tiles` returns the catalogue's rows, supplied by the shell; every other
+ * screen reads its static `MENUS` entry.
+ */
+export function menuFor(screen: GameScreen, tiles: readonly MenuItem[] = []): readonly MenuItem[] {
+  if (screen === 'level') return NO_ITEMS
+  if (screen === 'tiles') return tiles
+  return MENUS[screen]
 }
 
 /** A selection that wraps at both ends, so a short list never dead-ends. */
@@ -81,10 +94,13 @@ export interface Activation {
  * Confirm the selected row. `controls` opens the DOM card over whatever screen is up, so the screen
  * itself does not change — that is what lets the pause menu keep its own "H / LB: CONTROLS" line and
  * the settings screen offer the card as a row.
+ *
+ * A tile row's level is carried by its `MenuItem.level`, not by this switch: `activate` says "start a
+ * level", and the shell resolves which one from the selected row.
  */
 export function activate(screen: GameScreen, id: MenuId): Activation {
   switch (id) {
-    case 'start':
+    case 'level':
     case 'restart':
     case 'retry':
       return { screen: 'level', restart: true, controls: false }
@@ -94,8 +110,8 @@ export function activate(screen: GameScreen, id: MenuId): Activation {
       return { screen: 'settings', restart: false, controls: false }
     case 'back':
       return { screen: 'pause', restart: false, controls: false }
-    case 'title':
-      return { screen: 'title', restart: true, controls: false }
+    case 'menu':
+      return { screen: 'tiles', restart: true, controls: false }
     case 'controls':
       return { screen, restart: false, controls: true }
     case 'music':
@@ -106,7 +122,7 @@ export function activate(screen: GameScreen, id: MenuId): Activation {
 
 /**
  * Where the back key (Esc / pad B) goes from each screen. Null means it does nothing there — the
- * title has nowhere to go back to.
+ * tile view is the root, so it has nowhere to go back to.
  */
 export function backTarget(screen: GameScreen): GameScreen | null {
   switch (screen) {
@@ -117,8 +133,8 @@ export function backTarget(screen: GameScreen): GameScreen | null {
     case 'settings':
       return 'pause'
     case 'results':
-      return 'title'
-    case 'title':
+      return 'tiles'
+    case 'tiles':
       return null
   }
 }

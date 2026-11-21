@@ -5,7 +5,7 @@ import { SMALL_W, TILE } from '../physics/constants.ts'
 import type { PlayerState } from '../physics/player.ts'
 import { CHECKPOINT, GOAL, isOneWay, isSolid, QUESTION, SIGN, tileAt, type TileMap } from '../physics/tilemap.ts'
 import { CATALOGUE, animation } from './art/catalogue.ts'
-import { FONT, GLYPH_GAP, GLYPH_W, OVERLAY_TEXT, textWidth } from './art/font.ts'
+import { FONT, GLYPH_GAP, GLYPH_H, GLYPH_W, OVERLAY_TEXT, textWidth } from './art/font.ts'
 import { ECHO_KEYS, RING_SIZE, SPAWN_RING_RADII, ghostMask, litSegments, spawnRingMask } from './art/fx.ts'
 import type { Mask } from './art/mask.ts'
 import { INK, SKY, type InkName } from './art/palette.ts'
@@ -76,6 +76,12 @@ export interface RenderState {
   readonly menu?: MenuView | null
 }
 
+/** One set's tiles, for the tile view's headings. */
+export interface MenuGroupView {
+  readonly set: string
+  readonly items: readonly MenuItem[]
+}
+
 /** What a menu screen shows: its rows, which one is selected, and the numbers it needs. */
 export interface MenuView {
   readonly screen: Exclude<GameScreen, 'level'>
@@ -87,18 +93,20 @@ export interface MenuView {
   /** The results screen's run time, and the best time or null before the first finish. */
   readonly runSeconds: number
   readonly bestSeconds: number | null
+  /** The tile view's sets, in drawing order. Absent on every other screen. */
+  readonly groups?: readonly MenuGroupView[]
 }
 
 /** Each screen's heading and its one footer line. */
 const MENU_HEADING: Readonly<Record<Exclude<GameScreen, 'level'>, string>> = {
-  title: OVERLAY_TEXT.gameTitle,
+  tiles: OVERLAY_TEXT.gameTitle,
   pause: OVERLAY_TEXT.paused,
   settings: OVERLAY_TEXT.settings,
   results: OVERLAY_TEXT.clear,
 }
 
 const MENU_HINT: Readonly<Record<Exclude<GameScreen, 'level'>, string>> = {
-  title: OVERLAY_TEXT.selectHint,
+  tiles: OVERLAY_TEXT.selectHint,
   pause: OVERLAY_TEXT.pausedControls,
   settings: OVERLAY_TEXT.settingsHint,
   results: OVERLAY_TEXT.selectHint,
@@ -108,6 +116,13 @@ const MENU_HINT: Readonly<Record<Exclude<GameScreen, 'level'>, string>> = {
 const ROW_H = 12
 const PANEL_PAD_TOP = 9
 const PANEL_PAD_BOTTOM = 9
+
+/** The tile view's tile boxes. A box is a label with a brass rim; the focused one has a bright rim. */
+const TILE_W = 34
+const TILE_H = 20
+const TILE_GAP = 6
+const TILE_ROW_H = TILE_H + 4
+const SET_HEADING_H = 10
 
 /** Segments in a volume bar, one per slider step. */
 const BAR_SEGMENTS = 10
@@ -472,9 +487,13 @@ export class Renderer {
    * debug overlay's strip along the top edge.
    */
   private drawMenu(view: MenuView): void {
+    if (view.screen === 'tiles') {
+      this.drawTiles(view)
+      return
+    }
     const heading = MENU_HEADING[view.screen]
     const hint = MENU_HINT[view.screen]
-    const subtitle = view.screen === 'title' ? OVERLAY_TEXT.world : null
+    const subtitle: string | null = null
     const stats = view.screen === 'results'
     const sliders = view.screen === 'settings'
 
@@ -537,6 +556,67 @@ export class Renderer {
     }
     cy += 8
     this.centred(hint, cx, cy, 'echo')
+  }
+
+  /**
+   * The level-select tile view: one box per catalogue level, grouped under its set heading. The
+   * focused box carries a bright rim, so the selection reads the way Driftline's `menu-focus` does.
+   */
+  private drawTiles(view: MenuView): void {
+    const groups = view.groups ?? []
+    const heading = MENU_HEADING.tiles
+    const hint = MENU_HINT.tiles
+    let rowW = 0
+    for (const group of groups) {
+      rowW = Math.max(rowW, group.items.length * TILE_W + Math.max(0, group.items.length - 1) * TILE_GAP)
+    }
+    const contentW = Math.max(textWidth(heading), textWidth(hint), rowW)
+    const w = Math.min(this.viewW - 16, contentW + 24)
+    const h =
+      PANEL_PAD_TOP +
+      10 +
+      4 +
+      groups.length * (SET_HEADING_H + TILE_ROW_H) +
+      8 +
+      7 +
+      PANEL_PAD_BOTTOM
+    const x = Math.round((this.viewW - w) / 2)
+    const y = Math.round((VIEW_H - h) / 2)
+    this.panel(x, y, w, h)
+    this.overlayBox = { x, y, w, h }
+    const cx = x + w / 2
+
+    let cy = y + PANEL_PAD_TOP
+    this.centred(heading, cx, cy, 'brassLight')
+    cy += 10 + 4
+    let index = 0
+    for (const group of groups) {
+      this.centred(group.set, cx, cy, 'echo')
+      cy += SET_HEADING_H
+      const rowWidth = group.items.length * TILE_W + Math.max(0, group.items.length - 1) * TILE_GAP
+      let tx = Math.round(cx - rowWidth / 2)
+      for (const item of group.items) {
+        this.tile(item.label, index === view.index, tx, cy)
+        index += 1
+        tx += TILE_W + TILE_GAP
+      }
+      cy += TILE_ROW_H
+    }
+    cy += 8
+    this.centred(hint, cx, cy, 'echo')
+  }
+
+  /** One tile: a brass rim around the panel, brighter on the focused tile, with its label centred. */
+  private tile(label: string, selected: boolean, x: number, y: number): void {
+    const ctx = this.ctx
+    ctx.fillStyle = selected ? INK.brassLight : INK.brass
+    ctx.fillRect(x, y, TILE_W, TILE_H)
+    ctx.fillStyle = INK.panel
+    ctx.fillRect(x + 1, y + 1, TILE_W - 2, TILE_H - 2)
+    const lx = Math.round(x + (TILE_W - textWidth(label)) / 2)
+    const ly = Math.round(y + (TILE_H - GLYPH_H) / 2)
+    this.text(label, lx, ly, selected ? 'brassLight' : 'cream')
+    this.overlayLines.push(label)
   }
 
   private bestLine(bestSeconds: number | null): string {

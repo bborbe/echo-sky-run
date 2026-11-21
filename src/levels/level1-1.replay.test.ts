@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createSim, stepSim } from '../game/sim.ts'
 import { parseLevel } from '../physics/tilemap.ts'
-import { LEVEL_1_1_ROWS } from './level1-1.ts'
+import { LEVEL_1_1_ROWS } from './level1-1.level.ts'
 import { LEVEL_1_1_REPLAY } from './level1-1.replay.ts'
 import { decodeInputs } from './replay-format.ts'
 

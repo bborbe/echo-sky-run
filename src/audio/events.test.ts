@@ -4,7 +4,7 @@ import { createEnemy, GEAR_GOOMBA_H, SHELL_H, SHELL_W, type Enemy } from '../gam
 import { createSim, stepSim, type SimInput, type SimState } from '../game/sim.ts'
 import { NO_INPUT } from '../physics/player.ts'
 import { parseLevel } from '../physics/tilemap.ts'
-import { LEVEL_1_1_ROWS } from '../levels/level1-1.ts'
+import { LEVEL_1_1_ROWS } from '../levels/level1-1.level.ts'
 import { SoundWatcher } from './events.ts'
 import type { SoundEvent } from './recipes.ts'
 

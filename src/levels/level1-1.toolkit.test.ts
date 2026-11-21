@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { LEVEL_1_1_ECHO_AT_X, LEVEL_1_1_GAP, LEVEL_1_1_ROWS } from './level1-1.ts'
+import { LEVEL_1_1_ECHO_AT_X, LEVEL_1_1_GAP, LEVEL_1_1_ROWS } from './level1-1.level.ts'
 import { runAutopilot, TOOLKIT_VIEWPORT } from '../toolkit/autopilot.ts'
 import { blindJumps } from '../toolkit/blind-jump.ts'
 import { echoBeats, profileMap, type LevelToolkitProfile } from '../toolkit/level.ts'

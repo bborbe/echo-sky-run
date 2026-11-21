@@ -6,7 +6,8 @@ import { BUILD_LABEL } from './build-info.ts'
 import { mountDebugOverlay, readAutopilot, readEchoSpot, readFreeze, readLevel, readLoop, readSpawn, spawnQuery } from './debug/overlay.ts'
 import { ECHO_LIFE_F, placeEcho } from './echo/echo.ts'
 import { createSim, stepSim, type SimInput, type SimState } from './game/sim.ts'
-import { LEVEL_1_1_ECHO_AT_X, LEVEL_1_1_ROWS } from './levels/level1-1.ts'
+import { LEVEL_1_1_ECHO_AT_X } from './levels/level1-1.level.ts'
+import { LEVEL_CATALOGUE, findLevel, groupBySet, tileIndexFor, tileItems } from './levels/catalogue.ts'
 import { PLAYER_W, TILE } from './physics/constants.ts'
 import { FixedStepper } from './physics/loop.ts'
 import { parseLevel, tileAt } from './physics/tilemap.ts'
@@ -26,7 +27,7 @@ import {
   menuFor,
   moveSelection,
   type GameScreen,
-  type MenuId,
+  type MenuItem,
 } from './ui/screens.ts'
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game')
@@ -73,14 +74,13 @@ let volumes: Volumes = audio.volumes()
 /**
  * The screen that is up. Only `level` steps the simulation. A debug URL (`?level=`, `?x=&y=`,
  * `?echo=`, `?freeze=1`, `?autopilot=1`) is asking for the level itself, so it starts there and
- * skips the title — an autopilot run that opened on the title would never step the sim.
+ * skips the tile view — an autopilot run that opened on the menu would never step the sim.
  */
 const debugEntry = ['level', 'x', 'y', 'echo', 'freeze', 'autopilot'].some((key) => params.has(key))
-let screen: GameScreen = debugEntry ? 'level' : 'title'
+let screen: GameScreen = debugEntry ? 'level' : 'tiles'
 /** The selected row on the current menu screen. */
 let selected = 0
 
-const map = parseLevel(LEVEL_1_1_ROWS)
 const renderer = new Renderer(canvas, skyCanvas)
 window.addEventListener('resize', () => renderer.fit())
 // Fullscreen changes the window size, so the canvas has to re-fit on every change, not just a resize.
@@ -101,6 +101,15 @@ const overlay = mountDebugOverlay({
 
 /** The level id the URL asked for, so the overlay's level row reflects what is actually running. */
 const levelId = readLevel(location.search)
+
+/** The tile view's rows, grouped under their set headings, and the same rows flattened for selection. */
+const levelGroups = groupBySet().map((group) => ({ set: group.set, items: tileItems(group.levels) }))
+const tiles = levelGroups.flatMap((group) => group.items)
+/** The level the tile view starts, kept so leaving a run returns to the same tile. */
+let focusedLevel: string | null = null
+/** The level the level screen is running, and its parsed map. */
+let currentLevel = findLevel(levelId)?.id ?? LEVEL_CATALOGUE[0]?.id ?? '1-1'
+let map = parseLevel(findLevel(currentLevel)?.rows ?? [])
 
 /**
  * `?autopilot=1`: the level plays itself. The driver replaces the keyboard's input for every fixed
@@ -288,6 +297,7 @@ const GAME_KEYS = new Set([
 const JUMP_KEYS = new Set(['Space', 'ArrowUp', 'KeyW'])
 
 function resetGame(): void {
+  map = parseLevel(findLevel(currentLevel)?.rows ?? [])
   sim = newSim()
   prevX = sim.player.x
   prevY = sim.player.y
@@ -347,8 +357,14 @@ function readKeys(): SimInput {
 function show(next: GameScreen): void {
   if (next === screen) return
   screen = next
-  selected = 0
+  // The tile view reopens on the level that was last started, so leaving a run returns to its tile.
+  selected = next === 'tiles' ? tileIndexFor(tiles, focusedLevel) : 0
   audio.play(next === 'level' ? 'ui-close' : 'ui-open')
+}
+
+/** The rows of the screen that is up. The tile view's rows are the catalogue's. */
+function menuItems(): readonly MenuItem[] {
+  return menuFor(screen, tiles)
 }
 
 /**
@@ -367,11 +383,11 @@ function menuKey(code: string): void {
   if (code === 'ArrowDown' || code === 'KeyS' || code === 'PadDown') return moveSelectionBy(1)
   if (code === 'ArrowLeft' || code === 'KeyA') return adjustVolume(-1)
   if (code === 'ArrowRight' || code === 'KeyD') return adjustVolume(1)
-  if (code === 'Space' || code === 'Enter' || code === 'KeyK') return confirm(menuFor(screen)[selected]?.id)
+  if (code === 'Space' || code === 'Enter' || code === 'KeyK') return confirm(menuItems()[selected])
 }
 
 function moveSelectionBy(dir: -1 | 1): void {
-  const items = menuFor(screen)
+  const items = menuItems()
   const next = moveSelection(items.length, selected, dir)
   if (next === selected) return
   selected = next
@@ -383,7 +399,7 @@ function moveSelectionBy(dir: -1 | 1): void {
  * screen mixes sliders with plain rows, and a left/right there must not move the selection.
  */
 function adjustVolume(dir: -1 | 1): void {
-  const item = menuFor(screen)[selected]
+  const item = menuItems()[selected]
   if (!isVolumeRow(item)) return
   const row = item.id === 'music' ? 'music' : 'effects'
   const next = nudgeVolume(volumes, row, dir)
@@ -395,13 +411,18 @@ function adjustVolume(dir: -1 | 1): void {
 }
 
 /** Confirm the selected row. A run that starts or restarts begins from a clean level. */
-function confirm(id: MenuId | undefined): void {
-  if (id === undefined) return
-  const outcome = activate(screen, id)
+function confirm(item: MenuItem | undefined): void {
+  if (item === undefined) return
+  const outcome = activate(screen, item.id)
   if (outcome.controls) {
     controls.show()
     audio.play('ui-open')
     return
+  }
+  // A tile carries the level it starts; every other row leaves the current level alone.
+  if (item.level !== undefined) {
+    currentLevel = item.level
+    focusedLevel = item.level
   }
   if (outcome.restart) resetGame()
   show(outcome.screen)
@@ -412,12 +433,13 @@ function menuView(): MenuView | null {
   if (screen === 'level') return null
   return {
     screen,
-    items: menuFor(screen),
+    items: menuItems(),
     index: selected,
     music: volumes.music,
     effects: volumes.effects,
     runSeconds: sim.frames / 60,
     bestSeconds: save.bestSeconds,
+    groups: screen === 'tiles' ? levelGroups : undefined,
   }
 }
 
@@ -550,7 +572,7 @@ function pushOverlay(stats: { fps: number; frameMs: number; frameP99Ms: number; 
     echoes: sim.field.echoes.length,
     charge: sim.field.airCharges,
     life: Number.isFinite(oldest) ? oldest : 0,
-    level: levelId,
+    level: currentLevel,
     checkpoint: {
       exists: sim.checkpoint !== null,
       claimed:
@@ -789,7 +811,7 @@ const api: EchoSkyRunTestApi = {
   screen: () => screen,
   menu: () => {
     if (screen === 'level') return null
-    const items = menuFor(screen)
+    const items = menuItems()
     return { screen, index: selected, items: items.map((item) => item.label) }
   },
   openScreen(name) {
@@ -910,7 +932,7 @@ const api: EchoSkyRunTestApi = {
     gains: audio.gains(),
     levels: audio.levels(),
     musicTime: audio.musicTime(),
-    menu: { open: screen !== 'level', row: menuFor(screen)[selected]?.id ?? '' },
+    menu: { open: screen !== 'level', row: menuItems()[selected]?.id ?? '' },
   }),
   frameTimings: () => {
     const sorted = [...frameTimes].sort((a, b) => a - b)
