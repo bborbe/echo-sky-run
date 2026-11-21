@@ -3,6 +3,7 @@ import { missingGlyphs } from '../render/art/font.ts'
 import {
   activate,
   backTarget,
+  canActivate,
   isVolumeRow,
   menuFor,
   MENUS,
@@ -97,6 +98,21 @@ describe('confirming a row', () => {
   it('does nothing on a volume row: ←/→ is what adjusts it', () => {
     expect(activate('settings', 'music')).toEqual({ screen: 'settings', restart: false, controls: false })
     expect(activate('settings', 'effects')).toEqual({ screen: 'settings', restart: false, controls: false })
+  })
+})
+
+describe('locked tiles', () => {
+  const LOCKED: MenuItem = { id: 'level', label: '1-2', level: '1-2', locked: true }
+  const OPEN: MenuItem = { id: 'level', label: '1-1', level: '1-1' }
+
+  it('refuses to start a locked tile', () => {
+    expect(canActivate(LOCKED)).toBe(false)
+  })
+
+  it('starts an unlocked tile, and every non-tile row is unaffected', () => {
+    expect(canActivate(OPEN)).toBe(true)
+    expect(canActivate(MENUS.pause[0])).toBe(true)
+    expect(canActivate(undefined)).toBe(false)
   })
 })
 

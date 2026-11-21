@@ -383,7 +383,7 @@ export class Renderer {
       const rowWidth = group.items.length * TILE_W + Math.max(0, group.items.length - 1) * TILE_GAP
       let tx = Math.round(cx - rowWidth / 2)
       for (const item of group.items) {
-        this.tile(item.label, index === view.index, tx, cy + SET_HEADING_H)
+        this.tile(item.label, index === view.index, tx, cy + SET_HEADING_H, item.locked === true)
         index += 1
         tx += TILE_W + TILE_GAP
       }
@@ -394,16 +394,24 @@ export class Renderer {
     this.centred(hint, cx, hintY, 'echo')
   }
 
-  /** One tile: a brass rim around the panel, brighter on the focused tile, with its label centred. */
-  private tile(label: string, selected: boolean, x: number, y: number): void {
+  /**
+   * One tile: a rim around the panel, brighter on the focused tile, with its label centred.
+   *
+   * A locked tile is drawn in the steel inks instead of the brass ones, so it reads as dimmed next to
+   * an unlocked tile at a glance — a different hue as well as a darker one, so the distinction
+   * survives a greyscale check. The focused locked tile keeps a lighter rim, so focus is still
+   * visible while the tile is visibly unstartable.
+   */
+  private tile(label: string, selected: boolean, x: number, y: number, locked: boolean): void {
     const ctx = this.ctx
-    ctx.fillStyle = selected ? INK.brassLight : INK.brass
+    ctx.fillStyle = locked ? (selected ? INK.steelLight : INK.steel) : selected ? INK.brassLight : INK.brass
     ctx.fillRect(x, y, TILE_W, TILE_H)
     ctx.fillStyle = INK.panel
     ctx.fillRect(x + 1, y + 1, TILE_W - 2, TILE_H - 2)
     const lx = Math.round(x + (TILE_W - textWidth(label)) / 2)
     const ly = Math.round(y + (TILE_H - GLYPH_H) / 2)
-    this.text(label, lx, ly, selected ? 'brassLight' : 'cream')
+    const ink = locked ? 'steelLight' : selected ? 'brassLight' : 'cream'
+    this.text(label, lx, ly, ink)
     this.overlayLines.push(label)
   }
 
