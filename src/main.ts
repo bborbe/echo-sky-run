@@ -134,10 +134,10 @@ let map = parseLevel(findLevel(currentLevel)?.rows ?? [])
 const autopilot = readAutopilot(location.search) ? createAutopilotDriver(LEVEL_1_1_ECHO_AT_X) : null
 
 /**
- * A looping `?autopilot=1` run restarts itself after the results screen, so the operator opens one
- * URL and watches the level play over and over. Looping is the default; `?loop=0` is the one-shot
- * escape that leaves the run on its results screen for a recording. The hold keeps the results
- * screen's time and best time readable before the next run starts.
+ * A looping run restarts itself after the results screen, so the operator opens one URL and watches
+ * the level play over and over. Looping is opt-in via `?loop=1`; a plain `?autopilot=1` stays on its
+ * results screen as the single recorded clear. The hold keeps the results screen's time and best
+ * time readable before the next run starts.
  */
 const loopAutopilot = readLoop(location.search)
 const RESULTS_HOLD_MS = 1500
@@ -676,7 +676,7 @@ function frame(now: number): void {
   }
 
   // The flag hands the run to the results screen, which carries the time and the best time. A
-  // looping autopilot restarts from there; a one-shot run (`?loop=0`) stays on the screen.
+  // looping run (`?loop=1`) restarts from there; the default one-shot run stays on the screen.
   if (sim.goalReached && screen === 'level') {
     show('results')
     if (loopAutopilot) scheduleLoopRestart()
