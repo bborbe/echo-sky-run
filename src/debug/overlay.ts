@@ -145,13 +145,13 @@ export function readAutopilot(search: string): boolean {
 }
 
 /**
- * Whether an `?autopilot=1` run loops. Looping is the default, so the operator opens one URL and
- * watches the level clear over and over; `?loop=0` is the one-shot escape that leaves the run on its
- * results screen. A run without the autopilot never loops, so `loop` on its own turns nothing on.
+ * Whether an `?autopilot=1` run loops. Looping is opt-in via `?loop=1`, so a plain `?autopilot=1`
+ * stays a single recorded clear on its results screen; add `loop=1` to watch the level clear over and
+ * over. A run without the autopilot never loops, so `loop` on its own turns nothing on.
  */
 export function readLoop(search: string): boolean {
   const params = new URLSearchParams(search)
-  return params.get('autopilot') === '1' && params.get('loop') !== '0'
+  return params.get('autopilot') === '1' && params.get('loop') === '1'
 }
 
 /** One chip per field: the short label a reader scans, and the key a check reads it by. */

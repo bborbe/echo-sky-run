@@ -90,15 +90,15 @@ describe('debug spawn', () => {
     expect(readAutopilot('')).toBe(false)
   })
 
-  it('loops by default with the autopilot, so one page load clears over and over', () => {
-    expect(readLoop('?autopilot=1')).toBe(true)
-    expect(readLoop('?level=1-1&autopilot=1&vol=0')).toBe(true)
-    expect(readLoop('?autopilot=1&loop=1')).toBe(true)
+  it('stays a single recorded clear unless ?loop=1 opts in', () => {
+    expect(readLoop('?autopilot=1')).toBe(false)
+    expect(readLoop('?level=1-1&autopilot=1&vol=0')).toBe(false)
+    expect(readLoop('?autopilot=1&loop=0')).toBe(false)
   })
 
-  it('stops looping on ?loop=0, the one-shot escape', () => {
-    expect(readLoop('?autopilot=1&loop=0')).toBe(false)
-    expect(readLoop('?level=1-1&autopilot=1&loop=0&vol=0')).toBe(false)
+  it('loops on ?loop=1, so one page load clears over and over', () => {
+    expect(readLoop('?autopilot=1&loop=1')).toBe(true)
+    expect(readLoop('?level=1-1&autopilot=1&loop=1&vol=0')).toBe(true)
   })
 
   it('never loops without the autopilot, so loop on its own turns nothing on', () => {
