@@ -6,7 +6,10 @@ import {
   isVolumeRow,
   menuFor,
   MENUS,
+  moveFocus,
   moveSelection,
+  rowOfIndex,
+  scrollToRow,
   type GameScreen,
   type MenuItem,
 } from './screens.ts'
@@ -107,5 +110,75 @@ describe('the back key', () => {
   it('leaves the results for the tile view, and has nowhere to go from the tile view', () => {
     expect(backTarget('results')).toBe('tiles')
     expect(backTarget('tiles')).toBeNull()
+  })
+})
+
+describe('tile focus', () => {
+  // Two sets of three tiles — the shape a multi-set catalogue hands the tile view.
+  const GRID = [3, 3]
+
+  it('walks tiles left and right in reading order, wrapping at both ends', () => {
+    expect(moveFocus(GRID, 0, 'left')).toBe(5)
+    expect(moveFocus(GRID, 5, 'right')).toBe(0)
+    expect(moveFocus(GRID, 1, 'right')).toBe(2)
+  })
+
+  it('crosses into the next set at the edge of a row', () => {
+    expect(moveFocus(GRID, 2, 'right')).toBe(3) // last of set 1 → first of set 2
+    expect(moveFocus(GRID, 3, 'left')).toBe(2) // first of set 2 → last of set 1
+  })
+
+  it('moves up and down between rows, keeping the column', () => {
+    expect(moveFocus(GRID, 1, 'down')).toBe(4)
+    expect(moveFocus(GRID, 4, 'up')).toBe(1)
+  })
+
+  it('wraps up from the first row and down from the last', () => {
+    expect(moveFocus(GRID, 0, 'up')).toBe(3)
+    expect(moveFocus(GRID, 5, 'down')).toBe(2)
+  })
+
+  it('clamps the column to a shorter target row', () => {
+    // Set 1 has three tiles, set 2 one: up from the third tile lands on set 2's only tile.
+    expect(moveFocus([3, 1], 2, 'up')).toBe(3)
+  })
+
+  it('stays put on a single row or a single tile', () => {
+    expect(moveFocus([1], 0, 'left')).toBe(0)
+    expect(moveFocus([1], 0, 'down')).toBe(0)
+    expect(moveFocus([], 0, 'right')).toBe(0)
+  })
+
+  it('reports the row a flat index sits in', () => {
+    expect(rowOfIndex([3, 3], 0)).toBe(0)
+    expect(rowOfIndex([3, 3], 2)).toBe(0)
+    expect(rowOfIndex([3, 3], 3)).toBe(1)
+    expect(rowOfIndex([], 0)).toBe(0)
+  })
+})
+
+describe('tile scroll', () => {
+  const ROWS = [34, 34, 34, 34, 34]
+
+  it('does not scroll when the content fits the viewport', () => {
+    expect(scrollToRow(ROWS, 4, 200)).toBe(0)
+  })
+
+  it('scrolls a focused row into view from below', () => {
+    // Row 3 spans 102..136; a 100 px window from the top shows 0..100, so it scrolls to 36.
+    expect(scrollToRow(ROWS, 3, 100)).toBe(36)
+  })
+
+  it('keeps an already-visible row where it is', () => {
+    expect(scrollToRow(ROWS, 3, 100, 36)).toBe(36)
+  })
+
+  it('clamps at the end of the content', () => {
+    expect(scrollToRow(ROWS, 4, 100, 36)).toBe(70) // 170 content − 100 viewport
+  })
+
+  it('does nothing on an empty grid or a zero viewport', () => {
+    expect(scrollToRow([], 0, 100)).toBe(0)
+    expect(scrollToRow(ROWS, 0, 0)).toBe(0)
   })
 })
