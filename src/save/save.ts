@@ -156,3 +156,16 @@ export function recordBest(save: Save, seconds: number): Save {
 export function isUnlocked(save: Save, id: string): boolean {
   return save.unlockedLevels === undefined || save.unlockedLevels.includes(id)
 }
+
+/**
+ * The save with `id` added to its unlock list, or the same object when it needs nothing. An untracked
+ * save already has every level open, so the first unlock is a no-op rather than a list that would
+ * suddenly narrow — the list is only ever extended on a save that already tracks unlocks.
+ *
+ * An empty id is refused: `storedUnlocked` treats a list holding one as malformed, so writing it
+ * would degrade the whole list to "untracked" on the next load.
+ */
+export function unlockLevel(save: Save, id: string): Save {
+  if (id === '' || isUnlocked(save, id)) return save
+  return { ...save, unlockedLevels: [...(save.unlockedLevels ?? []), id] }
+}
