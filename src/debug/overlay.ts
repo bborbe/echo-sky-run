@@ -136,6 +136,14 @@ export function readFreeze(search: string): boolean {
   return new URLSearchParams(search).get('freeze') === '1'
 }
 
+/**
+ * `?autopilot=1` hands the level to the scripted autopilot, so it plays itself in the browser — the
+ * operator's way to watch a level clear without holding a key. Off unless exactly `1`.
+ */
+export function readAutopilot(search: string): boolean {
+  return new URLSearchParams(search).get('autopilot') === '1'
+}
+
 /** One chip per field: the short label a reader scans, and the key a check reads it by. */
 const ROWS: readonly (readonly [string, string])[] = [
   ['version', 'VER'],

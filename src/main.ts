@@ -1,8 +1,9 @@
 import { AudioEngine } from './audio/engine.ts'
+import { createAutopilotDriver } from './autopilot-driver.ts'
 import { SoundWatcher } from './audio/events.ts'
 import { loadVolumes, nudgeVolume, saveVolumes, type Volumes } from './audio/settings.ts'
 import { BUILD_LABEL } from './build-info.ts'
-import { mountDebugOverlay, readEchoSpot, readFreeze, readLevel, readSpawn, spawnQuery } from './debug/overlay.ts'
+import { mountDebugOverlay, readAutopilot, readEchoSpot, readFreeze, readLevel, readSpawn, spawnQuery } from './debug/overlay.ts'
 import { ECHO_LIFE_F, placeEcho } from './echo/echo.ts'
 import { createSim, stepSim, type SimInput, type SimState } from './game/sim.ts'
 import { LEVEL_1_1_ECHO_AT_X, LEVEL_1_1_ROWS } from './levels/level1-1.ts'
@@ -71,9 +72,10 @@ const sounds = new SoundWatcher()
 let volumes: Volumes = audio.volumes()
 /**
  * The screen that is up. Only `level` steps the simulation. A debug URL (`?level=`, `?x=&y=`,
- * `?echo=`, `?freeze=1`) is asking for the level itself, so it starts there and skips the title.
+ * `?echo=`, `?freeze=1`, `?autopilot=1`) is asking for the level itself, so it starts there and
+ * skips the title — an autopilot run that opened on the title would never step the sim.
  */
-const debugEntry = ['level', 'x', 'y', 'echo', 'freeze'].some((key) => params.has(key))
+const debugEntry = ['level', 'x', 'y', 'echo', 'freeze', 'autopilot'].some((key) => params.has(key))
 let screen: GameScreen = debugEntry ? 'level' : 'title'
 /** The selected row on the current menu screen. */
 let selected = 0
@@ -99,6 +101,12 @@ const overlay = mountDebugOverlay({
 
 /** The level id the URL asked for, so the overlay's level row reflects what is actually running. */
 const levelId = readLevel(location.search)
+
+/**
+ * `?autopilot=1`: the level plays itself. The driver replaces the keyboard's input for every fixed
+ * step, so the run goes through the same `advance()` a player's does — no simulation shortcut.
+ */
+const autopilot = readAutopilot(location.search) ? createAutopilotDriver(LEVEL_1_1_ECHO_AT_X) : null
 
 // The pad presses the game's own keys, so nothing downstream knows a controller exists — and the
 // card switches to pad labels the moment one connects.
@@ -282,6 +290,8 @@ function resetGame(): void {
   tick = 0
   recorded = false
   signShown = false
+  // A restarted run starts with the Echo unplaced, or the autopilot would never place it again.
+  autopilot?.reset()
   // A new run starts the music from the top; a death inside a run never does.
   audio.restartMusic()
   stepper.reset()
@@ -289,7 +299,12 @@ function resetGame(): void {
   juice.reset()
 }
 
+/** The input for this step: the autopilot's when `?autopilot=1` asked for it, otherwise the keyboard's. */
 function readInput(): SimInput {
+  return autopilot === null ? readKeys() : autopilot.input(sim)
+}
+
+function readKeys(): SimInput {
   let jump = false
   for (const key of held) if (JUMP_KEYS.has(key)) jump = true
 
