@@ -3,7 +3,7 @@ import { createAutopilotDriver } from './autopilot-driver.ts'
 import { SoundWatcher } from './audio/events.ts'
 import { loadVolumes, nudgeVolume, saveVolumes, type Volumes } from './audio/settings.ts'
 import { BUILD_LABEL } from './build-info.ts'
-import { mountDebugOverlay, readAutopilot, readEchoSpot, readFreeze, readLevel, readSpawn, spawnQuery } from './debug/overlay.ts'
+import { mountDebugOverlay, readAutopilot, readEchoSpot, readFreeze, readLevel, readLoop, readSpawn, spawnQuery } from './debug/overlay.ts'
 import { ECHO_LIFE_F, placeEcho } from './echo/echo.ts'
 import { createSim, stepSim, type SimInput, type SimState } from './game/sim.ts'
 import { LEVEL_1_1_ECHO_AT_X, LEVEL_1_1_ROWS } from './levels/level1-1.ts'
@@ -107,6 +107,16 @@ const levelId = readLevel(location.search)
  * step, so the run goes through the same `advance()` a player's does — no simulation shortcut.
  */
 const autopilot = readAutopilot(location.search) ? createAutopilotDriver(LEVEL_1_1_ECHO_AT_X) : null
+
+/**
+ * A looping `?autopilot=1` run restarts itself after the results screen, so the operator opens one
+ * URL and watches the level play over and over. Looping is the default; `?loop=0` is the one-shot
+ * escape that leaves the run on its results screen for a recording. The hold keeps the results
+ * screen's time and best time readable before the next run starts.
+ */
+const loopAutopilot = readLoop(location.search)
+const RESULTS_HOLD_MS = 1500
+let loopRestartTimer = 0
 
 // The pad presses the game's own keys, so nothing downstream knows a controller exists — and the
 // card switches to pad labels the moment one connects.
@@ -297,6 +307,21 @@ function resetGame(): void {
   stepper.reset()
   animator.reset()
   juice.reset()
+}
+
+/**
+ * Schedule the next run of a looping autopilot. The results screen holds for `RESULTS_HOLD_MS` so its
+ * time and best time can be read, then the run starts again through the same `resetGame()` a manual
+ * RETRY uses. A manual RETRY, TITLE or reset in the meantime wins: the timer only restarts a run whose
+ * results screen is still up, so it can never pull a player off a menu they chose.
+ */
+function scheduleLoopRestart(): void {
+  clearTimeout(loopRestartTimer)
+  loopRestartTimer = window.setTimeout(() => {
+    if (screen !== 'results') return
+    resetGame()
+    show('level')
+  }, RESULTS_HOLD_MS)
 }
 
 /** The input for this step: the autopilot's when `?autopilot=1` asked for it, otherwise the keyboard's. */
@@ -586,8 +611,12 @@ function frame(now: number): void {
     }
   }
 
-  // The flag hands the run to the results screen, which carries the time and the best time.
-  if (sim.goalReached && screen === 'level') show('results')
+  // The flag hands the run to the results screen, which carries the time and the best time. A
+  // looping autopilot restarts from there; a one-shot run (`?loop=0`) stays on the screen.
+  if (sim.goalReached && screen === 'level') {
+    show('results')
+    if (loopAutopilot) scheduleLoopRestart()
+  }
 
   renderer.draw({
     map,

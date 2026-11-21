@@ -7,6 +7,7 @@ import {
   readEchoSpot,
   readFreeze,
   readLevel,
+  readLoop,
   readSpawn,
   spawnQuery,
 } from './overlay.ts'
@@ -87,5 +88,22 @@ describe('debug spawn', () => {
     expect(readAutopilot('?autopilot=0')).toBe(false)
     expect(readAutopilot('?autopilot=yes')).toBe(false)
     expect(readAutopilot('')).toBe(false)
+  })
+
+  it('loops by default with the autopilot, so one page load clears over and over', () => {
+    expect(readLoop('?autopilot=1')).toBe(true)
+    expect(readLoop('?level=1-1&autopilot=1&vol=0')).toBe(true)
+    expect(readLoop('?autopilot=1&loop=1')).toBe(true)
+  })
+
+  it('stops looping on ?loop=0, the one-shot escape', () => {
+    expect(readLoop('?autopilot=1&loop=0')).toBe(false)
+    expect(readLoop('?level=1-1&autopilot=1&loop=0&vol=0')).toBe(false)
+  })
+
+  it('never loops without the autopilot, so loop on its own turns nothing on', () => {
+    expect(readLoop('?loop=1')).toBe(false)
+    expect(readLoop('?level=1-1')).toBe(false)
+    expect(readLoop('')).toBe(false)
   })
 })

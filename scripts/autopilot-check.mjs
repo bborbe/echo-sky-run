@@ -1,6 +1,11 @@
 // The `?autopilot=1` check: load a level with the autopilot on, let it play itself, and require that
-// the run reaches the results screen with no console error — recording the whole thing to a video so
-// the operator can watch it afterwards.
+// it reaches the results screen with no console error — recording the whole thing to a video so the
+// operator can watch it afterwards.
+//
+// Looping is the default, so one page load clears the level over and over: the results screen holds
+// for ~1.5 s, then the run restarts. This check proves both halves — `?loop=0` stays on the results
+// screen (the one-shot run the recording captures), and the default restarts so one page load yields
+// three consecutive clears.
 //
 //   AUTOPILOT_URL  page to drive (default: the dev server's 1-1 autopilot URL)
 //   VIDEO_PATH     where to write the recording (default: /tmp/echo-sky-run-autopilot.webm)
@@ -10,9 +15,12 @@
 
 import { chromium } from 'playwright'
 
-const URL = process.env.AUTOPILOT_URL || 'http://localhost:5173/echo-sky-run/?level=1-1&autopilot=1&vol=0'
+const BASE_URL = process.env.AUTOPILOT_URL || 'http://localhost:5173/echo-sky-run/?level=1-1&autopilot=1&vol=0'
+const ONE_SHOT_URL = `${BASE_URL}&loop=0`
 const VIDEO_PATH = process.env.VIDEO_PATH || '/tmp/echo-sky-run-autopilot.webm'
-const TIMEOUT_MS = 60_000
+const CLEAR_TIMEOUT_MS = 120_000
+/** The hold `src/main.ts` keeps on the results screen before a looping run restarts. */
+const RESULTS_HOLD_MS = 1500
 
 let failures = 0
 function check(name, ok, detail = '') {
@@ -21,49 +29,116 @@ function check(name, ok, detail = '') {
 }
 
 const browser = await chromium.launch({ args: ['--mute-audio'] })
-const context = await browser.newContext({
+
+/** Wait until the page has booted and exposed the test seam. */
+async function boot(page) {
+  await page.waitForFunction(() => window.__echoSkyRun !== undefined, undefined, { timeout: 10_000 })
+}
+const screenOf = (page) => page.evaluate(() => window.__echoSkyRun.screen())
+
+/** Poll until the screen is `want`, or give up after `timeoutMs`. */
+async function waitForScreen(page, want, timeoutMs) {
+  const started = Date.now()
+  let screen = await screenOf(page)
+  while (screen !== want && Date.now() - started < timeoutMs) {
+    await page.waitForTimeout(100)
+    screen = await screenOf(page)
+  }
+  return { screen, seconds: (Date.now() - started) / 1000 }
+}
+
+function watchErrors(page) {
+  const errors = []
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text())
+  })
+  page.on('pageerror', (error) => errors.push(String(error)))
+  return errors
+}
+
+// ---- one-shot: ?loop=0 reaches the results screen and stays there — the recorded single run ----
+const shotContext = await browser.newContext({
   viewport: { width: 960, height: 540 },
   recordVideo: { dir: '/tmp/echo-sky-run-autopilot-video', size: { width: 960, height: 540 } },
 })
-const page = await context.newPage()
+const shotPage = await shotContext.newPage()
+const shotErrors = watchErrors(shotPage)
 
-const errors = []
-page.on('console', (message) => {
-  if (message.type() === 'error') errors.push(message.text())
-})
-page.on('pageerror', (error) => errors.push(String(error)))
+const shotResponse = await shotPage.goto(ONE_SHOT_URL, { waitUntil: 'load' })
+check('page returns 200', shotResponse !== null && shotResponse.status() === 200, `status=${shotResponse?.status()}`)
+await boot(shotPage)
+check(
+  'the autopilot URL boots straight into the level, not the title',
+  (await screenOf(shotPage)) === 'level',
+)
 
-const response = await page.goto(URL, { waitUntil: 'load' })
-check('page returns 200', response !== null && response.status() === 200, `status=${response?.status()}`)
-
-// The seam is the check's only window into the run; without it nothing can be observed.
-await page.waitForFunction(() => window.__echoSkyRun !== undefined, undefined, { timeout: 10_000 })
-check('the autopilot URL boots straight into the level, not the title', (await page.evaluate(() => window.__echoSkyRun.screen())) === 'level')
-
-// Play itself. The frame loop is what steps the sim here — the check never calls `step()`.
-const started = Date.now()
-let screen = 'level'
-while (Date.now() - started < TIMEOUT_MS) {
-  screen = await page.evaluate(() => window.__echoSkyRun.screen())
-  if (screen === 'results') break
-  await page.waitForTimeout(100)
-}
-
-const seconds = ((Date.now() - started) / 1000).toFixed(1)
-check('the autopilot plays the level to the results screen', screen === 'results', `${seconds}s`)
-check('no console error anywhere in the run', errors.length === 0, errors.slice(0, 3).join(' | '))
-
-const state = await page.evaluate(() => window.__echoSkyRun.state())
-check('the run reached the goal', state.goalReached === true, `deaths=${state.deaths} frames=${state.frames} echoes=${state.echoes}`)
+const oneShot = await waitForScreen(shotPage, 'results', CLEAR_TIMEOUT_MS)
+check('loop=0 plays the level to the results screen', oneShot.screen === 'results', `${oneShot.seconds}s`)
+// Looping off means it must not restart: still on the results screen well past the hold.
+await shotPage.waitForTimeout(RESULTS_HOLD_MS + 1200)
+const stillResults = await screenOf(shotPage)
+check('loop=0 stays on the results screen — no restart', stillResults === 'results', stillResults)
+const oneShotState = await shotPage.evaluate(() => window.__echoSkyRun.state())
+check(
+  'the loop=0 run reached the goal',
+  oneShotState.goalReached === true,
+  `deaths=${oneShotState.deaths} frames=${oneShotState.frames}`,
+)
+check('no console error anywhere in the one-shot run', shotErrors.length === 0, shotErrors.slice(0, 3).join(' | '))
 
 // Close in this order so the video is flushed before its path is read.
-await page.close()
-const videoPath = await page.video().path()
-await context.close()
-await browser.close()
+await shotPage.close()
+const videoPath = await shotPage.video().path()
+await shotContext.close()
 
 const { copyFile } = await import('node:fs/promises')
 await copyFile(videoPath, VIDEO_PATH)
+
+// ---- looping: the default restarts after the results screen, three clears from one page ----
+const loopContext = await browser.newContext({ viewport: { width: 960, height: 540 } })
+const loopPage = await loopContext.newPage()
+const loopErrors = watchErrors(loopPage)
+
+const loopResponse = await loopPage.goto(BASE_URL, { waitUntil: 'load' })
+check('the looping page returns 200', loopResponse !== null && loopResponse.status() === 200, `status=${loopResponse?.status()}`)
+await boot(loopPage)
+check('the looping URL boots straight into the level', (await screenOf(loopPage)) === 'level')
+
+// Count the results screens from one page load. `resultsAt`/`levelAt` are the wall-clock times of
+// each transition, so the hold between them is measurable: results → level → results → level → results.
+const resultsAt = []
+const levelAt = []
+let prev = 'level'
+const loopStarted = Date.now()
+while (resultsAt.length < 3 && Date.now() - loopStarted < CLEAR_TIMEOUT_MS * 3) {
+  await loopPage.waitForTimeout(50)
+  const screen = await screenOf(loopPage)
+  if (screen !== prev) {
+    const now = Date.now()
+    if (screen === 'results') resultsAt.push(now)
+    else if (screen === 'level') levelAt.push(now)
+    prev = screen
+  }
+}
+
+check(
+  'the default autopilot loops: three results screens from one page load',
+  resultsAt.length === 3,
+  `results=${resultsAt.length}`,
+)
+
+// Each results screen holds long enough to read the time and best time before the restart.
+const holds = resultsAt.slice(0, -1).map((at, i) => levelAt[i] - at)
+check(
+  `the results screen holds ~${RESULTS_HOLD_MS} ms before each restart`,
+  holds.length === 2 && holds.every((ms) => ms >= 1200 && ms <= 3000),
+  `holds=${holds.join(',')} ms`,
+)
+check('no console error anywhere in the looping run', loopErrors.length === 0, loopErrors.slice(0, 3).join(' | '))
+
+await loopContext.close()
+await browser.close()
+
 console.log(`VIDEO  ${VIDEO_PATH}`)
 console.log(failures === 0 ? 'AUTOPILOT OK' : `AUTOPILOT FAILED (${failures})`)
 process.exit(failures === 0 ? 0 : 1)
