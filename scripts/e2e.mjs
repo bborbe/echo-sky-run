@@ -20,14 +20,16 @@ const page = await browser.newPage({ viewport: { width: 960, height: 540 } })
 // headless Chromium has no controller, and a real requestFullscreen needs a user gesture.
 await page.addInitScript(() => {
   window.__pads = []
-  window.__makePad = (pressed = []) => ({
+  // `values` sets an analog button's travel without marking it pressed — the shape a real trigger
+  // reports. A digital button reports value 1 while down, so the default keeps the old behaviour.
+  window.__makePad = (pressed = [], values = {}) => ({
     id: 'Xbox Wireless Controller',
     connected: true,
     mapping: 'standard',
     axes: [0, 0, 0, 0],
     buttons: Array.from({ length: 16 }, (_, i) => ({
       pressed: pressed.includes(i),
-      value: pressed.includes(i) ? 1 : 0,
+      value: values[i] ?? (pressed.includes(i) ? 1 : 0),
     })),
   })
   Object.defineProperty(navigator, 'getGamepads', {
@@ -543,7 +545,7 @@ try {
     lines: window.__echoSkyRun.overlayLines(),
   }))
   check(
-    pausePanel.paused && pausePanel.lines.includes('H / LB: CONTROLS'),
+    pausePanel.paused && pausePanel.lines.includes('H / SELECT: CONTROLS'),
     'the pause panel shows how to bring the controls back',
     JSON.stringify(pausePanel),
   )
@@ -652,6 +654,29 @@ try {
     JSON.stringify(settingsScreen.lines),
   )
 
+  // The card must not sit on top of the settings panel: opening it clears the canvas panel (no
+  // ghosted MUSIC / EFFECTS text under the card), and closing it brings the same screen back.
+  const settingsOverlap = await page.evaluate(async () => {
+    const api = window.__echoSkyRun
+    api.showControls()
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+    const withCard = { visible: api.controls().visible, box: api.overlayBox(), lines: api.overlayLines() }
+    api.hideControls()
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+    const without = { box: api.overlayBox(), lines: api.overlayLines() }
+    return { withCard, without }
+  })
+  check(
+    settingsOverlap.withCard.visible && settingsOverlap.withCard.box === null && settingsOverlap.withCard.lines.length === 0,
+    'the controls card clears the settings panel instead of overlapping it',
+    JSON.stringify(settingsOverlap.withCard),
+  )
+  check(
+    settingsOverlap.without.box !== null && settingsOverlap.without.lines.some((l) => l.startsWith('MUSIC ')),
+    'the settings panel returns when the card closes',
+    JSON.stringify(settingsOverlap.without),
+  )
+
   // BACK returns to the pause, and the back key leaves the settings for the pause too.
   await page.keyboard.press('Escape')
   const backFromSettings = await page.evaluate(() => window.__echoSkyRun.screen())
@@ -721,15 +746,60 @@ try {
   check(hotPlug.toast.includes('connected'), 'a connection toast is shown', hotPlug.toast)
   check(hotPlug.card.pad, 'the controls card switches to pad labels')
 
+  // The pad rows name the buttons the map actually uses: Echo on RT, Run on LT, Controls on SELECT.
+  const padRows = hotPlug.card.rows
+  check(
+    padRows.some(([action, keys]) => action === 'Echo' && keys === 'RT') &&
+      padRows.some(([action, keys]) => action === 'Run / carry' && keys === 'LT') &&
+      padRows.some(([action, keys]) => action === 'Controls' && keys === 'View / Back'),
+    'the pad card names RT, LT and View / Back',
+    JSON.stringify(padRows),
+  )
+
+  // Labels follow the input that is connected at open time, not only the last connect event. The
+  // pad is plugged in and the card opened in the same tick, so no poll frame has fired onConnect.
+  const openTimeLabels = await page.evaluate(async () => {
+    const api = window.__echoSkyRun
+    window.__pads = []
+    await new Promise((r) => setTimeout(r, 150))
+    api.hideControls()
+    api.showControls()
+    const keyboard = api.controls()
+    api.hideControls()
+    window.__pads = [window.__makePad()]
+    api.showControls()
+    const pad = api.controls()
+    api.hideControls()
+    return { keyboard, pad }
+  })
+  check(
+    openTimeLabels.keyboard.pad === false &&
+      openTimeLabels.keyboard.rows.some(([a, k]) => a === 'Echo' && k === 'C / I'),
+    'with no pad the card shows keyboard codes',
+    JSON.stringify(openTimeLabels.keyboard.rows),
+  )
+  check(
+    openTimeLabels.pad.pad === true && openTimeLabels.pad.rows.some(([a, k]) => a === 'Echo' && k === 'RT'),
+    'the card reads the live pad at open time',
+    JSON.stringify(openTimeLabels.pad.rows),
+  )
+
   // The spec § 6 mapping, one button at a time. Each press must reach the game as its key code.
+  // The triggers are the primary bindings; X, Y and LB stay bound as aliases.
   const MAPPING = [
     [0, 'Space', 'A jump'],
     [1, 'KeyX', 'B spin'],
-    [2, 'ShiftLeft', 'X run'],
-    [3, 'KeyC', 'Y Echo'],
+    [2, 'ShiftLeft', 'X run (alias)'],
+    [3, 'KeyC', 'Y Echo (alias)'],
+    [4, 'KeyH', 'LB controls (alias)'],
+    [6, 'ShiftLeft', 'LT run'],
+    [7, 'KeyC', 'RT Echo'],
+    [8, 'KeyH', 'SELECT controls'],
   ]
   for (const [button, code, label] of MAPPING) {
     const pressed = await page.evaluate(async ({ button }) => {
+      // SELECT and the LB alias open the card, which then swallows the next key.
+      window.__echoSkyRun.hideControls()
       window.__keyCodes = []
       window.__pads = [window.__makePad([button])]
       await new Promise((resolve) => setTimeout(resolve, 150))
@@ -740,6 +810,38 @@ try {
     }, { button })
     check(pressed.includes(code), `pad ${label} presses ${code}`, JSON.stringify(pressed))
   }
+  await page.evaluate(() => window.__echoSkyRun.hideControls())
+
+  // A real trigger reports analog travel and leaves `pressed` false, so the threshold is what
+  // decides. Below it is no press; at or above it the action fires.
+  const analog = await page.evaluate(async () => {
+    const fire = async (values) => {
+      window.__echoSkyRun.hideControls()
+      window.__keyCodes = []
+      window.__pads = [window.__makePad([], values)]
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      const codes = window.__keyCodes
+      window.__pads = [window.__makePad()]
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      return codes
+    }
+    return {
+      rtBelow: await fire({ 7: 0.4 }),
+      rtAbove: await fire({ 7: 0.6 }),
+      ltBelow: await fire({ 6: 0.4 }),
+      ltAbove: await fire({ 6: 0.6 }),
+    }
+  })
+  check(
+    !analog.rtBelow.includes('KeyC') && analog.rtAbove.includes('KeyC'),
+    'RT reads by value: 0.4 does not echo, 0.6 does',
+    JSON.stringify(analog),
+  )
+  check(
+    !analog.ltBelow.includes('ShiftLeft') && analog.ltAbove.includes('ShiftLeft'),
+    'LT reads by value: 0.4 does not run, 0.6 does',
+    JSON.stringify(analog),
+  )
 
   // Start → Escape → pause. Pressed twice, so the run is left unpaused for the checks below.
   const startPauses = await page.evaluate(async () => {
@@ -779,18 +881,22 @@ try {
 
   const padControls = await page.evaluate(async () => {
     const api = window.__echoSkyRun
-    api.reset()
-    api.resume()
-    api.hideControls()
-    window.__pads = [window.__makePad([4])]
-    await new Promise((r) => setTimeout(r, 180))
-    const visible = api.controls().visible
-    window.__pads = [window.__makePad()]
-    await new Promise((r) => setTimeout(r, 120))
-    api.hideControls()
-    return visible
+    const press = async (button) => {
+      api.reset()
+      api.resume()
+      api.hideControls()
+      window.__pads = [window.__makePad([button])]
+      await new Promise((r) => setTimeout(r, 180))
+      const visible = api.controls().visible
+      window.__pads = [window.__makePad()]
+      await new Promise((r) => setTimeout(r, 120))
+      api.hideControls()
+      return visible
+    }
+    return { select: await press(8), lbAlias: await press(4) }
   })
-  check(padControls, 'pad LB opens the controls card', String(padControls))
+  check(padControls.select, 'pad SELECT opens the controls card', JSON.stringify(padControls))
+  check(padControls.lbAlias, 'pad LB still opens the controls card (alias)', JSON.stringify(padControls))
 
   // The first press after connect must not be swallowed. The pad appears already holding A — which
   // is exactly what a browser reports when the player presses a button to wake a pad — and Pip has

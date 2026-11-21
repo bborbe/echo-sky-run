@@ -44,14 +44,21 @@ export interface PadBinding {
  * in this build, so the vertical axis and D-pad up/down are bound to `PadUp` / `PadDown` — codes only
  * the menus read. Mapping them to ArrowUp instead would make a stick nudge jump, since ArrowUp is a
  * jump key; the level ignores the Pad codes, so a pad player can walk a menu without moving Pip.
+ *
+ * The triggers are analog: RT is Echo and LT is Run / carry, read by `value` (see `TRIGGER_THRESHOLD`).
+ * X, Y and LB stay bound as aliases, so an older habit still works — the card names the trigger.
  */
 export const PAD_BINDINGS: readonly PadBinding[] = [
   { button: PAD.A, code: 'Space', name: 'A', action: 'Jump' },
   { button: PAD.B, code: 'KeyX', name: 'B', action: 'Spin jump' },
+  { button: PAD.RT, code: 'KeyC', name: 'RT', action: 'Echo' },
+  { button: PAD.LT, code: 'ShiftLeft', name: 'LT', action: 'Run / carry' },
+  { button: PAD.SELECT, code: 'KeyH', name: 'SELECT', action: 'Controls' },
+  { button: PAD.START, code: 'Escape', name: 'Start', action: 'Pause' },
+  // Aliases: the buttons the triggers replaced, kept because they are otherwise free.
   { button: PAD.X, code: 'ShiftLeft', name: 'X', action: 'Run / carry' },
   { button: PAD.Y, code: 'KeyC', name: 'Y', action: 'Echo' },
   { button: PAD.LB, code: 'KeyH', name: 'LB', action: 'Controls' },
-  { button: PAD.START, code: 'Escape', name: 'Start', action: 'Pause' },
   { button: PAD.LEFT, code: 'ArrowLeft', name: 'D-pad ←', action: 'Move' },
   { button: PAD.RIGHT, code: 'ArrowRight', name: 'D-pad →', action: 'Move' },
   { button: PAD.UP, code: 'PadUp', name: 'D-pad ↑', action: 'Menu up' },
@@ -64,22 +71,34 @@ export const MENU_ONLY_CODES: ReadonlySet<string> = new Set(['PadUp', 'PadDown']
 /** Stick deflection that counts as a direction. Worn sticks rest off zero, so this is not 0. */
 export const STICK_DEAD_ZONE = 0.35
 
-const pressed = (pad: PadSnapshot, i: number): boolean => pad.buttons[i]?.pressed === true
+/**
+ * A trigger counts as held past this much travel. RT/LT report a `value` between 0 and 1 and do not
+ * reliably set `pressed`, so a `.pressed`-only read would leave both triggers dead. Digital buttons
+ * report `value` 1 while down, so the same threshold covers them.
+ */
+export const TRIGGER_THRESHOLD = 0.5
+
+const held = (pad: PadSnapshot, i: number): boolean => {
+  const button = pad.buttons[i]
+  return button !== undefined && (button.pressed === true || button.value >= TRIGGER_THRESHOLD)
+}
 
 /**
  * The codes the pad is holding right now — the whole input state, not an edge list. The shell diffs
  * this against the previous frame, which is what makes a button already down when the pad appears a
  * press rather than a swallowed first input.
+ *
+ * Deduplicated: an alias and its primary can be down together, and one action is one code.
  */
 export function padCodes(pad: PadSnapshot): string[] {
-  const codes = PAD_BINDINGS.filter((b) => pressed(pad, b.button)).map((b) => b.code)
+  const codes = new Set(PAD_BINDINGS.filter((b) => held(pad, b.button)).map((b) => b.code))
   const x = pad.axes[0] ?? 0
-  if (x <= -STICK_DEAD_ZONE) codes.push('ArrowLeft')
-  if (x >= STICK_DEAD_ZONE) codes.push('ArrowRight')
+  if (x <= -STICK_DEAD_ZONE) codes.add('ArrowLeft')
+  if (x >= STICK_DEAD_ZONE) codes.add('ArrowRight')
   const y = pad.axes[1] ?? 0
-  if (y <= -STICK_DEAD_ZONE) codes.push('PadUp')
-  if (y >= STICK_DEAD_ZONE) codes.push('PadDown')
-  return codes
+  if (y <= -STICK_DEAD_ZONE) codes.add('PadUp')
+  if (y >= STICK_DEAD_ZONE) codes.add('PadDown')
+  return [...codes]
 }
 
 /** The pad to read: the first connected standard-mapping pad, else the first connected one. */

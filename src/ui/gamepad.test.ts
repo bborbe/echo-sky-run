@@ -1,22 +1,53 @@
 import { describe, expect, it } from 'vitest'
-import { keyForCode, PAD, padCodes, pickPad, STICK_DEAD_ZONE, type PadSnapshot } from './gamepad.ts'
+import { keyForCode, PAD, padCodes, pickPad, STICK_DEAD_ZONE, TRIGGER_THRESHOLD, type PadSnapshot } from './gamepad.ts'
 
-/** A standard-mapping pad with every button up and both sticks centred. */
-function pad(overrides: { buttons?: number[]; axes?: number[] } = {}): PadSnapshot {
-  const buttons = Array.from({ length: 16 }, (_, i) => ({
-    pressed: (overrides.buttons ?? []).includes(i),
-    value: (overrides.buttons ?? []).includes(i) ? 1 : 0,
-  }))
+/**
+ * A standard-mapping pad with every button up and both sticks centred. `values` sets a button's
+ * analog travel without marking it `pressed` — the shape a real trigger reports, and the one the old
+ * helper could not express.
+ */
+function pad(overrides: { buttons?: number[]; values?: Record<number, number>; axes?: number[] } = {}): PadSnapshot {
+  const buttons = Array.from({ length: 16 }, (_, i) => {
+    const pressed = (overrides.buttons ?? []).includes(i)
+    return { pressed, value: overrides.values?.[i] ?? (pressed ? 1 : 0) }
+  })
   return { axes: overrides.axes ?? [0, 0], buttons }
 }
 
 describe('the spec § 6 mapping', () => {
-  it('resolves A jump, B spin, X run, Y Echo and Start pause', () => {
+  it('resolves A jump, B spin and Start pause', () => {
     expect(padCodes(pad({ buttons: [PAD.A] }))).toEqual(['Space'])
     expect(padCodes(pad({ buttons: [PAD.B] }))).toEqual(['KeyX'])
-    expect(padCodes(pad({ buttons: [PAD.X] }))).toEqual(['ShiftLeft'])
-    expect(padCodes(pad({ buttons: [PAD.Y] }))).toEqual(['KeyC'])
     expect(padCodes(pad({ buttons: [PAD.START] }))).toEqual(['Escape'])
+  })
+
+  it('reads Echo from the right trigger by value, not by pressed', () => {
+    // A real RT reports analog travel and leaves `pressed` false; this is the whole point of the
+    // rebind, so the assertion uses `values` alone.
+    expect(padCodes(pad({ values: { [PAD.RT]: 0.9 } }))).toEqual(['KeyC'])
+    expect(padCodes(pad({ values: { [PAD.RT]: TRIGGER_THRESHOLD } }))).toEqual(['KeyC'])
+    expect(padCodes(pad({ values: { [PAD.RT]: TRIGGER_THRESHOLD - 0.01 } }))).toEqual([])
+  })
+
+  it('reads Run / carry from the left trigger by value', () => {
+    expect(padCodes(pad({ values: { [PAD.LT]: 0.9 } }))).toEqual(['ShiftLeft'])
+    expect(padCodes(pad({ values: { [PAD.LT]: TRIGGER_THRESHOLD - 0.01 } }))).toEqual([])
+  })
+
+  it('opens the controls card from SELECT', () => {
+    expect(padCodes(pad({ buttons: [PAD.SELECT] }))).toEqual(['KeyH'])
+  })
+
+  it('keeps the old buttons as aliases', () => {
+    expect(padCodes(pad({ buttons: [PAD.Y] }))).toEqual(['KeyC'])
+    expect(padCodes(pad({ buttons: [PAD.X] }))).toEqual(['ShiftLeft'])
+    expect(padCodes(pad({ buttons: [PAD.LB] }))).toEqual(['KeyH'])
+  })
+
+  it('holds one code when an alias and its primary are down together', () => {
+    expect(padCodes(pad({ buttons: [PAD.Y], values: { [PAD.RT]: 0.8 } }))).toEqual(['KeyC'])
+    expect(padCodes(pad({ buttons: [PAD.X], values: { [PAD.LT]: 0.8 } }))).toEqual(['ShiftLeft'])
+    expect(padCodes(pad({ buttons: [PAD.LB, PAD.SELECT] }))).toEqual(['KeyH'])
   })
 
   it('moves with the D-pad', () => {
@@ -24,10 +55,6 @@ describe('the spec § 6 mapping', () => {
     expect(padCodes(pad({ buttons: [PAD.RIGHT] }))).toEqual(['ArrowRight'])
     expect(padCodes(pad({ buttons: [PAD.UP] }))).toEqual(['PadUp'])
     expect(padCodes(pad({ buttons: [PAD.DOWN] }))).toEqual(['PadDown'])
-  })
-
-  it('opens the controls card from LB, the free button spec § 6 leaves', () => {
-    expect(padCodes(pad({ buttons: [PAD.LB] }))).toEqual(['KeyH'])
   })
 
   it('moves with the left stick past the dead zone, and not inside it', () => {
@@ -46,7 +73,7 @@ describe('the spec § 6 mapping', () => {
   })
 
   it('holds every button at once', () => {
-    expect(padCodes(pad({ buttons: [PAD.A, PAD.Y] })).sort()).toEqual(['KeyC', 'Space'])
+    expect(padCodes(pad({ buttons: [PAD.A], values: { [PAD.RT]: 0.9 } })).sort()).toEqual(['KeyC', 'Space'])
   })
 })
 
