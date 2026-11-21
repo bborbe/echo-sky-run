@@ -45,6 +45,13 @@ export function mountSheet(root: HTMLElement): HTMLCanvasElement {
   canvas.height = height
   canvas.style.cssText = 'display:block;image-rendering:pixelated'
   root.replaceChildren(canvas)
+  // `index.html` pins html/body to the viewport with overflow hidden (the game never scrolls). The
+  // sheet is taller than that, so `make shots`'s full-page screenshot clipped every row past the
+  // fold — including the map art. Relax the pin for the sheet only.
+  document.documentElement.style.height = 'auto'
+  document.documentElement.style.overflow = 'visible'
+  document.body.style.height = 'auto'
+  document.body.style.overflow = 'visible'
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('no 2d context')
   ctx.imageSmoothingEnabled = false

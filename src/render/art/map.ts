@@ -37,28 +37,43 @@ export const MAP_PATH: Mask = [
 export const RELIC_COIN_KEYS: Keys = {
   o: 'outline',
   a: 'copperDark',
-  h: 'steelLight',
+  h: 'brass',
   w: 'brassLight',
+  s: 'steel',
   S: 'steelLight',
-  k: 'copper',
 }
 
 /**
- * The Relic Coin indicator: three diamonds, `count` of them filled. `count` 1, 2 and 3 are the three
- * states the map shows — the middle one is the ◆◆◇ the spec names. The filled diamonds carry three
- * distinct tones (brass, brassLight, white) and the empty ones two (copperDark, steelLight), so every
- * state passes the "at least three fill tones" catalogue rule.
+ * The Relic Coin indicator: three tokens, `count` of them filled. `count` 1, 2 and 3 are the three
+ * states the map shows — the middle one is the ◆◆◇ the spec names. Each token is a 4×3 block with a
+ * 1 px tip above and below, so the group still reads as ◆◆◇ while covering enough of the 16×16 box
+ * to clear the SC4 readability band: the probe averages the whole box, and a hairline sprite that is
+ * 95 % transparent sits within a few grey levels of the background however dark its few pixels are.
+ * A filled token is warm (copperDark, brass, brassLight) and an empty one cool (steelLight, steel),
+ * so 1, 2 and 3 filled read differently and every state passes the "at least three fill tones" rule.
  */
 function relicCoin(count: number): Mask {
-  const filled = ['oao', 'oho', 'owo']
-  const empty = ['oko', 'oSo', 'oko']
-  const mids = [0, 1, 2].map((i) => (i < count ? filled[i] : empty[i]))
-  const top = '..' + ['.o.', '.o.', '.o.'].join('.') + '...'
-  const mid = '..' + mids.join('.') + '...'
-  const rows: string[] = []
-  for (let i = 0; i < 6; i++) rows.push('................')
-  rows.push(top, mid, top)
-  while (rows.length < 16) rows.push('................')
+  const filled = ['a', 'h', 'w']
+  const empty = ['S', 's', 'S']
+  const fills = [0, 1, 2].map((i) => (i < count ? filled[i] : empty[i]))
+  const blockX = [1, 6, 11]
+  const blank = (): string[] => Array<string>(16).fill('.')
+  const rows: string[] = Array.from({ length: 16 }, () => '.'.repeat(16))
+  const tip = blank()
+  for (const bx of blockX) tip[bx + 1] = 'o'
+  rows[4] = tip.join('')
+  rows[10] = tip.join('')
+  for (const y of [5, 6, 7, 8, 9]) {
+    const r = blank()
+    blockX.forEach((bx, i) => {
+      r[bx] = 'o'
+      r[bx + 3] = 'o'
+      const body = y !== 5 && y !== 9
+      r[bx + 1] = body ? fills[i] : 'o'
+      r[bx + 2] = body ? fills[i] : 'o'
+    })
+    rows[y] = r.join('')
+  }
   return rows
 }
 

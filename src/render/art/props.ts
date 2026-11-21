@@ -380,26 +380,23 @@ function windmillMask(diagonal: boolean): Mask {
         [0, 1],
         [0, -1],
       ]
+  // Seven pixels across each blade: the SC4 readability probe averages the sprite's whole 54×54 box,
+  // so a hairline wheel sits close to the background however dark its few pixels are. Each step
+  // stamps a square rather than a perpendicular stroke, so the blade has interior pixels — a
+  // one-pixel-thin diagonal is all boundary, and the outline pass would recolour every blade pixel.
+  const halfWidth = 3
   for (const [dx, dy] of dirs) {
     for (let r = 5; r <= c + 1; r++) {
       const x = c + dx * r
       const y = c + dy * r
-      put(x, y, 's')
-      if (dx === 0) {
-        put(x - 1, y, 's')
-        put(x + 1, y, 's')
-      } else if (dy === 0) {
-        put(x, y - 1, 's')
-        put(x, y + 1, 's')
-      } else {
-        put(x + 1, y, 's')
-        put(x, y + 1, 's')
+      for (let oy = -halfWidth; oy <= halfWidth; oy++) {
+        for (let ox = -halfWidth; ox <= halfWidth; ox++) put(x + ox, y + oy, 's')
       }
     }
   }
-  for (let y = c - 4; y <= c + 4; y++) {
-    for (let x = c - 4; x <= c + 4; x++) {
-      const edge = x === c - 4 || x === c + 4 || y === c - 4 || y === c + 4
+  for (let y = c - 5; y <= c + 5; y++) {
+    for (let x = c - 5; x <= c + 5; x++) {
+      const edge = x === c - 5 || x === c + 5 || y === c - 5 || y === c + 5
       put(x, y, edge ? 'c' : 'b')
     }
   }
