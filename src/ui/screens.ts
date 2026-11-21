@@ -30,6 +30,11 @@ export interface MenuItem {
   readonly label: string
   /** The level a tile row starts. Absent on every non-tile row. */
   readonly level?: string
+  /**
+   * True when the tile is locked: the tile view draws it dimmed and confirming it starts nothing.
+   * A locked tile stays focusable, so its still preview still shows.
+   */
+  readonly locked?: boolean
 }
 
 /**
@@ -73,6 +78,15 @@ export function menuFor(screen: GameScreen, tiles: readonly MenuItem[] = []): re
 export function moveSelection(count: number, index: number, dir: -1 | 1): number {
   if (count <= 0) return 0
   return (((index + dir) % count) + count) % count
+}
+
+/**
+ * True when confirming the row may act. Every row can, except a locked tile: the tile view keeps it
+ * focusable so its preview still shows, but confirming it must neither start the level nor leave the
+ * screen.
+ */
+export function canActivate(item: MenuItem | undefined): boolean {
+  return item !== undefined && item.locked !== true
 }
 
 /** A direction the tile view's focus moves in. */

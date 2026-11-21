@@ -20,6 +20,12 @@ export interface Save {
   readonly version: number
   /** The fastest clear of level 1-1 in seconds, or null before the first finish. */
   readonly bestSeconds: number | null
+  /**
+   * The level ids the player has unlocked, or absent before this build tracked unlocks. Absent means
+   * "not tracked yet" and leaves every level open; a list narrows that to exactly the ids it holds,
+   * so an explicit empty list means nothing is unlocked.
+   */
+  readonly unlockedLevels?: readonly string[]
 }
 
 /** A save with nothing in it: what a first run starts from. */
@@ -29,6 +35,7 @@ export const EMPTY_SAVE: Save = { version: SAVE_VERSION, bestSeconds: null }
 interface StoredSave {
   readonly version?: unknown
   readonly bestSeconds?: unknown
+  readonly unlockedLevels?: unknown
 }
 
 function isRecord(value: unknown): value is StoredSave {
@@ -54,6 +61,19 @@ function storedBest(stored: StoredSave): number | null {
 }
 
 /**
+ * A stored unlock list, or undefined when the payload carries none. An absent list is how a save
+ * written before unlock tracking looks, and it means "everything is open". A list holding anything
+ * that is not a non-empty string is not guessed at — it degrades to undefined rather than bricking
+ * every tile, the same way a malformed version falls back instead of throwing.
+ */
+function storedUnlocked(stored: StoredSave): readonly string[] | undefined {
+  const v = stored.unlockedLevels
+  if (!Array.isArray(v)) return undefined
+  if (!v.every((id): id is string => typeof id === 'string' && id !== '')) return undefined
+  return v
+}
+
+/**
  * Bring any payload this build has ever written up to `SAVE_VERSION`.
  *
  * Version 0 → 1: the unversioned `{ bestSeconds }` store gains its version field and keeps its best
@@ -63,7 +83,12 @@ function storedBest(stored: StoredSave): number | null {
 export function migrate(raw: unknown): Save {
   if (!isRecord(raw)) return EMPTY_SAVE
   if (storedVersion(raw) > SAVE_VERSION) return EMPTY_SAVE
-  return { version: SAVE_VERSION, bestSeconds: storedBest(raw) }
+  const unlockedLevels = storedUnlocked(raw)
+  return {
+    version: SAVE_VERSION,
+    bestSeconds: storedBest(raw),
+    ...(unlockedLevels === undefined ? {} : { unlockedLevels }),
+  }
 }
 
 /** True when `raw` is an older payload that `migrate` upgrades, so `loadSave` can rewrite it once. */
@@ -72,7 +97,14 @@ function isLegacy(raw: unknown): boolean {
 }
 
 function write(storage: Pick<Storage, 'setItem'>, save: Save): void {
-  storage.setItem(SAVE_KEY, JSON.stringify({ version: save.version, bestSeconds: save.bestSeconds }))
+  storage.setItem(
+    SAVE_KEY,
+    JSON.stringify({
+      version: save.version,
+      bestSeconds: save.bestSeconds,
+      ...(save.unlockedLevels === undefined ? {} : { unlockedLevels: save.unlockedLevels }),
+    }),
+  )
 }
 
 /**
@@ -108,8 +140,19 @@ export function storeSave(storage: Pick<Storage, 'setItem'> | null, save: Save):
 /**
  * The save with `seconds` recorded if it beats the stored best. Returns the same object when it does
  * not, so a caller can skip the write — the same shape the settings sliders use for "nothing moved".
+ * Every other field rides along, so recording a time never drops the unlock list.
  */
 export function recordBest(save: Save, seconds: number): Save {
   if (save.bestSeconds !== null && seconds >= save.bestSeconds) return save
-  return { version: SAVE_VERSION, bestSeconds: seconds }
+  return { ...save, bestSeconds: seconds }
+}
+
+/**
+ * True when `id` may be started. A save written before unlock tracking carries no list, and then
+ * every level is open — that is what keeps a first run (and the browser check) playable. A list
+ * narrows the set to exactly the ids it holds, so the tile view's lock state is read from the save
+ * and never from a hardcoded catalogue.
+ */
+export function isUnlocked(save: Save, id: string): boolean {
+  return save.unlockedLevels === undefined || save.unlockedLevels.includes(id)
 }
