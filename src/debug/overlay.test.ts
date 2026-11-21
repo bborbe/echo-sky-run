@@ -3,6 +3,7 @@ import {
   DEBUG_COPY_KEY,
   debugToggle,
   debugVisible,
+  readAutopilot,
   readEchoSpot,
   readFreeze,
   readLevel,
@@ -77,5 +78,14 @@ describe('debug spawn', () => {
     expect(readFreeze('?level=1-1&x=10&y=20')).toBe(false)
     expect(readFreeze('?freeze=0')).toBe(false)
     expect(readFreeze('')).toBe(false)
+  })
+
+  it('hands the level to the autopilot only on ?autopilot=1', () => {
+    expect(readAutopilot('?level=1-1&autopilot=1')).toBe(true)
+    expect(readAutopilot('?autopilot=1')).toBe(true)
+    expect(readAutopilot('?level=1-1')).toBe(false)
+    expect(readAutopilot('?autopilot=0')).toBe(false)
+    expect(readAutopilot('?autopilot=yes')).toBe(false)
+    expect(readAutopilot('')).toBe(false)
   })
 })

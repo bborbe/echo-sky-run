@@ -67,6 +67,29 @@ function enemyAhead(sim: SimState): boolean {
   return false
 }
 
+/** One step's decision, and the Echo bookkeeping that moves with it. */
+export interface AutopilotDecision {
+  readonly jumpPressed: boolean
+  readonly echoPressed: boolean
+  /** True once the Echo has been placed; the caller threads it back in on the next step. */
+  readonly echoUsed: boolean
+}
+
+/**
+ * The scripted decision for one step. The vitest run and the browser's `?autopilot=1` driver both
+ * call this, so a change here moves both and neither can drift out of step.
+ *
+ * `echoUsed` is threaded in and out rather than held here: the browser driver owns one per run and
+ * resets it on a restart, while the toolkit run owns one per call. Holding it in this function would
+ * make the second call place the Echo again.
+ */
+export function autopilotDecision(sim: SimState, echoAtX: number | null, echoUsed: boolean): AutopilotDecision {
+  const p = sim.player
+  const jumpPressed = p.grounded && (lipMissingAhead(sim) || enemyAhead(sim))
+  const wantEcho = !echoUsed && echoAtX !== null && !p.grounded && p.x >= echoAtX && sim.field.airCharges > 0
+  return { jumpPressed, echoPressed: wantEcho, echoUsed: echoUsed || wantEcho }
+}
+
 /**
  * Play a level to the goal. Deterministic: the same level and options give the same run, so a
  * failure is reproducible from the profile alone.
@@ -101,10 +124,10 @@ export function runAutopilot(profile: LevelToolkitProfile, options: AutopilotOpt
     // The view the player is looking at as he decides, which is the view a jump is made from.
     camera.update(p.x, p.y, p.h, worldW, worldH)
 
-    const jumpPressed = p.grounded && (lipMissingAhead(sim) || enemyAhead(sim))
-    const wantEcho =
-      !echoUsed && echoAtX !== null && !p.grounded && p.x >= echoAtX && sim.field.airCharges > 0
-    if (wantEcho) echoUsed = true
+    const decision = autopilotDecision(sim, echoAtX, echoUsed)
+    const jumpPressed = decision.jumpPressed
+    const wantEcho = decision.echoPressed
+    echoUsed = decision.echoUsed
 
     const wasGrounded = p.grounded
     const takeoffX = p.x
