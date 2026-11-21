@@ -206,7 +206,7 @@ export const SHELL_SPIN: readonly Mask[] = [shell(0, 9), shell(2, 11), shell(0, 
 export const SPIKE_BEETLE_KEYS: Keys = {
   o: 'outline',
   b: 'brass',
-  c: 'copper',
+  c: 'copperLight',
   k: 'copperDark',
   s: 'steel',
   S: 'steelLight',
@@ -311,11 +311,11 @@ export const GUST_WING_FLY: readonly Mask[] = [
 
 export const CHASER_BOT_KEYS: Keys = {
   o: 'outline',
-  s: 'steel',
-  S: 'steelLight',
+  s: 'steelMid',
+  S: 'steelPale',
   w: 'white',
-  c: 'copper',
-  k: 'copperDark',
+  c: 'copperLight',
+  k: 'copperLight',
 }
 
 /** Chaser-Bot: a boxy steel hunter with copper treads and two white optics. 18×18, faces left. */
@@ -364,7 +364,7 @@ export const CHASER_BOT_WALK: readonly Mask[] = [
 
 export const NIMBUS_KEYS: Keys = {
   o: 'outline',
-  w: 'white',
+  w: 'cloudShade',
   W: 'white',
   S: 'steelLight',
   e: 'echo',

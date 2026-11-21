@@ -8,7 +8,7 @@ import type { Keys, Mask } from './mask.ts'
 export const MAP_PATH_KEYS: Keys = {
   d: 'earth',
   D: 'earthDark',
-  P: 'earthLight',
+  P: 'earthPale',
   p: 'pebble',
   g: 'grass',
   L: 'grassLip',
@@ -36,11 +36,11 @@ export const MAP_PATH: Mask = [
 
 export const RELIC_COIN_KEYS: Keys = {
   o: 'outline',
-  a: 'brass',
-  h: 'brassLight',
-  w: 'white',
+  a: 'copperDark',
+  h: 'steelLight',
+  w: 'brassLight',
   S: 'steelLight',
-  k: 'copperDark',
+  k: 'copper',
 }
 
 /**

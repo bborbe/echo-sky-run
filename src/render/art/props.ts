@@ -266,8 +266,8 @@ export const SIGN: Mask = [
 
 export const ECHO_SWITCH_KEYS: Keys = {
   o: 'outline',
-  s: 'steel',
-  S: 'steelLight',
+  s: 'steelMid',
+  S: 'steelPale',
   e: 'echo',
   c: 'copper',
 }
@@ -350,10 +350,10 @@ export const PISTON_EXTENDED: Mask = pistonMask(36, 12)
 
 export const WINDMILL_KEYS: Keys = {
   o: 'outline',
-  s: 'steel',
-  S: 'steelLight',
-  b: 'brass',
-  c: 'copper',
+  s: 'steelDeep',
+  S: 'steel',
+  b: 'copperDark',
+  c: 'copperDark',
 }
 
 /**
