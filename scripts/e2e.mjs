@@ -140,6 +140,90 @@ try {
   )
   check(preview.frames === 0, 'building the preview starts no simulation', `frames=${preview.frames}`)
 
+  // ---- each tile's hero-crop thumbnail ------------------------------------------------------
+  // Every tile draws a crop of its level's declared hero spot. The probe reads the crop's own
+  // pixels: a tile with no crop is one flat panel colour, and a spawn-framed crop would show the
+  // opening ground under the tile, so the 1-1 crop's bottom band must be pit, not floor.
+  const sampleTileThumbs = async (target) =>
+    target.evaluate(() => {
+      const api = window.__echoSkyRun
+      const canvas = document.querySelector('#game')
+      const ctx = canvas.getContext('2d')
+      const rgb = (hex) => {
+        const n = parseInt(hex.slice(1), 16)
+        return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+      }
+      const ground = [rgb(api.palette.ground), rgb(api.palette.groundTop)]
+      const isGround = (r, g, b) =>
+        ground.some(([gr, gg, gb]) => Math.abs(r - gr) <= 8 && Math.abs(g - gg) <= 8 && Math.abs(b - gb) <= 8)
+      return api
+        .tileBoxes()
+        .filter((box) => box.thumb !== null)
+        .map((box) => {
+          const r = box.thumb
+          const { data } = ctx.getImageData(r.x, r.y, r.w, r.h)
+          const colours = new Set()
+          let luma = 0
+          let groundPx = 0
+          let bottomPx = 0
+          for (let y = 0; y < r.h; y++) {
+            for (let x = 0; x < r.w; x++) {
+              const i = (y * r.w + x) * 4
+              const R = data[i]
+              const G = data[i + 1]
+              const B = data[i + 2]
+              colours.add(`${R},${G},${B}`)
+              luma += 0.2126 * R + 0.7152 * G + 0.0722 * B
+              if (y >= Math.floor((r.h * 2) / 3)) {
+                bottomPx += 1
+                if (isGround(R, G, B)) groundPx += 1
+              }
+            }
+          }
+          return {
+            level: box.level,
+            locked: box.locked,
+            colours: colours.size,
+            meanLuma: luma / (r.w * r.h),
+            bottomGround: groundPx / bottomPx,
+          }
+        })
+    })
+
+  const thumbs = await sampleTileThumbs(page)
+  const hero = thumbs.find((t) => t.level === '1-1')
+  check(hero !== undefined, 'the 1-1 tile draws a hero crop', JSON.stringify(thumbs))
+  check(
+    hero !== undefined && hero.colours > 3,
+    'the hero crop is a rendered still, not a flat panel',
+    JSON.stringify(hero),
+  )
+  check(
+    hero !== undefined && hero.bottomGround < 0.5,
+    "1-1's crop shows the Echo gap, not the spawn's floor",
+    JSON.stringify(hero),
+  )
+
+  // A locked tile keeps its crop, faded into the panel — never a blank tile.
+  const lockedPage = await browser.newPage({ viewport: { width: 960, height: 540 } })
+  await lockedPage.addInitScript(() => localStorage.setItem('echo-sky-run.v1', JSON.stringify({ unlockedLevels: [] })))
+  await lockedPage.goto(URL, { waitUntil: 'load' })
+  await lockedPage.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+  await lockedPage.waitForFunction(() => window.__echoSkyRun.overlayLines().includes('1-1'))
+  const lockedThumbs = await sampleTileThumbs(lockedPage)
+  const lockedHero = lockedThumbs.find((t) => t.level === '1-1')
+  check(
+    lockedHero !== undefined && lockedHero.locked && lockedHero.colours > 3,
+    'a locked tile still draws its hero crop',
+    JSON.stringify(lockedThumbs),
+  )
+  check(
+    lockedHero !== undefined && hero !== undefined && lockedHero.meanLuma < hero.meanLuma,
+    "the locked tile's crop is dimmed, not removed",
+    JSON.stringify({ locked: lockedHero?.meanLuma, unlocked: hero?.meanLuma }),
+  )
+  await lockedPage.close()
+
   // The 3 s budget covers the whole way in: page load, then the one press that hands over control.
   await page.keyboard.press('Space')
   const started = await page.evaluate(() => ({

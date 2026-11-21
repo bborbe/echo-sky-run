@@ -2,8 +2,9 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { LEVEL_CATALOGUE } from '../levels/catalogue.ts'
-import { findTile, SPAWN } from '../physics/tilemap.ts'
-import { focusedLevelId, previewCamera, previewSource } from './preview.ts'
+import { findTile, parseLevel, SPAWN } from '../physics/tilemap.ts'
+import { VIEW_H } from './camera.ts'
+import { focusedLevelId, heroCamera, heroCropRect, previewCamera, previewSource } from './preview.ts'
 
 /** A window wide enough to frame a level; the e2e measures the real one. */
 const VIEW_W = 768
@@ -66,5 +67,46 @@ describe('preview frames', () => {
     expect(source).toMatch(/\bcreateSim\b/)
     expect(source).not.toMatch(/\bstepSim\b/)
     expect(source).not.toMatch(/\bFixedStepper\b/)
+  })
+
+  it('frames every level on its declared hero spot, inside the level', () => {
+    for (const level of LEVEL_CATALOGUE) {
+      const map = parseLevel(level.rows)
+      const hero = heroCamera(map, level.hero, VIEW_W)
+      expect(Number.isInteger(hero.x)).toBe(true)
+      expect(Number.isInteger(hero.y)).toBe(true)
+      expect(hero.x).toBeGreaterThanOrEqual(0)
+      expect(hero.x).toBeLessThanOrEqual(Math.max(0, map.cols * 16 - VIEW_W))
+      expect(hero.y).toBeGreaterThanOrEqual(0)
+      expect(hero.y).toBeLessThanOrEqual(Math.max(0, map.rows * 16 - VIEW_H))
+    }
+  })
+
+  it("frames 1-1 on the Echo gap, which is not where its spawn is", () => {
+    const level = LEVEL_CATALOGUE.find((entry) => entry.id === '1-1')
+    expect(level).toBeDefined()
+    if (level === undefined) return
+    const source = previewSource(level)
+    const hero = heroCamera(source.map, level.hero, VIEW_W)
+    const spawn = previewCamera(source.map, source.state.player, VIEW_W)
+    // The hero spot is on screen — the crop's subject — and the spawn framing is a different view.
+    expect(level.hero.x).toBeGreaterThanOrEqual(hero.x)
+    expect(level.hero.x).toBeLessThanOrEqual(hero.x + VIEW_W)
+    expect(hero.x).not.toBe(spawn.x)
+  })
+
+  it('centres the tile crop on the hero spot and keeps it inside the still', () => {
+    const centred = heroCropRect({ x: 0, y: 0 }, { x: VIEW_W / 2, y: VIEW_H / 2 }, VIEW_W, 160, 84)
+    expect(centred).toEqual({ x: VIEW_W / 2 - 80, y: VIEW_H / 2 - 42, w: 160, h: 84 })
+
+    // A spot near the ground line clamps the crop inside the frame rather than reading past it.
+    const level = LEVEL_CATALOGUE[0]
+    const source = previewSource(level)
+    const camera = heroCamera(source.map, level.hero, VIEW_W)
+    const crop = heroCropRect({ x: camera.x, y: camera.y }, level.hero, VIEW_W, 160, 84)
+    expect(crop.x).toBeGreaterThanOrEqual(0)
+    expect(crop.y).toBeGreaterThanOrEqual(0)
+    expect(crop.x + crop.w).toBeLessThanOrEqual(VIEW_W)
+    expect(crop.y + crop.h).toBeLessThanOrEqual(VIEW_H)
   })
 })

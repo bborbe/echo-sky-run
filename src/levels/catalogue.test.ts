@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { LEVEL_1_1_GAP, LEVEL_1_1_HERO } from './level1-1.level.ts'
 import {
   LEVEL_CATALOGUE,
   findLevel,
@@ -7,12 +8,14 @@ import {
   tileItems,
   type LevelEntry,
 } from './catalogue.ts'
+import { TILE } from '../physics/constants.ts'
+import { parseLevel } from '../physics/tilemap.ts'
 
 /** Three levels over two sets — the two-entry shape the task's criterion asks for, plus a second set. */
 const FIXTURE: readonly LevelEntry[] = [
-  { id: '1-1', name: 'MEADOW LEDGE', set: 'WORLD 1', rows: ['#S#'] },
-  { id: '1-2', name: 'SECOND LEDGE', set: 'WORLD 1', rows: ['#S#'] },
-  { id: '2-1', name: 'THIRD LEDGE', set: 'WORLD 2', rows: ['#S#'] },
+  { id: '1-1', name: 'MEADOW LEDGE', set: 'WORLD 1', hero: { x: 8, y: 16 }, rows: ['#S#'] },
+  { id: '1-2', name: 'SECOND LEDGE', set: 'WORLD 1', hero: { x: 8, y: 16 }, rows: ['#S#'] },
+  { id: '2-1', name: 'THIRD LEDGE', set: 'WORLD 2', hero: { x: 8, y: 16 }, rows: ['#S#'] },
 ]
 
 describe('the level catalogue', () => {
@@ -60,5 +63,22 @@ describe('the level catalogue', () => {
   it('resolves a level id to its entry', () => {
     expect(findLevel('1-1')?.name).toBe('MEADOW LEDGE')
     expect(findLevel('nope')).toBeUndefined()
+  })
+
+  it('gives every catalogue level a hero spot inside its own map', () => {
+    expect(LEVEL_CATALOGUE.length).toBeGreaterThan(0)
+    for (const level of LEVEL_CATALOGUE) {
+      const map = parseLevel(level.rows)
+      expect(level.hero.x).toBeGreaterThan(0)
+      expect(level.hero.x).toBeLessThan(map.cols * TILE)
+      expect(level.hero.y).toBeGreaterThan(0)
+      expect(level.hero.y).toBeLessThanOrEqual(map.rows * TILE)
+    }
+  })
+
+  it("frames 1-1's hero on the Echo gap, the level's one lesson", () => {
+    const centre = ((LEVEL_1_1_GAP.firstCol + LEVEL_1_1_GAP.lastCol + 1) / 2) * TILE
+    expect(LEVEL_1_1_HERO.x).toBe(centre)
+    expect(LEVEL_1_1_HERO).toEqual(findLevel('1-1')?.hero)
   })
 })
