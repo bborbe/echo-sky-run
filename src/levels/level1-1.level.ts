@@ -47,3 +47,9 @@ export const LEVEL_1_1_SMALL_GAP = { firstCol: 28, lastCol: 30 } as const
  * browser check cannot drift apart.
  */
 export const LEVEL_1_1_ECHO_AT_X = (LEVEL_1_1_GAP.firstCol + 6) * TILE
+
+/** Catalogue metadata: the level's id, the name the tile view draws and the set it is grouped under. */
+export const LEVEL_META = { id: '1-1', name: 'MEADOW LEDGE', set: 'WORLD 1' } as const
+
+/** The rows the catalogue loads. Every level module exports this name, so the loader is uniform. */
+export const LEVEL_ROWS = LEVEL_1_1_ROWS

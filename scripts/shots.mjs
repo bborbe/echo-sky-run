@@ -48,7 +48,7 @@ const POSES = [
   { name: 'echo-near', query: '?level=1-1&x=760&y=178&echo=880,174', idle: 100 },
   // The four screens of the loop, each over the level so the panel's contrast is judged against the
   // game it covers rather than against an empty canvas.
-  { name: 'title', query: '?level=1-1&x=600&y=178', screen: 'title' },
+  { name: 'tiles', query: '?level=1-1&x=600&y=178', screen: 'tiles' },
   { name: 'pause', query: '?level=1-1&x=600&y=178', screen: 'pause' },
   { name: 'settings', query: '?level=1-1&x=600&y=178', screen: 'settings' },
   { name: 'results', query: '?level=1-1&x=600&y=178', screen: 'results' },

@@ -8,25 +8,36 @@ import {
   MENUS,
   moveSelection,
   type GameScreen,
+  type MenuItem,
 } from './screens.ts'
 
-const SCREENS: GameScreen[] = ['title', 'level', 'pause', 'settings', 'results']
+const SCREENS: GameScreen[] = ['tiles', 'level', 'pause', 'settings', 'results']
+
+/** Two catalogue rows, the shape the shell hands the tile view. */
+const TILES: readonly MenuItem[] = [
+  { id: 'level', label: '1-1', level: '1-1' },
+  { id: 'level', label: '1-2', level: '1-2' },
+]
 
 describe('the screens', () => {
   it('gives the level no menu: the game is playing', () => {
     expect(menuFor('level')).toEqual([])
   })
 
-  it('lists each menu screen its rows in drawing order', () => {
-    expect(menuFor('title').map((i) => i.label)).toEqual(['START', 'CONTROLS'])
-    expect(menuFor('pause').map((i) => i.label)).toEqual(['RESUME', 'RESTART', 'SETTINGS'])
+  it('lists each static menu screen its rows in drawing order', () => {
+    expect(menuFor('pause').map((i) => i.label)).toEqual(['RESUME', 'RESTART', 'SETTINGS', 'QUIT'])
     expect(menuFor('settings').map((i) => i.label)).toEqual(['MUSIC', 'EFFECTS', 'CONTROLS', 'BACK'])
-    expect(menuFor('results').map((i) => i.label)).toEqual(['RETRY', 'TITLE'])
+    expect(menuFor('results').map((i) => i.label)).toEqual(['RETRY', 'MENU'])
+  })
+
+  it('draws the tile view from the catalogue it is handed, and is empty without one', () => {
+    expect(menuFor('tiles', TILES).map((i) => i.label)).toEqual(['1-1', '1-2'])
+    expect(menuFor('tiles')).toEqual([])
   })
 
   it('draws every label with the pixel font', () => {
     for (const screen of SCREENS) {
-      for (const item of menuFor(screen)) {
+      for (const item of menuFor(screen, TILES)) {
         expect(missingGlyphs(item.label), `${screen} / ${item.label}`).toEqual([])
       }
     }
@@ -55,8 +66,8 @@ describe('selection', () => {
 })
 
 describe('confirming a row', () => {
-  it('starts a fresh run from the title, and again from restart and retry', () => {
-    expect(activate('title', 'start')).toEqual({ screen: 'level', restart: true, controls: false })
+  it('starts a fresh run from a tile, from restart and from retry', () => {
+    expect(activate('tiles', 'level')).toEqual({ screen: 'level', restart: true, controls: false })
     expect(activate('pause', 'restart')).toEqual({ screen: 'level', restart: true, controls: false })
     expect(activate('results', 'retry')).toEqual({ screen: 'level', restart: true, controls: false })
   })
@@ -70,12 +81,13 @@ describe('confirming a row', () => {
     expect(activate('settings', 'back')).toEqual({ screen: 'pause', restart: false, controls: false })
   })
 
-  it('returns to the title from the results, starting clean', () => {
-    expect(activate('results', 'title')).toEqual({ screen: 'title', restart: true, controls: false })
+  it('returns to the tile view from the results and from a quit, starting clean', () => {
+    expect(activate('results', 'menu')).toEqual({ screen: 'tiles', restart: true, controls: false })
+    expect(activate('pause', 'menu')).toEqual({ screen: 'tiles', restart: true, controls: false })
   })
 
   it('opens the controls card without leaving the screen it was confirmed on', () => {
-    expect(activate('title', 'controls')).toEqual({ screen: 'title', restart: false, controls: true })
+    expect(activate('tiles', 'controls')).toEqual({ screen: 'tiles', restart: false, controls: true })
     expect(activate('settings', 'controls')).toEqual({ screen: 'settings', restart: false, controls: true })
   })
 
@@ -92,8 +104,8 @@ describe('the back key', () => {
     expect(backTarget('settings')).toBe('pause')
   })
 
-  it('leaves the results for the title, and has nowhere to go from the title', () => {
-    expect(backTarget('results')).toBe('title')
-    expect(backTarget('title')).toBeNull()
+  it('leaves the results for the tile view, and has nowhere to go from the tile view', () => {
+    expect(backTarget('results')).toBe('tiles')
+    expect(backTarget('tiles')).toBeNull()
   })
 })

@@ -84,14 +84,27 @@ try {
     card: window.__echoSkyRun.controls().visible,
     paused: window.__echoSkyRun.paused(),
   }))
-  check(title.menu?.screen === 'title', 'the game lands on the title screen', JSON.stringify(title.menu))
+  check(title.menu?.screen === 'tiles', 'the game lands on the tile view', JSON.stringify(title.menu))
   check(
-    JSON.stringify(title.menu?.items) === JSON.stringify(['START', 'CONTROLS']),
-    'the title offers START and CONTROLS',
+    JSON.stringify(title.menu?.items) === JSON.stringify(['1-1']),
+    'the tile view lists the shipped levels',
     JSON.stringify(title.menu?.items),
   )
-  check(!title.card, 'the controls card does not cover the title: it is a row on it')
-  check(title.paused, 'nothing steps on the title screen')
+  check(!title.card, 'the controls card does not cover the tile view: H opens it')
+  check(title.paused, 'nothing steps on the tile view')
+
+  // The tile view draws its set heading and its level tile, so the landing screen is the catalogue.
+  await page.waitForFunction(() => window.__echoSkyRun.overlayLines().includes('1-1'))
+  const tilePanel = await page.evaluate(() => ({
+    lines: window.__echoSkyRun.overlayLines(),
+    box: window.__echoSkyRun.overlayBox(),
+  }))
+  check(
+    tilePanel.lines.includes('1-1') && tilePanel.lines.includes('WORLD 1'),
+    'the tile view draws its set heading and its level tile',
+    JSON.stringify(tilePanel.lines),
+  )
+  check(tilePanel.box !== null, 'the tile view draws a panel', JSON.stringify(tilePanel.box))
 
   // The 3 s budget covers the whole way in: page load, then the one press that hands over control.
   await page.keyboard.press('Space')
@@ -378,8 +391,8 @@ try {
   const timeLine = results.lines.find((l) => l.startsWith('TIME '))
   const bestLine = results.lines.find((l) => l.startsWith('BEST '))
   check(
-    results.screen === 'results' && JSON.stringify(results.menu?.items) === JSON.stringify(['RETRY', 'TITLE']),
-    'the flag hands the run to the results screen, offering RETRY and TITLE',
+    results.screen === 'results' && JSON.stringify(results.menu?.items) === JSON.stringify(['RETRY', 'MENU']),
+    'the flag hands the run to the results screen, offering RETRY and MENU',
     JSON.stringify({ screen: results.screen, menu: results.menu }),
   )
   check(
@@ -409,7 +422,7 @@ try {
     JSON.stringify({ retried, finishedFrames: results.frames }),
   )
 
-  // TITLE returns to the title panel, from the results.
+  // MENU returns to the tile view, from the results.
   await page.evaluate(() => window.__echoSkyRun.openScreen('results'))
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Space')
@@ -418,8 +431,8 @@ try {
     menu: window.__echoSkyRun.menu(),
   }))
   check(
-    atTitle.screen === 'title' && atTitle.menu?.items?.[0] === 'START',
-    'TITLE returns to the title panel',
+    atTitle.screen === 'tiles' && atTitle.menu?.items?.[0] === '1-1',
+    'MENU returns to the tile view',
     JSON.stringify(atTitle),
   )
 
@@ -528,8 +541,8 @@ try {
     return api.menu()
   })
   check(
-    JSON.stringify(pauseMenu?.items) === JSON.stringify(['RESUME', 'RESTART', 'SETTINGS']),
-    'the pause menu offers RESUME, RESTART and SETTINGS',
+    JSON.stringify(pauseMenu?.items) === JSON.stringify(['RESUME', 'RESTART', 'SETTINGS', 'QUIT']),
+    'the pause menu offers RESUME, RESTART, SETTINGS and QUIT',
     JSON.stringify(pauseMenu),
   )
 

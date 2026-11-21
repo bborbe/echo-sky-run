@@ -4,7 +4,7 @@ import { createSim, stepSim, type SimState } from '../game/sim.ts'
 import { groundUnder } from '../physics/collision.ts'
 import { GRAVITY_HELD, JUMP_V_SPRINT, PLAYER_W, SMALL_H, TILE } from '../physics/constants.ts'
 import { GOAL, parseLevel, SPAWN, tileAt } from '../physics/tilemap.ts'
-import { LEVEL_1_1_COLS, LEVEL_1_1_ECHO_AT_X, LEVEL_1_1_GAP, LEVEL_1_1_ROWS } from './level1-1.ts'
+import { LEVEL_1_1_COLS, LEVEL_1_1_ECHO_AT_X, LEVEL_1_1_GAP, LEVEL_1_1_ROWS } from './level1-1.level.ts'
 
 /**
  * The level stripped of the things that change a run's shape: enemies (a hit while Small is now
