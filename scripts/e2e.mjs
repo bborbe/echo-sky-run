@@ -865,7 +865,7 @@ try {
   // run state, the power tier and the level id are text by design, and requiring a digit of them
   // would force the executor to fake a number.
   const REQUIRED_FIELDS = [
-    'version', 'commit', 'level', 'checkpoint', 'state',
+    'version', 'commit', 'level', 'lead', 'checkpoint', 'state',
     'fps', 'frame', 'p99', 'steps',
     'x', 'y', 'vx', 'vy',
     'grounded', 'power', 'charge', 'timer', 'speed',
