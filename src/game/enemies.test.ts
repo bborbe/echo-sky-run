@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { PLAYER_H, PLAYER_W } from '../physics/constants.ts'
 import { parseLevel } from '../physics/tilemap.ts'
 import {
+  chaserTarget,
   createEnemy,
   createEnemyField,
   dropShell,
@@ -9,6 +10,7 @@ import {
   enemyBox,
   GEAR_GOOMBA_H,
   GEAR_GOOMBA_W,
+  GUST_WING_PERIOD_F,
   SHELL_H,
   SHELL_SPEED,
   STEAM_TURTLE_H,
@@ -202,5 +204,111 @@ describe('damage', () => {
     const field = fieldWith(goombaOnFloor(32))
     const events = stepEnemies(field, playerAt(140), 0, FLOOR)
     expect(events.hit).toBe(false)
+  })
+})
+
+describe('Spike-Beetle', () => {
+  it('is 16x16 and walks at 0.5 px/f', () => {
+    const s = createEnemy('spike-beetle', 32, FLOOR_Y - 16)
+    expect([s.w, s.h]).toEqual([16, 16])
+    expect(Math.abs(s.vx)).toBe(ENEMY_WALK_SPEED)
+  })
+
+  it('is spiked on top, so a landing is a hit, not a stomp', () => {
+    const s = createEnemy('spike-beetle', 32, FLOOR_Y - 16)
+    const field = fieldWith(s)
+
+    const events = stepEnemies(field, playerAbove(32, s.y, 2), 1, FLOOR)
+
+    expect(events.stomped).toHaveLength(0)
+    expect(events.hit).toBe(true)
+    expect(field.enemies).toHaveLength(1)
+  })
+})
+
+describe('Gust-Wing', () => {
+  it('is 16x16 and flies at 1 px/f', () => {
+    const g = createEnemy('gust-wing', 32, 16)
+    expect([g.w, g.h]).toEqual([16, 16])
+    expect(Math.abs(g.vx)).toBe(1)
+  })
+
+  it('follows a sine path of amplitude 24 px', () => {
+    const g = createEnemy('gust-wing', 32, 16, 1)
+    const field = fieldWith(g)
+    let min = Infinity
+    let max = -Infinity
+
+    for (let i = 0; i < GUST_WING_PERIOD_F; i++) {
+      stepEnemies(field, playerAt(400), 0, FLOOR)
+      if (g.y < min) min = g.y
+      if (g.y > max) max = g.y
+    }
+
+    expect(min).toBeCloseTo(16 - 24, 6)
+    expect(max).toBeCloseTo(16 + 24, 6)
+    expect(max - min).toBeCloseTo(48, 6)
+  })
+
+  it('is defeated by a stomp', () => {
+    const g = createEnemy('gust-wing', 32, 16)
+    const field = fieldWith(g)
+
+    const events = stepEnemies(field, playerAbove(32, 16, 2), 1, FLOOR)
+
+    expect(events.stomped).toHaveLength(1)
+    expect(field.enemies).toHaveLength(0)
+  })
+})
+
+describe('Chaser-Bot', () => {
+  it('is 16x16 and closes at 1.25 px/f', () => {
+    const c = createEnemy('chaser-bot', 32, FLOOR_Y - 16)
+    expect([c.w, c.h]).toEqual([16, 16])
+    expect(Math.abs(c.vx)).toBe(1.25)
+  })
+
+  it('locks the Echo when it is nearer than Pip', () => {
+    const bot = createEnemy('chaser-bot', 100, 100)
+    const pip = { x: 180, y: 100, w: 12, h: 14 }
+    const echo = { x: 120, y: 100, w: 32, h: 4 }
+    expect(chaserTarget(bot, pip, [echo])).toBe(echo)
+  })
+
+  it('locks Pip when Pip is nearer than the Echo', () => {
+    const bot = createEnemy('chaser-bot', 100, 100)
+    const pip = { x: 120, y: 100, w: 12, h: 14 }
+    const echo = { x: 180, y: 100, w: 32, h: 4 }
+    expect(chaserTarget(bot, pip, [echo])).toBe(pip)
+  })
+
+  it('locks nothing when both are beyond 96 px', () => {
+    const bot = createEnemy('chaser-bot', 0, 0)
+    const pip = { x: 200, y: 0, w: 12, h: 14 }
+    const echo = { x: 300, y: 0, w: 32, h: 4 }
+    expect(chaserTarget(bot, pip, [echo])).toBeNull()
+  })
+
+  it('moves toward the target it locked', () => {
+    const c = createEnemy('chaser-bot', 32, FLOOR_Y - 16)
+    const field = fieldWith(c)
+    const before = c.x
+
+    stepEnemies(field, playerAt(100), 0, FLOOR)
+
+    expect(c.x).toBeGreaterThan(before)
+  })
+
+  it('takes two stomps to defeat', () => {
+    const c = createEnemy('chaser-bot', 32, FLOOR_Y - 16)
+    const field = fieldWith(c)
+
+    const first = stepEnemies(field, playerAbove(32, c.y, 2), 1, FLOOR)
+    expect(first.stomped).toHaveLength(1)
+    expect(field.enemies).toHaveLength(1)
+
+    const second = stepEnemies(field, playerAbove(32, field.enemies[0].y, 2), 1, FLOOR)
+    expect(second.stomped).toHaveLength(1)
+    expect(field.enemies).toHaveLength(0)
   })
 })

@@ -117,12 +117,17 @@ function ceilingCornerFix(
 /**
  * Advance the player one fixed step. Mutates and returns `state`; the simulation is a plain fold over
  * this function, which is what makes it deterministic for identical input sequences.
+ *
+ * `fallCap` bounds the downward speed before the move — the default MAX_FALL leaves ordinary play
+ * unchanged, and Nimbus's glide passes 1 px/f so the cap applies to the frame it is set, not the one
+ * after.
  */
 export function stepPlayer(
   s: PlayerState,
   input: PlayerInput,
   map: TileMap,
   platforms: readonly Box[] = [],
+  fallCap: number = MAX_FALL,
 ): PlayerState {
   if (input.jumpPressed) s.jumpBuffer = JUMP_BUFFER_F
 
@@ -159,7 +164,7 @@ export function stepPlayer(
 
   // --- gravity: holding jump while rising halves it, which is the whole variable jump
   const gravity = s.vy < 0 && input.jump ? GRAVITY_HELD : GRAVITY_FALL
-  s.vy = Math.min(s.vy + gravity, MAX_FALL)
+  s.vy = Math.min(s.vy + gravity, MAX_FALL, fallCap)
 
   // --- move, resolving each axis against the tile grid
   const startX = s.x
