@@ -106,6 +106,38 @@ try {
   )
   check(tilePanel.box !== null, 'the tile view draws a panel', JSON.stringify(tilePanel.box))
 
+  // The still preview: the focused tile's level is rendered behind the panel from its own data, and
+  // rendering it steps no simulation. The tile view is the first screen, so the sim's frame counter
+  // is the one to watch.
+  const preview = await page.evaluate(() => {
+    const api = window.__echoSkyRun
+    const game = document.querySelector('#game')
+    const { data } = game.getContext('2d').getImageData(0, 0, game.width, game.height)
+    const seen = new Set()
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] === 255) seen.add(`${data[i]},${data[i + 1]},${data[i + 2]}`)
+    }
+    const rgb = (hex) => {
+      const n = parseInt(hex.slice(1), 16)
+      return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`
+    }
+    const p = api.palette
+    return {
+      level: api.preview().level,
+      ready: api.preview().ready,
+      frames: api.state().frames,
+      ground: seen.has(rgb(p.ground)),
+      player: seen.has(rgb(p.pip)),
+    }
+  })
+  check(preview.level === '1-1', 'the tile view previews its focused level', JSON.stringify({ level: preview.level }))
+  check(
+    preview.ready && preview.ground && preview.player,
+    'the still preview renders the level behind the tiles',
+    JSON.stringify(preview),
+  )
+  check(preview.frames === 0, 'building the preview starts no simulation', `frames=${preview.frames}`)
+
   // The 3 s budget covers the whole way in: page load, then the one press that hands over control.
   await page.keyboard.press('Space')
   const started = await page.evaluate(() => ({
@@ -644,6 +676,25 @@ try {
     JSON.stringify(menuFrame),
   )
   await page.keyboard.press('p')
+
+  // The tile view is the same budget: its still preview is a cached blit, so it costs the menu
+  // nothing, and it is still there after returning from a run.
+  await page.evaluate(() => window.__echoSkyRun.openScreen('tiles'))
+  await page.waitForTimeout(1500)
+  const tileFrame = await page.evaluate(() => ({
+    timings: window.__echoSkyRun.frameTimings(),
+    preview: window.__echoSkyRun.preview(),
+  }))
+  check(
+    tileFrame.timings.samples >= 60 && tileFrame.timings.p99Ms <= 16.8 + 1e-6,
+    'a tile-view frame holds the 16.8 ms 60 Hz budget',
+    JSON.stringify(tileFrame.timings),
+  )
+  check(
+    tileFrame.preview.ready && tileFrame.preview.level === '1-1',
+    'the tile view still previews after returning from a run',
+    JSON.stringify(tileFrame.preview),
+  )
 
   // ---- controller ----------------------------------------------------------------------------
   await page.evaluate(() => {

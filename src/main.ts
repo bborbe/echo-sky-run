@@ -743,6 +743,8 @@ interface EchoSkyRunTestApi {
   screen(): GameScreen
   /** The menu on screen: its rows and the selected index. Null while the level plays. */
   menu(): { screen: GameScreen; index: number; items: string[] } | null
+  /** The still preview the tile view is showing: its focused level and whether a frame is cached. */
+  preview(): { level: string | null; ready: boolean }
   /** Go to a screen the way a player would, without the sound — the screenshot tool's shortcut. */
   openScreen(name: GameScreen): void
   step(input: Partial<SimInput>): ReturnType<typeof snapshot>
@@ -840,6 +842,7 @@ const api: EchoSkyRunTestApi = {
     const items = menuItems()
     return { screen, index: selected, items: items.map((item) => item.label) }
   },
+  preview: () => renderer.previewInfo(),
   openScreen(name) {
     resetGame()
     screen = name
