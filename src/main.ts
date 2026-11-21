@@ -89,9 +89,11 @@ window.addEventListener('resize', () => renderer.fit())
 // Fullscreen changes the window size, so the canvas has to re-fit on every change, not just a resize.
 watchFullscreen(() => renderer.fit())
 
-// The controls card, opened by H, by pad LB, and from a menu row. It is not shown on load: the
-// title screen is the first thing a player sees, and it carries CONTROLS as a row of its own.
-const controls = createControlsCard(document.body)
+// The controls card, opened by H, by pad SELECT, and from a menu row. It is not shown on load: the
+// title screen is the first thing a player sees, and it carries CONTROLS as a row of its own. Its
+// labels are read from the pad's live state on every open, so a card opened while a pad is connected
+// never falls back to keyboard codes.
+const controls = createControlsCard(document.body, { padConnected: () => gamepad.isConnected() })
 
 // On by default on the dev server, `?debug=1` forces it on and `?debug=0` hides it; a production
 // build hides it unless `?debug=1` is set, so a shipped screenshot carries no debug noise. O copies
@@ -704,7 +706,10 @@ function frame(now: number): void {
     poseFrame: animator.frame,
     facing: animator.facing,
     juice,
-    menu: menuView(),
+    // The card is a DOM overlay over a canvas panel; the two cannot share the screen without the
+    // settings text ghosting through. While the card is up it replaces the menu, and dismissing it
+    // brings the screen back unchanged.
+    menu: controls.visible() ? null : menuView(),
   })
 
   pushOverlay(frameStats(frameMs, steps))
@@ -895,6 +900,11 @@ const api: EchoSkyRunTestApi = {
     visible: controls.visible(),
     pad: controls.isPad(),
     labels: Array.from(document.querySelectorAll('#controls-card dt')).map((el) => el.textContent ?? ''),
+    /** Action → key text, so a check can assert what the card actually tells the player. */
+    rows: Array.from(document.querySelectorAll('#controls-card dt')).map((dt) => [
+      dt.textContent ?? '',
+      dt.nextElementSibling?.textContent ?? '',
+    ]),
   }),
   showControls: () => controls.show(),
   hideControls: () => controls.hide(),
