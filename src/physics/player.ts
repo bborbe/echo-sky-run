@@ -1,4 +1,4 @@
-import { groundUnder, moveBox, type Box } from './collision.ts'
+import { groundUnder, moveBox, platformUnder, type Box } from './collision.ts'
 import {
   ACCEL,
   CORNER_CORRECTION_PX,
@@ -131,6 +131,10 @@ export function stepPlayer(
 ): PlayerState {
   if (input.jumpPressed) s.jumpBuffer = JUMP_BUFFER_F
 
+  // Read before the move: a fresh landing is the transition from airborne to grounded, and the
+  // Echo's two landing rules below hang on it.
+  const wasGrounded = s.grounded
+
   // --- horizontal: accelerate toward the cap, or friction down to a stop
   const dir = (input.right ? 1 : 0) - (input.left ? 1 : 0)
   const sprinting = input.sprint && s.meter >= METER_MAX
@@ -207,6 +211,31 @@ export function stepPlayer(
   s.onPlatform = ground === 'platform'
   if (s.grounded) s.coyote = COYOTE_F
   else if (s.coyote > 0) s.coyote -= 1
+
+  // --- the Echo is a foothold, not a runway
+  //
+  // A solid floor lets a runner carry his speed straight through a landing because it is as wide as
+  // the level. The Echo is 32 px, so the same speed crosses it in about ten frames and the player is
+  // off the far edge before he can react — the "I normally slide off the echo" report (play gate 3,
+  // row 2). Its edges therefore act as walls while he stands on it: he is stopped flush with the
+  // edge instead of running into the void, and he leaves it by running where there is room or by
+  // jumping, which is what keeps the jump off it at full speed.
+  //
+  // A landing he does not steer is stopped dead, the way a solid floor's would be — the report's own
+  // case, where the speed he arrived with carries him off with no key held.
+  //
+  // The same landing re-arms the jump buffer while jump is still held: the press that carried him
+  // onto the Echo is a single keydown edge, already spent, so without this the only way off is a
+  // release-and-press — the second half of the same report.
+  if (ground === 'platform') {
+    const platform = platformUnder(PLAYER_BOX, platforms)
+    if (platform !== null) {
+      if (s.x < platform.x) s.x = platform.x
+      else if (s.x + PLAYER_W > platform.x + platform.w) s.x = platform.x + platform.w - PLAYER_W
+    }
+    if (!wasGrounded && dir === 0) s.vx = 0
+    if (!wasGrounded && input.jump) s.jumpBuffer = JUMP_BUFFER_F
+  }
 
   if (s.jumpBuffer > 0) s.jumpBuffer -= 1
 

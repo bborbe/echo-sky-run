@@ -3,7 +3,7 @@ import { createAutopilotDriver } from './autopilot-driver.ts'
 import { SoundWatcher } from './audio/events.ts'
 import { loadVolumes, nudgeVolume, saveVolumes, type Volumes } from './audio/settings.ts'
 import { BUILD_LABEL } from './build-info.ts'
-import { mountDebugOverlay, readAutopilot, readEchoSpot, readFreeze, readLevel, readLoop, readSpawn, spawnQuery } from './debug/overlay.ts'
+import { mountDebugOverlay, readAutopilot, readEchoSpot, readFreeze, readLead, readLevel, readLoop, readSpawn, spawnQuery } from './debug/overlay.ts'
 import { ECHO_LIFE_F, placeEcho } from './echo/echo.ts'
 import { createSim, stepSim, type SimInput, type SimState } from './game/sim.ts'
 import { LEVEL_1_1_ECHO_AT_X } from './levels/level1-1.level.ts'
@@ -76,22 +76,27 @@ const sounds = new SoundWatcher()
 let volumes: Volumes = audio.volumes()
 /**
  * The screen that is up. Only `level` steps the simulation. A debug URL (`?level=`, `?x=&y=`,
- * `?echo=`, `?freeze=1`, `?autopilot=1`) is asking for the level itself, so it starts there and
- * skips the tile view — an autopilot run that opened on the menu would never step the sim.
+ * `?echo=`, `?freeze=1`, `?autopilot=1`, `?lead=`) is asking for the level itself, so it starts there
+ * and skips the tile view — a camera-lead dial that opened on the menu would never step the camera.
  */
-const debugEntry = ['level', 'x', 'y', 'echo', 'freeze', 'autopilot'].some((key) => params.has(key))
+const debugEntry = ['level', 'x', 'y', 'echo', 'freeze', 'autopilot', 'lead'].some((key) => params.has(key))
 let screen: GameScreen = debugEntry ? 'level' : 'tiles'
 /** The selected row on the current menu screen. */
 let selected = 0
 
-const renderer = new Renderer(canvas, skyCanvas)
+/** The camera's look-ahead: `?lead=<px>` dials it, `CAMERA_LEAD_X` when the URL names none. */
+const lead = readLead(location.search)
+
+const renderer = new Renderer(canvas, skyCanvas, lead)
 window.addEventListener('resize', () => renderer.fit())
 // Fullscreen changes the window size, so the canvas has to re-fit on every change, not just a resize.
 watchFullscreen(() => renderer.fit())
 
-// The controls card, opened by H, by pad LB, and from a menu row. It is not shown on load: the
-// title screen is the first thing a player sees, and it carries CONTROLS as a row of its own.
-const controls = createControlsCard(document.body)
+// The controls card, opened by H, by pad SELECT, and from a menu row. It is not shown on load: the
+// title screen is the first thing a player sees, and it carries CONTROLS as a row of its own. Its
+// labels are read from the pad's live state on every open, so a card opened while a pad is connected
+// never falls back to keyboard codes.
+const controls = createControlsCard(document.body, { padConnected: () => gamepad.isConnected() })
 
 // On by default on the dev server, `?debug=1` forces it on and `?debug=0` hides it; a production
 // build hides it unless `?debug=1` is set, so a shipped screenshot carries no debug noise. O copies
@@ -132,10 +137,10 @@ let map = parseLevel(findLevel(currentLevel)?.rows ?? [])
 const autopilot = readAutopilot(location.search) ? createAutopilotDriver(LEVEL_1_1_ECHO_AT_X) : null
 
 /**
- * A looping `?autopilot=1` run restarts itself after the results screen, so the operator opens one
- * URL and watches the level play over and over. Looping is the default; `?loop=0` is the one-shot
- * escape that leaves the run on its results screen for a recording. The hold keeps the results
- * screen's time and best time readable before the next run starts.
+ * A looping run restarts itself after the results screen, so the operator opens one URL and watches
+ * the level play over and over. Looping is opt-in via `?loop=1`; a plain `?autopilot=1` stays on its
+ * results screen as the single recorded clear. The hold keeps the results screen's time and best
+ * time readable before the next run starts.
  */
 const loopAutopilot = readLoop(location.search)
 const RESULTS_HOLD_MS = 1500
@@ -613,6 +618,7 @@ function pushOverlay(stats: { fps: number; frameMs: number; frameP99Ms: number; 
     charge: sim.field.airCharges,
     life: Number.isFinite(oldest) ? oldest : 0,
     level: currentLevel,
+    lead,
     checkpoint: {
       exists: sim.checkpoint !== null,
       claimed:
@@ -674,7 +680,7 @@ function frame(now: number): void {
   }
 
   // The flag hands the run to the results screen, which carries the time and the best time. A
-  // looping autopilot restarts from there; a one-shot run (`?loop=0`) stays on the screen.
+  // looping run (`?loop=1`) restarts from there; the default one-shot run stays on the screen.
   if (sim.goalReached && screen === 'level') {
     show('results')
     if (loopAutopilot) scheduleLoopRestart()
@@ -704,7 +710,10 @@ function frame(now: number): void {
     poseFrame: animator.frame,
     facing: animator.facing,
     juice,
-    menu: menuView(),
+    // The card is a DOM overlay over a canvas panel; the two cannot share the screen without the
+    // settings text ghosting through. While the card is up it replaces the menu, and dismissing it
+    // brings the screen back unchanged.
+    menu: controls.visible() ? null : menuView(),
   })
 
   pushOverlay(frameStats(frameMs, steps))
@@ -898,6 +907,11 @@ const api: EchoSkyRunTestApi = {
     visible: controls.visible(),
     pad: controls.isPad(),
     labels: Array.from(document.querySelectorAll('#controls-card dt')).map((el) => el.textContent ?? ''),
+    /** Action → key text, so a check can assert what the card actually tells the player. */
+    rows: Array.from(document.querySelectorAll('#controls-card dt')).map((dt) => [
+      dt.textContent ?? '',
+      dt.nextElementSibling?.textContent ?? '',
+    ]),
   }),
   showControls: () => controls.show(),
   hideControls: () => controls.hide(),

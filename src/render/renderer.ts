@@ -2,7 +2,7 @@ import { FONT, GLYPH_GAP, GLYPH_W, OVERLAY_TEXT, textWidth } from './art/font.ts
 import { INK, SKY, type InkName } from './art/palette.ts'
 import { paint } from './atlas.ts'
 import { Background } from './background.ts'
-import { Camera, logicalViewWidth, VIEW_H } from './camera.ts'
+import { Camera, CAMERA_LEAD_X, logicalViewWidth, VIEW_H } from './camera.ts'
 import { TILE } from '../physics/constants.ts'
 import { focusedLevelId, PreviewCache } from './preview.ts'
 import { WorldPainter, type WorldState } from './world.ts'
@@ -123,7 +123,7 @@ export class Renderer {
   private readonly background: Background
   private viewW = VIEW_H
   /** Scroll offset, in its own pure module so the framing is a unit test. */
-  private readonly camera = new Camera()
+  private readonly camera: Camera
   /** The world painter, and the still previews that share its baked art. */
   private readonly world = new WorldPainter()
   private readonly previews = new PreviewCache(this.world)
@@ -132,11 +132,12 @@ export class Renderer {
   /** Font glyphs baked per ink, on first use. */
   private readonly glyphs = new Map<InkName, Map<string, HTMLCanvasElement>>()
 
-  constructor(canvas: HTMLCanvasElement, sky: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, sky: HTMLCanvasElement, leadPx: number = CAMERA_LEAD_X) {
     const ctx = canvas.getContext('2d')
     if (!ctx) throw new Error('no 2d context')
     this.canvas = canvas
     this.ctx = ctx
+    this.camera = new Camera(leadPx)
     this.background = new Background(sky)
     this.fit()
   }
@@ -187,7 +188,7 @@ export class Renderer {
 
     // The death pop plays where Pip fell: the camera waits for it rather than jumping to the respawn.
     if (!juice.dying()) {
-      this.camera.update(px, py, state.player.h, state.map.cols * TILE, state.map.rows * TILE)
+      this.camera.update(px, py, state.player.h, state.map.cols * TILE, state.map.rows * TILE, state.player.vx)
     }
     const shake = juice.shakeOffset()
     const camX = Math.round(this.camera.x) - shake.x

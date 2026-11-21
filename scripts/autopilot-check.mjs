@@ -2,10 +2,11 @@
 // it reaches the results screen with no console error — recording the whole thing to a video so the
 // operator can watch it afterwards.
 //
-// Looping is the default, so one page load clears the level over and over: the results screen holds
-// for ~1.5 s, then the run restarts. This check proves both halves — `?loop=0` stays on the results
-// screen (the one-shot run the recording captures), and the default restarts so one page load yields
-// three consecutive clears.
+// Looping is opt-in via `&loop=1`, so a plain `?autopilot=1` page load is the single recorded clear
+// and `&loop=1` clears the level over and over: the results screen holds for ~1.5 s, then the run
+// restarts. This check proves both halves — the plain URL stays on the results screen (the one-shot
+// run the recording captures), and the `loop=1` URL restarts so one page load yields three
+// consecutive clears.
 //
 //   AUTOPILOT_URL  page to drive (default: the dev server's 1-1 autopilot URL)
 //   VIDEO_PATH     where to write the recording (default: /tmp/echo-sky-run-autopilot.webm)
@@ -16,7 +17,9 @@
 import { chromium } from 'playwright'
 
 const BASE_URL = process.env.AUTOPILOT_URL || 'http://localhost:5173/echo-sky-run/?level=1-1&autopilot=1&vol=0'
-const ONE_SHOT_URL = `${BASE_URL}&loop=0`
+/** The plain autopilot URL is the one-shot run; `&loop=1` is the only thing that turns looping on. */
+const ONE_SHOT_URL = BASE_URL
+const LOOP_URL = `${BASE_URL}&loop=1`
 const VIDEO_PATH = process.env.VIDEO_PATH || '/tmp/echo-sky-run-autopilot.webm'
 const CLEAR_TIMEOUT_MS = 120_000
 /** The hold `src/main.ts` keeps on the results screen before a looping run restarts. */
@@ -56,7 +59,7 @@ function watchErrors(page) {
   return errors
 }
 
-// ---- one-shot: ?loop=0 reaches the results screen and stays there — the recorded single run ----
+// ---- one-shot: the plain autopilot URL reaches the results screen and stays there — the recorded single run ----
 const shotContext = await browser.newContext({
   viewport: { width: 960, height: 540 },
   recordVideo: { dir: '/tmp/echo-sky-run-autopilot-video', size: { width: 960, height: 540 } },
@@ -73,14 +76,14 @@ check(
 )
 
 const oneShot = await waitForScreen(shotPage, 'results', CLEAR_TIMEOUT_MS)
-check('loop=0 plays the level to the results screen', oneShot.screen === 'results', `${oneShot.seconds}s`)
-// Looping off means it must not restart: still on the results screen well past the hold.
+check('the one-shot URL plays the level to the results screen', oneShot.screen === 'results', `${oneShot.seconds}s`)
+// Looping is off by default, so it must not restart: still on the results screen well past the hold.
 await shotPage.waitForTimeout(RESULTS_HOLD_MS + 1200)
 const stillResults = await screenOf(shotPage)
-check('loop=0 stays on the results screen — no restart', stillResults === 'results', stillResults)
+check('the one-shot URL stays on the results screen — no restart', stillResults === 'results', stillResults)
 const oneShotState = await shotPage.evaluate(() => window.__echoSkyRun.state())
 check(
-  'the loop=0 run reached the goal',
+  'the one-shot run reached the goal',
   oneShotState.goalReached === true,
   `deaths=${oneShotState.deaths} frames=${oneShotState.frames}`,
 )
@@ -94,12 +97,12 @@ await shotContext.close()
 const { copyFile } = await import('node:fs/promises')
 await copyFile(videoPath, VIDEO_PATH)
 
-// ---- looping: the default restarts after the results screen, three clears from one page ----
+// ---- looping: `&loop=1` restarts after the results screen, three clears from one page ----
 const loopContext = await browser.newContext({ viewport: { width: 960, height: 540 } })
 const loopPage = await loopContext.newPage()
 const loopErrors = watchErrors(loopPage)
 
-const loopResponse = await loopPage.goto(BASE_URL, { waitUntil: 'load' })
+const loopResponse = await loopPage.goto(LOOP_URL, { waitUntil: 'load' })
 check('the looping page returns 200', loopResponse !== null && loopResponse.status() === 200, `status=${loopResponse?.status()}`)
 await boot(loopPage)
 check('the looping URL boots straight into the level', (await screenOf(loopPage)) === 'level')

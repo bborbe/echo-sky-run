@@ -7,6 +7,7 @@
 // to match the game style ... is only for debugging while development"). It sits over the sky, never
 // over the ground where Pip runs.
 import { APP_VERSION, COMMIT_SHA } from '../build-info.ts'
+import { CAMERA_LEAD_X } from '../render/camera.ts'
 
 /** The query parameter that forces the overlay on (`1`) or off (`0`) at load. */
 export const DEBUG_PARAM = 'debug'
@@ -62,6 +63,8 @@ export interface DebugStats {
   readonly life: number
   /** The level id from `?level=`, `1-1` by default. */
   readonly level: string
+  /** The camera's active look-ahead in pixels, so a play-test can see which `?lead=` it is running. */
+  readonly lead: number
   /**
    * Whether the level has a midpoint flag at all, and whether Pip has claimed it. The flag's own
    * coordinates are a level constant, so they say nothing a screenshot needs.
@@ -145,13 +148,37 @@ export function readAutopilot(search: string): boolean {
 }
 
 /**
- * Whether an `?autopilot=1` run loops. Looping is the default, so the operator opens one URL and
- * watches the level clear over and over; `?loop=0` is the one-shot escape that leaves the run on its
- * results screen. A run without the autopilot never loops, so `loop` on its own turns nothing on.
+ * Whether an `?autopilot=1` run loops. Looping is opt-in via `?loop=1`, so a plain `?autopilot=1`
+ * stays a single recorded clear on its results screen; add `loop=1` to watch the level clear over and
+ * over. A run without the autopilot never loops, so `loop` on its own turns nothing on.
  */
 export function readLoop(search: string): boolean {
   const params = new URLSearchParams(search)
-  return params.get('autopilot') === '1' && params.get('loop') !== '0'
+  return params.get('autopilot') === '1' && params.get('loop') === '1'
+}
+
+/** The query parameter that dials the camera's look-ahead, in pixels. */
+export const LEAD_PARAM = 'lead'
+
+/**
+ * The widest look-ahead a URL may ask for. A guard, not a tuning choice: 160 is about 40% of the
+ * 398 px view, well past the 30%-of-view version the operator rejected, so the dial can bracket
+ * "too much" from both sides. It is deliberately generous — a clamp that sits inside the range the
+ * operator is testing silently answers "not much" for every value past it.
+ */
+const LEAD_MAX_X = 160
+
+/**
+ * The camera's look-ahead from `?lead=<px>`, `CAMERA_LEAD_X` when the parameter is absent. Zero is a
+ * real choice (no lead), so only an absent or unreadable value falls back to the default; a negative
+ * or absurd one is clamped rather than trusted, so a stray URL cannot throw the framing.
+ */
+export function readLead(search: string): number {
+  const raw = new URLSearchParams(search).get(LEAD_PARAM)
+  if (raw === null || raw.trim() === '') return CAMERA_LEAD_X
+  const px = Number(raw)
+  if (!Number.isFinite(px)) return CAMERA_LEAD_X
+  return Math.max(0, Math.min(LEAD_MAX_X, px))
 }
 
 /** One chip per field: the short label a reader scans, and the key a check reads it by. */
@@ -159,6 +186,7 @@ const ROWS: readonly (readonly [string, string])[] = [
   ['version', 'VER'],
   ['commit', 'SHA'],
   ['level', 'LVL'],
+  ['lead', 'LEAD'],
   ['checkpoint', 'CP'],
   ['state', 'STATE'],
   ['fps', 'FPS'],
@@ -231,6 +259,8 @@ function formatRow(field: string, stats: DebugStats): string {
       return COMMIT_SHA.slice(0, 7)
     case 'level':
       return stats.level
+    case 'lead':
+      return String(Math.round(stats.lead))
     case 'checkpoint':
       if (!stats.checkpoint.exists) return 'NONE'
       return stats.checkpoint.claimed ? 'CLAIMED' : 'UNCLAIMED'

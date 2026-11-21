@@ -172,7 +172,7 @@ export interface Activation {
 
 /**
  * Confirm the selected row. `controls` opens the DOM card over whatever screen is up, so the screen
- * itself does not change — that is what lets the pause menu keep its own "H / LB: CONTROLS" line and
+ * itself does not change — that is what lets the pause menu keep its own "H / SELECT: CONTROLS" line and
  * the settings screen offer the card as a row.
  *
  * A tile row's level is carried by its `MenuItem.level`, not by this switch: `activate` says "start a
