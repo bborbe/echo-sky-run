@@ -75,6 +75,72 @@ export function moveSelection(count: number, index: number, dir: -1 | 1): number
   return (((index + dir) % count) + count) % count
 }
 
+/** A direction the tile view's focus moves in. */
+export type FocusDirection = 'up' | 'down' | 'left' | 'right'
+
+/** The first flat index of `row`, from the per-row counts. */
+function rowStart(rows: readonly number[], row: number): number {
+  let start = 0
+  for (let r = 0; r < row; r++) start += rows[r]
+  return start
+}
+
+/**
+ * The row (set) a flat tile index sits in, given how many tiles each row holds. Returns 0 for an
+ * empty grid or an index past the end, so a caller never reads a missing row.
+ */
+export function rowOfIndex(rows: readonly number[], index: number): number {
+  let start = 0
+  for (let r = 0; r < rows.length; r++) {
+    start += rows[r]
+    if (index < start) return r
+  }
+  return 0
+}
+
+/**
+ * Move the tile view's focus one step in `dir` across a grid with one row per set.
+ *
+ * The model is the flat `selected` index the game already uses, extended to two dimensions:
+ *  - left / right walk the tiles in reading order and wrap at the catalogue's ends — left at the
+ *    very first tile lands on the last, right at the last lands on the first. That is what carries
+ *    focus from one set into the next at a row's edge.
+ *  - up / down move between rows (sets), keeping the column where the target row is long enough and
+ *    clamping to its last tile where it is not, wrapping from the first row to the last and back.
+ * A single row or a single tile stays put, which is the shape the one-level catalogue has today.
+ */
+export function moveFocus(rows: readonly number[], index: number, dir: FocusDirection): number {
+  const total = rows.reduce((sum, n) => sum + n, 0)
+  if (total <= 0) return 0
+  const from = index < 0 || index >= total ? 0 : index
+  if (dir === 'left') return (from - 1 + total) % total
+  if (dir === 'right') return (from + 1) % total
+  const row = rowOfIndex(rows, from)
+  const col = from - rowStart(rows, row)
+  const target = dir === 'up' ? (row - 1 + rows.length) % rows.length : (row + 1) % rows.length
+  const targetCol = Math.min(col, Math.max(0, rows[target] - 1))
+  return rowStart(rows, target) + targetCol
+}
+
+/**
+ * The vertical scroll offset (pixels) that keeps row `index` inside a `viewport` tall window.
+ * `rows` are the row heights in drawing order, not tile counts; `current` is the offset already
+ * applied, so a row already in view does not make the panel jump. The offset stays between 0 and the
+ * point where the content's end meets the viewport's bottom.
+ */
+export function scrollToRow(rows: readonly number[], index: number, viewport: number, current = 0): number {
+  const total = rows.reduce((sum, n) => sum + n, 0)
+  if (rows.length === 0 || viewport <= 0 || total <= viewport) return 0
+  const row = Math.max(0, Math.min(index, rows.length - 1))
+  const top = rowStart(rows, row)
+  const bottom = top + rows[row]
+  const max = total - viewport
+  let offset = Math.max(0, Math.min(current, max))
+  if (top < offset) offset = top
+  else if (bottom > offset + viewport) offset = bottom - viewport
+  return Math.max(0, Math.min(offset, max))
+}
+
 /** True when the row is one of the settings screen's volume sliders. */
 export function isVolumeRow(item: MenuItem | undefined): boolean {
   return item?.id === 'music' || item?.id === 'effects'

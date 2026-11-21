@@ -16,7 +16,7 @@ import { spriteOrigin } from './anchor.ts'
 import { Background } from './background.ts'
 import { Camera, logicalViewWidth, VIEW_H } from './camera.ts'
 import { Juice } from './juice.ts'
-import { isVolumeRow, type GameScreen, type MenuItem } from '../ui/screens.ts'
+import { isVolumeRow, rowOfIndex, scrollToRow, type GameScreen, type MenuItem } from '../ui/screens.ts'
 
 /**
  * The logical view height is fixed at 14 tiles. The scale is `window height / VIEW_H` and may be
@@ -474,6 +474,8 @@ export class Renderer {
 
   /** The overlay panel's box, for the browser check's text probe. Null when no overlay is up. */
   overlayBox: { x: number; y: number; w: number; h: number } | null = null
+  /** The tile view's vertical scroll, kept between frames so a focused row already in view does not jump. */
+  private tileScroll = 0
   /** The lines the overlay drew this frame, for the browser check. */
   readonly overlayLines: string[] = []
 
@@ -561,6 +563,8 @@ export class Renderer {
   /**
    * The level-select tile view: one box per catalogue level, grouped under its set heading. The
    * focused box carries a bright rim, so the selection reads the way Driftline's `menu-focus` does.
+   * A catalogue taller than the panel scrolls so the focused row is never off-screen; the scroll is
+   * kept between frames, so a row already in view does not make the panel jump.
    */
   private drawTiles(view: MenuView): void {
     const groups = view.groups ?? []
@@ -572,38 +576,52 @@ export class Renderer {
     }
     const contentW = Math.max(textWidth(heading), textWidth(hint), rowW)
     const w = Math.min(this.viewW - 16, contentW + 24)
-    const h =
-      PANEL_PAD_TOP +
-      10 +
-      4 +
-      groups.length * (SET_HEADING_H + TILE_ROW_H) +
-      8 +
-      7 +
-      PANEL_PAD_BOTTOM
+
+    const rowHeights = groups.map(() => SET_HEADING_H + TILE_ROW_H)
+    const naturalH =
+      PANEL_PAD_TOP + 10 + 4 + rowHeights.reduce((sum, n) => sum + n, 0) + 8 + 7 + PANEL_PAD_BOTTOM
+    const h = Math.min(VIEW_H - 16, naturalH)
     const x = Math.round((this.viewW - w) / 2)
     const y = Math.round((VIEW_H - h) / 2)
     this.panel(x, y, w, h)
     this.overlayBox = { x, y, w, h }
     const cx = x + w / 2
 
-    let cy = y + PANEL_PAD_TOP
-    this.centred(heading, cx, cy, 'brassLight')
-    cy += 10 + 4
+    this.centred(heading, cx, y + PANEL_PAD_TOP, 'brassLight')
+
+    // The rows scroll between the heading and the footer hint. The clip keeps a tall catalogue from
+    // spilling past the panel while `scrollToRow` keeps the focused row in view.
+    const rowsTop = y + PANEL_PAD_TOP + 10 + 4
+    const hintY = y + h - PANEL_PAD_BOTTOM - 7
+    const viewport = Math.max(0, hintY - 8 - rowsTop)
+    const focusedRow = rowOfIndex(
+      groups.map((group) => group.items.length),
+      view.index,
+    )
+    const offset = scrollToRow(rowHeights, focusedRow, viewport, this.tileScroll)
+    this.tileScroll = offset
+
+    const ctx = this.ctx
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(x + 1, rowsTop, w - 2, viewport)
+    ctx.clip()
+    let cy = rowsTop - offset
     let index = 0
     for (const group of groups) {
       this.centred(group.set, cx, cy, 'echo')
-      cy += SET_HEADING_H
       const rowWidth = group.items.length * TILE_W + Math.max(0, group.items.length - 1) * TILE_GAP
       let tx = Math.round(cx - rowWidth / 2)
       for (const item of group.items) {
-        this.tile(item.label, index === view.index, tx, cy)
+        this.tile(item.label, index === view.index, tx, cy + SET_HEADING_H)
         index += 1
         tx += TILE_W + TILE_GAP
       }
-      cy += TILE_ROW_H
+      cy += SET_HEADING_H + TILE_ROW_H
     }
-    cy += 8
-    this.centred(hint, cx, cy, 'echo')
+    ctx.restore()
+
+    this.centred(hint, cx, hintY, 'echo')
   }
 
   /** One tile: a brass rim around the panel, brighter on the focused tile, with its label centred. */

@@ -25,7 +25,9 @@ import {
   backTarget,
   isVolumeRow,
   menuFor,
+  moveFocus,
   moveSelection,
+  type FocusDirection,
   type GameScreen,
   type MenuItem,
 } from './ui/screens.ts'
@@ -105,6 +107,8 @@ const levelId = readLevel(location.search)
 /** The tile view's rows, grouped under their set headings, and the same rows flattened for selection. */
 const levelGroups = groupBySet().map((group) => ({ set: group.set, items: tileItems(group.levels) }))
 const tiles = levelGroups.flatMap((group) => group.items)
+/** Tiles per set, in drawing order — the grid the tile view's focus moves across. */
+const tileRowSizes = levelGroups.map((group) => group.items.length)
 /** The level the tile view starts, kept so leaving a run returns to the same tile. */
 let focusedLevel: string | null = null
 /** The level the level screen is running, and its parsed map. */
@@ -379,6 +383,11 @@ function menuKey(code: string): void {
     if (back !== null) show(back)
     return
   }
+  // The tile view is a grid, so its arrows move focus in two dimensions rather than down a flat list.
+  if (screen === 'tiles') {
+    const dir = tileFocusDirection(code)
+    if (dir !== null) return moveFocusBy(dir)
+  }
   if (code === 'ArrowUp' || code === 'KeyW' || code === 'PadUp') return moveSelectionBy(-1)
   if (code === 'ArrowDown' || code === 'KeyS' || code === 'PadDown') return moveSelectionBy(1)
   if (code === 'ArrowLeft' || code === 'KeyA') return adjustVolume(-1)
@@ -389,6 +398,23 @@ function menuKey(code: string): void {
 function moveSelectionBy(dir: -1 | 1): void {
   const items = menuItems()
   const next = moveSelection(items.length, selected, dir)
+  if (next === selected) return
+  selected = next
+  audio.play('ui-tick')
+}
+
+/** The tile view's directional keys: arrows/WASD, plus the pad's own up/down codes. */
+function tileFocusDirection(code: string): FocusDirection | null {
+  if (code === 'ArrowLeft' || code === 'KeyA') return 'left'
+  if (code === 'ArrowRight' || code === 'KeyD') return 'right'
+  if (code === 'ArrowUp' || code === 'KeyW' || code === 'PadUp') return 'up'
+  if (code === 'ArrowDown' || code === 'KeyS' || code === 'PadDown') return 'down'
+  return null
+}
+
+/** Move the tile view's focus one step, wrapping per `moveFocus`'s rule. */
+function moveFocusBy(dir: FocusDirection): void {
+  const next = moveFocus(tileRowSizes, selected, dir)
   if (next === selected) return
   selected = next
   audio.play('ui-tick')
