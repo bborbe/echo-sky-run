@@ -3,14 +3,44 @@
 // nor shown.
 
 import {
+  CHASER_BOT_KEYS,
+  CHASER_BOT_WALK,
   GOOMBA_KEYS,
   GOOMBA_SQUASH,
   GOOMBA_WALK,
+  GUST_WING_FLY,
+  GUST_WING_KEYS,
+  NIMBUS_FLY,
+  NIMBUS_KEYS,
   SHELL_REST,
   SHELL_SPIN,
+  SPIKE_BEETLE_KEYS,
+  SPIKE_BEETLE_WALK,
   TURTLE_KEYS,
   TURTLE_WALK,
 } from './enemies.ts'
+import {
+  MAP_NODE,
+  MAP_NODE_CURRENT,
+  MAP_NODE_KEYS,
+  MAP_PATH,
+  MAP_PATH_KEYS,
+  RELIC_COIN_1,
+  RELIC_COIN_2,
+  RELIC_COIN_3,
+  RELIC_COIN_KEYS,
+} from './map.ts'
+import {
+  ECHO_DOOR,
+  ECHO_DOOR_KEYS,
+  ECHO_SWITCH,
+  ECHO_SWITCH_KEYS,
+  PISTON_EXTENDED,
+  PISTON_KEYS,
+  PISTON_RETRACTED,
+  WINDMILL_KEYS,
+  WINDMILL_SPIN,
+} from './props.ts'
 import {
   DUST,
   DUST_KEYS,
@@ -129,6 +159,27 @@ const DRAWN: readonly Animation[] = [
   },
 
   { name: 'dust', kind: 'fx', keys: DUST_KEYS, frames: DUST, moves: true },
+
+  // World 1's new enemies and Nimbus (spec § 4).
+  { name: 'spike-beetle-walk', kind: 'character', keys: SPIKE_BEETLE_KEYS, frames: SPIKE_BEETLE_WALK, moves: true },
+  { name: 'gust-wing-fly', kind: 'character', keys: GUST_WING_KEYS, frames: GUST_WING_FLY, moves: true },
+  { name: 'chaser-bot-walk', kind: 'character', keys: CHASER_BOT_KEYS, frames: CHASER_BOT_WALK, moves: true },
+  { name: 'nimbus-fly', kind: 'character', keys: NIMBUS_KEYS, frames: NIMBUS_FLY, moves: true },
+
+  // World 1's Echo switch, door, pistons and windmills (spec § 4).
+  { name: 'echo-switch', kind: 'prop', keys: ECHO_SWITCH_KEYS, frames: [ECHO_SWITCH], moves: false },
+  { name: 'echo-door', kind: 'prop', keys: ECHO_DOOR_KEYS, frames: [ECHO_DOOR], moves: false },
+  { name: 'piston-retracted', kind: 'prop', keys: PISTON_KEYS, frames: [PISTON_RETRACTED], moves: false },
+  { name: 'piston-extended', kind: 'prop', keys: PISTON_KEYS, frames: [PISTON_EXTENDED], moves: false },
+  { name: 'windmill-spin', kind: 'prop', keys: WINDMILL_KEYS, frames: WINDMILL_SPIN, moves: true },
+
+  // The overworld map's art (spec § 9): the tileable path, the Relic Coin indicator and the nodes.
+  { name: 'map-path', kind: 'tile', keys: MAP_PATH_KEYS, frames: [MAP_PATH], moves: false },
+  { name: 'relic-coin-1', kind: 'prop', keys: RELIC_COIN_KEYS, frames: [RELIC_COIN_1], moves: false },
+  { name: 'relic-coin-2', kind: 'prop', keys: RELIC_COIN_KEYS, frames: [RELIC_COIN_2], moves: false },
+  { name: 'relic-coin-3', kind: 'prop', keys: RELIC_COIN_KEYS, frames: [RELIC_COIN_3], moves: false },
+  { name: 'map-node', kind: 'prop', keys: MAP_NODE_KEYS, frames: [MAP_NODE], moves: false },
+  { name: 'map-node-current', kind: 'prop', keys: MAP_NODE_KEYS, frames: [MAP_NODE_CURRENT], moves: false },
 ]
 
 /** One animation by name. Throws on a typo, so the renderer cannot silently draw nothing. */

@@ -1576,6 +1576,8 @@ try {
     'jump', 'land', 'echo-place', 'echo-expire', 'echo-refuse', 'stomp', 'block', 'mushroom-appear',
     'mushroom-collect', 'shell-kick', 'power-down', 'death', 'checkpoint', 'goal', 'ui-open', 'ui-close',
     'ui-tick',
+    // World 1's new entities, driven by the `world1-new` fixture scene below.
+    'spike-beetle', 'gust-wing', 'chaser-bot', 'nimbus', 'piston', 'windmill', 'echo-door', 'echo-switch',
   ]
   const trace = []
   const audioState = () => page.evaluate(() => window.__echoSkyRun.audio())
@@ -1882,10 +1884,26 @@ try {
     for (let i = 0; i < 300 && g.state().deaths === 0; i++) g.step({ right: true })
   })
 
+  // The world-1 fixture scene: one of every new entity's sound, driven directly so the trace proves
+  // each recipe plays. The shipped levels do not place these entities yet — the engine task owns that —
+  // so the fixture's `fixtureSounds()` is the producer the trace check reads.
+  await openAudioPage('&fixture=world1-new&x=300&y=178')
+  await page.waitForFunction(() => window.__echoSkyRun.audio().ready, null, { timeout: 10000 })
+  await page.keyboard.press('z')
+  await page.waitForFunction(() => window.__echoSkyRun.audio().ready, null, { timeout: 10000 })
+  await page.evaluate(() => window.__echoSkyRun.fixtureSounds())
+  await page.waitForTimeout(200)
+  await keepTrace()
+
   const heard = new Set(trace.filter((e) => e.played).map((e) => e.event))
   const missingSounds = SOUND_EVENTS.filter((e) => !heard.has(e))
-  check(missingSounds.length === 0, 'every one of the 17 sound events of 1-1 is in the audiolog, played', `missing=${JSON.stringify(missingSounds)}`)
-  const wrongRecipe = trace.filter((e) => e.recipe !== e.event)
+  check(
+    missingSounds.length === 0,
+    'every sound event — 1-1\'s 17 and world 1\'s eight — is in the audiolog, played',
+    `missing=${JSON.stringify(missingSounds)}`,
+  )
+  // The Echo switch plays the shared `switch` recipe; every other event's recipe id is its own name.
+  const wrongRecipe = trace.filter((e) => e.recipe !== e.event && !(e.event === 'echo-switch' && e.recipe === 'switch'))
   check(
     trace.length > 0 && wrongRecipe.length === 0,
     'each audiolog entry carries its event\'s own recipe id',
