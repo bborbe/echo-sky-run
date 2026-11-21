@@ -8,6 +8,7 @@ import {
   SAVE_KEY,
   SAVE_VERSION,
   storeSave,
+  unlockLevel,
 } from './save.ts'
 
 /** A Storage stand-in backed by a map. */
@@ -141,5 +142,38 @@ describe('unlock state', () => {
     expect(migrate({ version: 1, bestSeconds: null, unlockedLevels: ['1-1', ''] }).unlockedLevels).toBeUndefined()
     // Untracked means open, so a corrupt list cannot brick the tile view.
     expect(isUnlocked(migrate({ version: 1, bestSeconds: null, unlockedLevels: 'nope' }), '1-1')).toBe(true)
+  })
+})
+
+describe('unlocking a level', () => {
+  it('records an unlock on a tracked save and it survives a reload', () => {
+    const storage = memoryStorage()
+    const saved = unlockLevel({ version: SAVE_VERSION, bestSeconds: 12.5, unlockedLevels: ['1-1'] }, '1-2')
+    expect(saved).toEqual({ version: 1, bestSeconds: 12.5, unlockedLevels: ['1-1', '1-2'] })
+
+    storeSave(storage, saved)
+    const loaded = loadSave(storage)
+    // The entry survives a reload, asserted on the save's unlock set (no second level exists to play).
+    expect(loaded.unlockedLevels).toEqual(['1-1', '1-2'])
+    expect(isUnlocked(loaded, '1-2')).toBe(true)
+    expect(isUnlocked(loaded, '1-3')).toBe(false)
+  })
+
+  it('returns the same save when the id is already unlocked, so no write is needed', () => {
+    const tracked = { version: SAVE_VERSION, bestSeconds: 42, unlockedLevels: ['1-1'] } as const
+    expect(unlockLevel(tracked, '1-1')).toBe(tracked)
+    // An untracked save has every level open already, so unlocking is a no-op there too.
+    expect(unlockLevel(EMPTY_SAVE, '1-1')).toBe(EMPTY_SAVE)
+  })
+
+  it('refuses an empty id so it cannot degrade the stored list to untracked', () => {
+    const save = { version: SAVE_VERSION, bestSeconds: null, unlockedLevels: ['1-1'] } as const
+    expect(unlockLevel(save, '')).toBe(save)
+  })
+
+  it('leaves a save that carries no unlock list valid and open', () => {
+    const loaded = loadSave(memoryStorage({ [SAVE_KEY]: '{"version":1,"bestSeconds":30}' }))
+    expect(loaded).toEqual({ version: 1, bestSeconds: 30 })
+    expect(isUnlocked(loaded, '9-9')).toBe(true)
   })
 })
