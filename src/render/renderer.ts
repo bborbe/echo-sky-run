@@ -1,4 +1,4 @@
-import { FONT, GLYPH_GAP, GLYPH_H, GLYPH_W, OVERLAY_TEXT, textWidth } from './art/font.ts'
+import { FONT, GLYPH_GAP, GLYPH_W, OVERLAY_TEXT, textWidth } from './art/font.ts'
 import { INK, SKY, type InkName } from './art/palette.ts'
 import { paint } from './atlas.ts'
 import { Background } from './background.ts'
@@ -84,12 +84,33 @@ const ROW_H = 12
 const PANEL_PAD_TOP = 9
 const PANEL_PAD_BOTTOM = 9
 
-/** The tile view's tile boxes. A box is a label with a brass rim; the focused one has a bright rim. */
-const TILE_W = 34
-const TILE_H = 20
+/** The tile view's tile boxes: a wide crop of the level's hero spot over its label. */
+const TILE_W = 44
+const TILE_H = 26
 const TILE_GAP = 6
 const TILE_ROW_H = TILE_H + 4
 const SET_HEADING_H = 10
+/** The thumbnail's box inside a tile's rim, and the label line beneath it. */
+const THUMB_X = 2
+const THUMB_Y = 2
+const THUMB_W = TILE_W - 4
+const THUMB_H = 15
+/** The label's top edge: one pixel under the thumbnail, two above the rim. */
+const LABEL_Y = THUMB_Y + THUMB_H
+/** How far a locked tile's thumbnail fades into the panel: darker, so the tile reads unstartable. */
+const LOCKED_THUMB_ALPHA = 0.45
+
+/** One tile as drawn this frame — the browser check reads the thumbnail's own pixels from it. */
+export interface TileRect {
+  readonly level: string
+  readonly x: number
+  readonly y: number
+  readonly w: number
+  readonly h: number
+  /** The thumbnail's box inside the tile, or null when no still could be drawn for that level. */
+  readonly thumb: { readonly x: number; readonly y: number; readonly w: number; readonly h: number } | null
+  readonly locked: boolean
+}
 
 /** Segments in a volume bar, one per slider step. */
 const BAR_SEGMENTS = 10
@@ -248,6 +269,13 @@ export class Renderer {
   private tileScroll = 0
   /** The lines the overlay drew this frame, for the browser check. */
   readonly overlayLines: string[] = []
+  /** The tiles drawn this frame, for the browser check's thumbnail probe. */
+  readonly tileRects: TileRect[] = []
+
+  /** The tile view's tiles as drawn last frame — the browser check reads each thumbnail's pixels. */
+  tileBoxes(): readonly TileRect[] {
+    return this.tileRects
+  }
 
   /**
    * One panel per screen: the title, the pause menu, the settings sliders and the level-clear tally.
@@ -259,6 +287,7 @@ export class Renderer {
    * debug overlay's strip along the top edge.
    */
   private drawMenu(view: MenuView): void {
+    this.tileRects.length = 0
     if (view.screen === 'tiles') {
       this.drawTiles(view)
       return
@@ -383,7 +412,7 @@ export class Renderer {
       const rowWidth = group.items.length * TILE_W + Math.max(0, group.items.length - 1) * TILE_GAP
       let tx = Math.round(cx - rowWidth / 2)
       for (const item of group.items) {
-        this.tile(item.label, index === view.index, tx, cy + SET_HEADING_H, item.locked === true)
+        this.tile(item, index === view.index, tx, cy + SET_HEADING_H)
         index += 1
         tx += TILE_W + TILE_GAP
       }
@@ -395,24 +424,55 @@ export class Renderer {
   }
 
   /**
-   * One tile: a rim around the panel, brighter on the focused tile, with its label centred.
+   * One tile: a brass rim around a panel, the level's hero crop inside it, and the label beneath.
+   *
+   * The crop is the level's set piece, drawn through the same still renderer the background preview
+   * uses — so a tile shows what the level is about rather than the patch of ground every level opens
+   * on. It is drawn even when the tile is locked: a locked tile keeps its picture, faded into the
+   * panel and rimmed in steel, so it reads as unstartable without becoming anonymous.
    *
    * A locked tile is drawn in the steel inks instead of the brass ones, so it reads as dimmed next to
    * an unlocked tile at a glance — a different hue as well as a darker one, so the distinction
    * survives a greyscale check. The focused locked tile keeps a lighter rim, so focus is still
    * visible while the tile is visibly unstartable.
    */
-  private tile(label: string, selected: boolean, x: number, y: number, locked: boolean): void {
+  private tile(item: MenuItem, selected: boolean, x: number, y: number): void {
     const ctx = this.ctx
+    const locked = item.locked === true
     ctx.fillStyle = locked ? (selected ? INK.steelLight : INK.steel) : selected ? INK.brassLight : INK.brass
     ctx.fillRect(x, y, TILE_W, TILE_H)
     ctx.fillStyle = INK.panel
     ctx.fillRect(x + 1, y + 1, TILE_W - 2, TILE_H - 2)
-    const lx = Math.round(x + (TILE_W - textWidth(label)) / 2)
-    const ly = Math.round(y + (TILE_H - GLYPH_H) / 2)
+    const thumb = item.level === undefined ? null : this.previews.thumbnailFor(item.level, this.viewW, THUMB_W, THUMB_H)
+    if (thumb !== null) {
+      const previous = ctx.globalAlpha
+      if (locked) ctx.globalAlpha = LOCKED_THUMB_ALPHA
+      // The still's sky is transparent — the live view shows the parallax behind it. A tile has no
+      // parallax, so the crop gets a sky band behind it, fading to the level's horizon at the ground.
+      const sky = ctx.createLinearGradient(0, y + THUMB_Y, 0, y + THUMB_Y + THUMB_H)
+      sky.addColorStop(0, SKY.mid)
+      sky.addColorStop(1, SKY.horizon)
+      ctx.fillStyle = sky
+      ctx.fillRect(x + THUMB_X, y + THUMB_Y, THUMB_W, THUMB_H)
+      ctx.drawImage(thumb, x + THUMB_X, y + THUMB_Y)
+      ctx.globalAlpha = previous
+    }
+    const lx = Math.round(x + (TILE_W - textWidth(item.label)) / 2)
     const ink = locked ? 'steelLight' : selected ? 'brassLight' : 'cream'
-    this.text(label, lx, ly, ink)
-    this.overlayLines.push(label)
+    this.text(item.label, lx, y + LABEL_Y, ink)
+    this.overlayLines.push(item.label)
+    this.tileRects.push({
+      level: item.level ?? item.label,
+      x,
+      y,
+      w: TILE_W,
+      h: TILE_H,
+      thumb:
+        thumb === null
+          ? null
+          : { x: x + THUMB_X, y: y + THUMB_Y, w: THUMB_W, h: THUMB_H },
+      locked,
+    })
   }
 
   private bestLine(bestSeconds: number | null): string {

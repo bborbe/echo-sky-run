@@ -8,10 +8,22 @@
  */
 import type { MenuItem } from '../ui/screens.ts'
 
+/**
+ * The one spot a level is known by — its set piece, in world pixels. The tile view crops its
+ * thumbnail around this point instead of the spawn, so a tile shows what the level is about rather
+ * than the patch of ground every level opens on. A level declares it beside its rows.
+ */
+export interface HeroSpot {
+  readonly x: number
+  readonly y: number
+}
+
 export interface LevelMeta {
   readonly id: string
   readonly name: string
   readonly set: string
+  /** The set piece the tile view's thumbnail is framed on. */
+  readonly hero: HeroSpot
 }
 
 export interface LevelEntry extends LevelMeta {

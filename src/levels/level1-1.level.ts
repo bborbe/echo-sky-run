@@ -48,8 +48,18 @@ export const LEVEL_1_1_SMALL_GAP = { firstCol: 28, lastCol: 30 } as const
  */
 export const LEVEL_1_1_ECHO_AT_X = (LEVEL_1_1_GAP.firstCol + 6) * TILE
 
+/**
+ * The spot the tile view's thumbnail is framed on: mid-gap at the ground line, so the crop shows the
+ * pit, both lips and the sky above them. The Echo gap is the level's one lesson, so it is the one
+ * thing a tile has to show.
+ */
+export const LEVEL_1_1_HERO = {
+  x: ((LEVEL_1_1_GAP.firstCol + LEVEL_1_1_GAP.lastCol + 1) / 2) * TILE,
+  y: 12 * TILE,
+} as const
+
 /** Catalogue metadata: the level's id, the name the tile view draws and the set it is grouped under. */
-export const LEVEL_META = { id: '1-1', name: 'MEADOW LEDGE', set: 'WORLD 1' } as const
+export const LEVEL_META = { id: '1-1', name: 'MEADOW LEDGE', set: 'WORLD 1', hero: LEVEL_1_1_HERO } as const
 
 /** The rows the catalogue loads. Every level module exports this name, so the loader is uniform. */
 export const LEVEL_ROWS = LEVEL_1_1_ROWS

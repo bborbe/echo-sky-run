@@ -15,7 +15,7 @@ import { Juice, type StepFacts, type StompFact } from './render/juice.ts'
 import { skyColourAt } from './render/parallax.ts'
 import { PipAnimator } from './render/pose.ts'
 import { INK } from './render/art/palette.ts'
-import { Renderer, PALETTE, type MenuView } from './render/renderer.ts'
+import { Renderer, PALETTE, type MenuView, type TileRect } from './render/renderer.ts'
 import { isUnlocked, loadSave, recordBest, storeSave, type Save } from './save/save.ts'
 import { createControlsCard, ECHO_HINT } from './ui/controls-card.ts'
 import { escapeLeavesFullscreen, toggleFullscreen, watchFullscreen } from './ui/fullscreen.ts'
@@ -759,6 +759,8 @@ interface EchoSkyRunTestApi {
   menu(): { screen: GameScreen; index: number; items: string[]; locked: boolean[] } | null
   /** The still preview the tile view is showing: its focused level and whether a frame is cached. */
   preview(): { level: string | null; ready: boolean }
+  /** The tile view's tiles as drawn: each tile's box, its thumbnail box, and whether it is locked. */
+  tileBoxes(): readonly TileRect[]
   /** Go to a screen the way a player would, without the sound — the screenshot tool's shortcut. */
   openScreen(name: GameScreen): void
   step(input: Partial<SimInput>): ReturnType<typeof snapshot>
@@ -862,6 +864,7 @@ const api: EchoSkyRunTestApi = {
     }
   },
   preview: () => renderer.previewInfo(),
+  tileBoxes: () => renderer.tileBoxes(),
   openScreen(name) {
     resetGame()
     screen = name
