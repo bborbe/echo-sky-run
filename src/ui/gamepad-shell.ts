@@ -6,6 +6,12 @@ import { keyForCode, padCodes, pickPad } from './gamepad.ts'
 export interface GamepadShell {
   /** The connected pad's id, or null. */
   id(): string | null
+  /**
+   * True when a pad is connected right now, read fresh from the browser rather than from the last
+   * poll. The controls card asks this when it opens, so its labels follow the input in hand even if
+   * the card opens in the same tick a pad appears.
+   */
+  isConnected(): boolean
   /** How many codes the pad holds this frame — the debug overlay shows it. */
   heldCount(): number
   stop(): void
@@ -80,6 +86,7 @@ export function mountGamepad(nav: Navigator = navigator, options: GamepadOptions
 
   return {
     id: () => connected,
+    isConnected: () => read() !== null,
     heldCount: () => held.size,
     stop() {
       for (const code of held) dispatch(code, false)

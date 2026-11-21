@@ -16,13 +16,14 @@ import { skyColourAt } from './render/parallax.ts'
 import { PipAnimator } from './render/pose.ts'
 import { INK } from './render/art/palette.ts'
 import { Renderer, PALETTE, type MenuView } from './render/renderer.ts'
-import { loadSave, recordBest, storeSave, type Save } from './save/save.ts'
+import { isUnlocked, loadSave, recordBest, storeSave, type Save } from './save/save.ts'
 import { createControlsCard, ECHO_HINT } from './ui/controls-card.ts'
 import { escapeLeavesFullscreen, toggleFullscreen, watchFullscreen } from './ui/fullscreen.ts'
 import { mountGamepad } from './ui/gamepad-shell.ts'
 import {
   activate,
   backTarget,
+  canActivate,
   isVolumeRow,
   menuFor,
   moveFocus,
@@ -88,9 +89,11 @@ window.addEventListener('resize', () => renderer.fit())
 // Fullscreen changes the window size, so the canvas has to re-fit on every change, not just a resize.
 watchFullscreen(() => renderer.fit())
 
-// The controls card, opened by H, by pad LB, and from a menu row. It is not shown on load: the
-// title screen is the first thing a player sees, and it carries CONTROLS as a row of its own.
-const controls = createControlsCard(document.body)
+// The controls card, opened by H, by pad SELECT, and from a menu row. It is not shown on load: the
+// title screen is the first thing a player sees, and it carries CONTROLS as a row of its own. Its
+// labels are read from the pad's live state on every open, so a card opened while a pad is connected
+// never falls back to keyboard codes.
+const controls = createControlsCard(document.body, { padConnected: () => gamepad.isConnected() })
 
 // On by default on the dev server, `?debug=1` forces it on and `?debug=0` hides it; a production
 // build hides it unless `?debug=1` is set, so a shipped screenshot carries no debug noise. O copies
@@ -104,8 +107,17 @@ const overlay = mountDebugOverlay({
 /** The level id the URL asked for, so the overlay's level row reflects what is actually running. */
 const levelId = readLevel(location.search)
 
-/** The tile view's rows, grouped under their set headings, and the same rows flattened for selection. */
-const levelGroups = groupBySet().map((group) => ({ set: group.set, items: tileItems(group.levels) }))
+/** The save, read once at load. The tile view's lock state comes from it, never from a catalogue literal. */
+let save: Save = loadSave(storage())
+
+/**
+ * The tile view's rows, grouped under their set headings, and the same rows flattened for selection.
+ * A level the save has not unlocked is marked locked: drawn dimmed, and confirming it starts nothing.
+ */
+const levelGroups = groupBySet().map((group) => ({
+  set: group.set,
+  items: tileItems(group.levels, (id) => isUnlocked(save, id)),
+}))
 const tiles = levelGroups.flatMap((group) => group.items)
 /** Tiles per set, in drawing order — the grid the tile view's focus moves across. */
 const tileRowSizes = levelGroups.map((group) => group.items.length)
@@ -274,7 +286,6 @@ const isHalted = (): boolean => isPaused() || frozen || seamHalted
 let tick = 0
 /** Set once the tally for this run has been recorded, so a finished level is not saved every frame. */
 let recorded = false
-let save: Save = loadSave(storage())
 
 const held = new Set<string>()
 const edge = { jump: false, echo: false }
@@ -436,9 +447,14 @@ function adjustVolume(dir: -1 | 1): void {
   audio.play('ui-tick')
 }
 
-/** Confirm the selected row. A run that starts or restarts begins from a clean level. */
+/**
+ * Confirm the selected row. A run that starts or restarts begins from a clean level.
+ *
+ * A locked tile is refused here and nowhere else: the press does not start the level and does not
+ * leave the tile view, so the still preview behind the focused locked tile keeps showing.
+ */
 function confirm(item: MenuItem | undefined): void {
-  if (item === undefined) return
+  if (item === undefined || !canActivate(item)) return
   const outcome = activate(screen, item.id)
   if (outcome.controls) {
     controls.show()
@@ -690,7 +706,10 @@ function frame(now: number): void {
     poseFrame: animator.frame,
     facing: animator.facing,
     juice,
-    menu: menuView(),
+    // The card is a DOM overlay over a canvas panel; the two cannot share the screen without the
+    // settings text ghosting through. While the card is up it replaces the menu, and dismissing it
+    // brings the screen back unchanged.
+    menu: controls.visible() ? null : menuView(),
   })
 
   pushOverlay(frameStats(frameMs, steps))
@@ -741,8 +760,10 @@ interface EchoSkyRunTestApi {
   reset(): void
   /** The screen that is up. Only `level` steps the simulation. */
   screen(): GameScreen
-  /** The menu on screen: its rows and the selected index. Null while the level plays. */
-  menu(): { screen: GameScreen; index: number; items: string[] } | null
+  /** The menu on screen: its rows, the selected index, and which tile rows are locked. Null while the level plays. */
+  menu(): { screen: GameScreen; index: number; items: string[]; locked: boolean[] } | null
+  /** The still preview the tile view is showing: its focused level and whether a frame is cached. */
+  preview(): { level: string | null; ready: boolean }
   /** Go to a screen the way a player would, without the sound — the screenshot tool's shortcut. */
   openScreen(name: GameScreen): void
   step(input: Partial<SimInput>): ReturnType<typeof snapshot>
@@ -838,8 +859,14 @@ const api: EchoSkyRunTestApi = {
   menu: () => {
     if (screen === 'level') return null
     const items = menuItems()
-    return { screen, index: selected, items: items.map((item) => item.label) }
+    return {
+      screen,
+      index: selected,
+      items: items.map((item) => item.label),
+      locked: items.map((item) => item.locked === true),
+    }
   },
+  preview: () => renderer.previewInfo(),
   openScreen(name) {
     resetGame()
     screen = name
@@ -873,6 +900,11 @@ const api: EchoSkyRunTestApi = {
     visible: controls.visible(),
     pad: controls.isPad(),
     labels: Array.from(document.querySelectorAll('#controls-card dt')).map((el) => el.textContent ?? ''),
+    /** Action → key text, so a check can assert what the card actually tells the player. */
+    rows: Array.from(document.querySelectorAll('#controls-card dt')).map((dt) => [
+      dt.textContent ?? '',
+      dt.nextElementSibling?.textContent ?? '',
+    ]),
   }),
   showControls: () => controls.show(),
   hideControls: () => controls.hide(),

@@ -57,9 +57,21 @@ export function groupBySet(levels: readonly LevelEntry[] = LEVEL_CATALOGUE): rea
   return order.map((set) => ({ set, levels: bySet.get(set) ?? [] }))
 }
 
-/** One menu row per level: the id is the tile's label, and the row carries the level to start. */
-export function tileItems(levels: readonly LevelEntry[] = LEVEL_CATALOGUE): readonly MenuItem[] {
-  return levels.map((level) => ({ id: 'level' as const, label: level.id, level: level.id }))
+/**
+ * One menu row per level: the id is the tile's label, and the row carries the level to start.
+ * `unlocked` decides the lock flag — a level it rejects is drawn dimmed and cannot start. It
+ * defaults to "everything open", so a caller with no unlock state still gets a playable menu.
+ */
+export function tileItems(
+  levels: readonly LevelEntry[] = LEVEL_CATALOGUE,
+  unlocked: (levelId: string) => boolean = () => true,
+): readonly MenuItem[] {
+  return levels.map((level) => ({
+    id: 'level' as const,
+    label: level.id,
+    level: level.id,
+    ...(unlocked(level.id) ? {} : { locked: true }),
+  }))
 }
 
 /** The index of `levelId` in `items`, or 0 when it is absent — the focus to restore on return. */

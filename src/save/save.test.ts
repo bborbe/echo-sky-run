@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { EMPTY_SAVE, loadSave, migrate, recordBest, SAVE_KEY, SAVE_VERSION, storeSave } from './save.ts'
+import {
+  EMPTY_SAVE,
+  isUnlocked,
+  loadSave,
+  migrate,
+  recordBest,
+  SAVE_KEY,
+  SAVE_VERSION,
+  storeSave,
+  unlockLevel,
+} from './save.ts'
 
 /** A Storage stand-in backed by a map. */
 function memoryStorage(initial: Record<string, string> = {}) {
@@ -96,5 +106,74 @@ describe('recording a best time', () => {
     const save = { version: SAVE_VERSION, bestSeconds: 42 }
     expect(recordBest(save, 42)).toBe(save)
     expect(recordBest(save, 45)).toBe(save)
+  })
+
+  it('keeps the unlock list when it records a faster time', () => {
+    const save = { version: SAVE_VERSION, bestSeconds: 42, unlockedLevels: ['1-1'] }
+    expect(recordBest(save, 30)).toEqual({ version: 1, bestSeconds: 30, unlockedLevels: ['1-1'] })
+  })
+})
+
+describe('unlock state', () => {
+  it('leaves every level open on a save that has not tracked unlocks', () => {
+    expect(isUnlocked(EMPTY_SAVE, '1-1')).toBe(true)
+    expect(isUnlocked({ version: SAVE_VERSION, bestSeconds: null }, '2-3')).toBe(true)
+  })
+
+  it('narrows to exactly the ids a stored list holds', () => {
+    const save = { version: SAVE_VERSION, bestSeconds: null, unlockedLevels: ['1-1', '1-2'] }
+    expect(isUnlocked(save, '1-1')).toBe(true)
+    expect(isUnlocked(save, '1-2')).toBe(true)
+    expect(isUnlocked(save, '1-3')).toBe(false)
+  })
+
+  it('survives a storeSave → loadSave round-trip', () => {
+    const storage = memoryStorage()
+    storeSave(storage, { version: SAVE_VERSION, bestSeconds: 31.25, unlockedLevels: ['1-1', '2-1'] })
+    const loaded = loadSave(storage)
+    expect(loaded.unlockedLevels).toEqual(['1-1', '2-1'])
+    expect(isUnlocked(loaded, '2-1')).toBe(true)
+    expect(isUnlocked(loaded, '2-2')).toBe(false)
+  })
+
+  it('treats a malformed unlock list as untracked rather than locking every tile', () => {
+    expect(migrate({ version: 1, bestSeconds: null, unlockedLevels: 'nope' }).unlockedLevels).toBeUndefined()
+    expect(migrate({ version: 1, bestSeconds: null, unlockedLevels: ['1-1', 7] }).unlockedLevels).toBeUndefined()
+    expect(migrate({ version: 1, bestSeconds: null, unlockedLevels: ['1-1', ''] }).unlockedLevels).toBeUndefined()
+    // Untracked means open, so a corrupt list cannot brick the tile view.
+    expect(isUnlocked(migrate({ version: 1, bestSeconds: null, unlockedLevels: 'nope' }), '1-1')).toBe(true)
+  })
+})
+
+describe('unlocking a level', () => {
+  it('records an unlock on a tracked save and it survives a reload', () => {
+    const storage = memoryStorage()
+    const saved = unlockLevel({ version: SAVE_VERSION, bestSeconds: 12.5, unlockedLevels: ['1-1'] }, '1-2')
+    expect(saved).toEqual({ version: 1, bestSeconds: 12.5, unlockedLevels: ['1-1', '1-2'] })
+
+    storeSave(storage, saved)
+    const loaded = loadSave(storage)
+    // The entry survives a reload, asserted on the save's unlock set (no second level exists to play).
+    expect(loaded.unlockedLevels).toEqual(['1-1', '1-2'])
+    expect(isUnlocked(loaded, '1-2')).toBe(true)
+    expect(isUnlocked(loaded, '1-3')).toBe(false)
+  })
+
+  it('returns the same save when the id is already unlocked, so no write is needed', () => {
+    const tracked = { version: SAVE_VERSION, bestSeconds: 42, unlockedLevels: ['1-1'] } as const
+    expect(unlockLevel(tracked, '1-1')).toBe(tracked)
+    // An untracked save has every level open already, so unlocking is a no-op there too.
+    expect(unlockLevel(EMPTY_SAVE, '1-1')).toBe(EMPTY_SAVE)
+  })
+
+  it('refuses an empty id so it cannot degrade the stored list to untracked', () => {
+    const save = { version: SAVE_VERSION, bestSeconds: null, unlockedLevels: ['1-1'] } as const
+    expect(unlockLevel(save, '')).toBe(save)
+  })
+
+  it('leaves a save that carries no unlock list valid and open', () => {
+    const loaded = loadSave(memoryStorage({ [SAVE_KEY]: '{"version":1,"bestSeconds":30}' }))
+    expect(loaded).toEqual({ version: 1, bestSeconds: 30 })
+    expect(isUnlocked(loaded, '9-9')).toBe(true)
   })
 })

@@ -75,7 +75,7 @@ export const OVERLAY_TEXT = {
   world: 'WORLD 1 · 1-1',
   /** Pause menu. The controls line is a hint, not a row: the card opens over the pause. */
   paused: 'PAUSED',
-  pausedControls: 'H / LB: CONTROLS',
+  pausedControls: 'H / SELECT: CONTROLS',
   /** Settings: the two sliders, the card and the way back. */
   settings: 'SETTINGS',
   music: 'MUSIC',

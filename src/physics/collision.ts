@@ -195,6 +195,16 @@ export function isGrounded(box: Box, map: TileMap, platforms: readonly Box[] = [
   return groundUnder(box, map, platforms) !== 'none'
 }
 
+/** The platform whose top the box is resting on, or null. The box the player stands on, not a copy. */
+export function platformUnder(box: Box, platforms: readonly Box[]): Box | null {
+  const feet = box.y + box.h
+  for (const p of platforms) {
+    if (!overlapsHorizontally(box.x, box.w, p)) continue
+    if (Math.abs(feet - p.y) <= EPS) return p
+  }
+  return null
+}
+
 /** True when the box overlaps any solid tile — used to refuse an Echo placed inside a wall. */
 export function overlapsSolid(box: Box, map: TileMap): boolean {
   return hitsSolid(box.x, box.y, box.w, box.h, map)

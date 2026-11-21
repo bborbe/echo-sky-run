@@ -36,6 +36,15 @@ describe('the level catalogue', () => {
     expect(tileItems(FIXTURE).every((item) => item.id === 'level')).toBe(true)
   })
 
+  it('leaves every tile startable when the caller has no unlock state', () => {
+    expect(tileItems(FIXTURE).every((item) => item.locked !== true)).toBe(true)
+  })
+
+  it('marks exactly the levels its unlock predicate rejects', () => {
+    const items = tileItems(FIXTURE, (id) => id === '1-1')
+    expect(items.map((item) => item.locked === true)).toEqual([false, true, true])
+  })
+
   it('groups levels by set in first-seen order', () => {
     expect(groupBySet(FIXTURE).map((group) => group.set)).toEqual(['WORLD 1', 'WORLD 2'])
     expect(groupBySet(FIXTURE)[0].levels.map((level) => level.id)).toEqual(['1-1', '1-2'])
