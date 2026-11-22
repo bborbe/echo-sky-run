@@ -134,3 +134,43 @@ describe('the state key', () => {
     expect(() => stateKey(sim)).toThrow(/off the 1\/32 lattice/)
   })
 })
+
+/**
+ * Held-out cases: the verdict must follow the GEOMETRY, not the level id.
+ *
+ * Every other test here names a shipped level and a known expected value, which a lookup table keyed
+ * on the level id could satisfy without searching at all. These two change one cell of the map and
+ * require the opposite verdict from the same code, so a table cannot pass them:
+ *
+ *   - the sealed room, opened by one tile, flips `unreachable` -> `reachable`;
+ *   - 1-2's corridor, sealed at its only mouth, stops being `reachable` for the Echo beat.
+ */
+describe('held-out: the verdict follows the geometry', () => {
+  /** Replace one character of one row. */
+  const withCell = (rows: readonly string[], col: number, row: number, ch: string): readonly string[] =>
+    rows.map((r, i) => (i === row ? r.slice(0, col) + ch + r.slice(col + 1) : r))
+
+  it('flips the sealed room to reachable when the wall is opened', () => {
+    const sealed = solve({ rows: WALLED_OFF_ROWS, target: GOAL, echo: true, strip: true })
+    expect(sealed.verdict).toBe('unreachable')
+
+    // Row 1 is `#S#F#`; open the wall at col 2 and the same goal becomes reachable.
+    const opened = withCell(WALLED_OFF_ROWS, 2, 1, '.')
+    const result = solve({ rows: opened, target: GOAL, echo: true, strip: true })
+    expect(result.verdict).toBe('reachable')
+    expect(replay(parseLevel(stripEnemiesAndItems(opened)), result.inputs ?? [], GOAL).won).toBe(true)
+  })
+
+  it('stops reaching 1-2’s Echo beat when the corridor mouth is sealed', () => {
+    // The corridor is open only at its near end (cols 5-6, rows 6-8). Wall that mouth and the alcove
+    // has no entrance at all — the beat must stop being reachable, though the level id is unchanged.
+    let sealed = LEVEL_1_2_SPEC.rows
+    for (const row of [6, 7, 8]) sealed = withCell(sealed, 5, row, '#')
+
+    const before = solve({ rows: LEVEL_1_2_SPEC.rows, target: BEAT.target, echo: true, strip: true, via: BEAT.via })
+    expect(before.verdict).toBe('reachable')
+
+    const after = solve({ rows: sealed, target: BEAT.target, echo: true, strip: true, via: BEAT.via, caps: SMALL_CAP })
+    expect(after.verdict).not.toBe('reachable')
+  })
+})
