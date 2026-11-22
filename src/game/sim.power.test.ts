@@ -104,7 +104,7 @@ describe('tier transitions', () => {
       mode: 'walk',
       hp: 1,
       age: 0,
-      contact: 0,
+      windup: 0,
       baseY: sim.player.y + sim.player.h - 16,
       dead: false,
     })
@@ -136,7 +136,7 @@ describe('tier transitions', () => {
       mode: 'walk',
       hp: 1,
       age: 0,
-      contact: 0,
+      windup: 0,
       baseY: sim.player.y + sim.player.h - 16,
       dead: false,
     })
@@ -164,7 +164,7 @@ describe('tier transitions', () => {
       mode: 'shell',
       hp: 1,
       age: 0,
-      contact: 0,
+      windup: 0,
       baseY: sim.player.y + sim.player.h - 16,
       dead: false,
     })
@@ -189,7 +189,7 @@ describe('tier transitions', () => {
       mode: 'shell',
       hp: 1,
       age: 0,
-      contact: 0,
+      windup: 0,
       baseY: sim.player.y + sim.player.h - 24,
       dead: false,
     })
