@@ -41,6 +41,13 @@ export interface AutopilotOptions {
   readonly maxFrames?: number
   /** The window the view is measured against. 960×540 is the smallest viewport agents drive. */
   readonly viewport?: { readonly width: number; readonly height: number }
+  /**
+   * Holds the sprint key for the whole run. Defaults to `true` — the toolkit's own sprint clear.
+   * `false` is the casual baseline: the sprint boost is never engaged, so the top speed is `RUN_MAX`
+   * and the run is the pace of a player who never sprints. (The P-meter still fills from running at
+   * `RUN_MAX`; it simply never unlocks `SPRINT_MAX`, because nothing reads it without the key.)
+   */
+  readonly sprint?: boolean
 }
 
 /** The viewport the toolkit rates at, and the worst case: a smaller window shows less of the level. */
@@ -102,6 +109,7 @@ export function runAutopilot(profile: LevelToolkitProfile, options: AutopilotOpt
   const viewport = options.viewport ?? TOOLKIT_VIEWPORT
   const echoAtX = options.echoAtX !== undefined ? options.echoAtX : profile.echoAtX
   const maxFrames = options.maxFrames ?? MAX_FRAMES
+  const sprint = options.sprint ?? true
 
   const camera = new Camera()
   camera.setViewWidth(logicalViewWidth(viewport.width, viewport.height))
@@ -139,7 +147,7 @@ export function runAutopilot(profile: LevelToolkitProfile, options: AutopilotOpt
       right: true,
       jump: true,
       jumpPressed,
-      sprint: true,
+      sprint,
       echoPressed: wantEcho,
     }
     stepSim(sim, input)
