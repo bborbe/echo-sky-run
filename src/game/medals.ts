@@ -29,6 +29,21 @@ export interface MedalTimes {
   readonly bronze: number
 }
 
+/** The medal a clear earns, fastest first. */
+export type Medal = 'author' | 'gold' | 'silver' | 'bronze'
+
+/**
+ * The medal a clear of `frames` earns against `times`, or null when it misses bronze. A threshold is
+ * inclusive: finishing exactly on the author time earns the author medal.
+ */
+export function medalFor(frames: number, times: MedalTimes): Medal | null {
+  if (frames <= times.author) return 'author'
+  if (frames <= times.gold) return 'gold'
+  if (frames <= times.silver) return 'silver'
+  if (frames <= times.bronze) return 'bronze'
+  return null
+}
+
 /**
  * The four medal times, in frames, from the casual clear. Strictly ordered
  * author < gold < silver < bronze.
