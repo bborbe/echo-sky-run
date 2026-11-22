@@ -3,14 +3,20 @@
 // narrow pits, a midpoint checkpoint and the goal.
 //
 // One character per tile: '.' empty, '#' solid, '=' one-way, 'S' spawn, 'F' goal, 'g' Gear-Goomba,
-// 't' Steam-Turtle, '?' ? block, 'C' checkpoint, 'i' sign.
+// 't' Steam-Turtle, '?' ? block, 'C' checkpoint, 'i' sign, 'n' Nimbus, 's' Echo switch, 'D' Echo
+// door (feet-anchored, three tiles tall).
 // Both edges are closed full height at column 0 and the last column: an open edge lets the player
 // walk out of the world, and a wall shorter than the jump arc is not a wall.
 //
-// TODO(engine-wiring): the Nimbus / Echo-switch / Echo-door stretch is not laid out here. The
-// engine has no tile character for Nimbus, the switch or the door and constructs both fields empty
-// (src/physics/tilemap.ts, src/game/sim.ts), so that section cannot be expressed until the
-// engine-wiring task lands. It is reserved at columns 270-290, which are plain floor for now.
+// The Echo-switch lesson sits on a raised ledge at columns 6-26, in the enemy-free opening: the
+// switch at 10 and the door at 18 are three rows above the floor, so the first thing the level asks
+// is the new mechanic, with nothing to fall from and nothing hunting Pip. A player who never looks
+// up still finishes, because the running line stays clear. The door is solid while no switch is
+// pressed and opens on the frame one is, which is why standing on the switch is not enough — the
+// door is eight tiles away and closes the moment Pip steps off. The Echo is what holds it: placed
+// at Pip's feet on the switch it keeps pressing for its 240-frame life, long enough to walk
+// through. A ? block and Nimbus wait behind the door as the reward — the mount the level then
+// teaches.
 
 import { TILE } from '../physics/constants.ts'
 
@@ -23,10 +29,10 @@ export const LEVEL_1_2_ROWS: readonly string[] = [
   '#..........................................................................................................................................................................................................................................................................................................#',
   '#..........................................................................................................................................................................................................................................................................................................#',
   '#..........................................................................................................................................................................................................................................................................................................#',
+  '#.........s.......D....?n..................................................................................................................................................................................................................................................................................#',
+  '#.....#####################.......?.................................................................................................................................................................................................................?......................................................#',
   '#..........................................................................................................................................................................................................................................................................................................#',
-  '#.................................?.................................................................................................................................................................................................................?......................................................#',
-  '#..........................................................................................................................................................................................................................................................................................................#',
-  '#S..................g.........................t.......................g.......................................t...................g...................C.........i...................t.............................g...................t...................g.........i....................................F.#',
+  '#S..........................................g.t.......................g.......................................t...................g...................C.........i...................t.............................g...................t...................g.........i....................................F.#',
   '##########################################################################################...#################################################################################################...###########################################################################################################',
   '##########################################################################################...#################################################################################################...###########################################################################################################',
 ]
@@ -43,13 +49,18 @@ export const LEVEL_1_2_PITS = [
 /** The midpoint checkpoint's column: the engine honours only the first 'C' tile it finds. */
 export const LEVEL_1_2_CHECKPOINT_COL = 150
 
+/** The raised ledge carrying the Echo-switch lesson, its switch and its door. */
+export const LEVEL_1_2_LEDGE = { firstCol: 6, lastCol: 26, row: 9 } as const
+export const LEVEL_1_2_SWITCH_COL = 10
+export const LEVEL_1_2_DOOR_COL = 18
+
 /**
- * The spot the tile view's thumbnail is framed on: the midpoint checkpoint at the ground line, so
- * the crop shows the checkpoint flag and the floor either side of it.
+ * The spot the tile view's thumbnail is framed on: the switch ledge, so a tile shows the level's
+ * lesson rather than the patch of ground every level opens on.
  */
 export const LEVEL_1_2_HERO = {
-  x: LEVEL_1_2_CHECKPOINT_COL * TILE,
-  y: 12 * TILE,
+  x: LEVEL_1_2_SWITCH_COL * TILE,
+  y: LEVEL_1_2_LEDGE.row * TILE,
 } as const
 
 /** Catalogue metadata: the level's id, the name the tile view draws and the set it is grouped under. */
