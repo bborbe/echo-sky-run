@@ -102,11 +102,12 @@ function ceilingCornerFix(
   h: number,
   map: TileMap,
   platforms: readonly Box[],
+  solids: readonly Box[],
 ): CornerFix | null {
   const probe = { x: startX, y: startY, w: PLAYER_W, h }
   for (let k = 1; k <= CORNER_CORRECTION_PX; k++) {
     for (const dx of [k, -k]) {
-      const moved = moveBox(probe, vx + dx, vy, map, platforms)
+      const moved = moveBox(probe, vx + dx, vy, map, platforms, solids)
       // `moved` is reused, so copy the fields out before the next probe overwrites them.
       if (!moved.hitTop) return { x: moved.x, y: moved.y, hitLeft: moved.hitLeft, hitRight: moved.hitRight }
     }
@@ -121,6 +122,8 @@ function ceilingCornerFix(
  * `fallCap` bounds the downward speed before the move — the default MAX_FALL leaves ordinary play
  * unchanged, and Nimbus's glide passes 1 px/f so the cap applies to the frame it is set, not the one
  * after.
+ *
+ * `solids` are boxes that block from every side — the level's closed Echo doors.
  */
 export function stepPlayer(
   s: PlayerState,
@@ -128,6 +131,7 @@ export function stepPlayer(
   map: TileMap,
   platforms: readonly Box[] = [],
   fallCap: number = MAX_FALL,
+  solids: readonly Box[] = [],
 ): PlayerState {
   if (input.jumpPressed) s.jumpBuffer = JUMP_BUFFER_F
 
@@ -176,7 +180,7 @@ export function stepPlayer(
   PLAYER_BOX.x = startX
   PLAYER_BOX.y = startY
   PLAYER_BOX.h = s.h
-  const moved = moveBox(PLAYER_BOX, s.vx, s.vy, map, platforms)
+  const moved = moveBox(PLAYER_BOX, s.vx, s.vy, map, platforms, solids)
   let nextX = moved.x
   let nextY = moved.y
   let hitLeft = moved.hitLeft
@@ -186,7 +190,7 @@ export function stepPlayer(
 
   // --- corner correction: a rising jump that clips a ceiling corner by a few pixels slips past it
   if (hitTop && s.vy < 0) {
-    const fix = ceilingCornerFix(startX, startY, s.vx, s.vy, s.h, map, platforms)
+    const fix = ceilingCornerFix(startX, startY, s.vx, s.vy, s.h, map, platforms, solids)
     if (fix !== null) {
       nextX = fix.x
       nextY = fix.y
@@ -206,7 +210,7 @@ export function stepPlayer(
   PLAYER_BOX.x = s.x
   PLAYER_BOX.y = s.y
   PLAYER_BOX.h = s.h
-  const ground = groundUnder(PLAYER_BOX, map, platforms)
+  const ground = groundUnder(PLAYER_BOX, map, platforms, solids)
   s.grounded = ground !== 'none'
   s.onPlatform = ground === 'platform'
   if (s.grounded) s.coyote = COYOTE_F

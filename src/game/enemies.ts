@@ -46,6 +46,12 @@ export const SHELL_SPEED = 3
 export const STOMP_TOLERANCE = 8
 /** The upward velocity a stomp gives Pip. */
 export const STOMP_BOUNCE = 4.5
+/**
+ * Frames of side contact before an enemy's touch hurts: 18 f ≈ 300 ms, the platformer guide's
+ * telegraph minimum. Every contact-damaging kind waits it out; a landing on a spiked top is the one
+ * exempt path, because the visible spikes are themselves the telegraph.
+ */
+export const WINDUP_F = 18
 
 export type EnemyKind =
   | 'gear-goomba'
@@ -72,6 +78,8 @@ export interface Enemy {
   hp: number
   /** Frames alive — the Gust-Wing's sine path is a function of it. */
   age: number
+  /** Consecutive frames of side contact; resets to 0 the frame Pip is clear of it. */
+  contact: number
   /** The Gust-Wing's path centre; every other enemy ignores it. */
   baseY: number
   /** Set the frame the enemy leaves play; the field drops it before returning. */
@@ -145,6 +153,7 @@ export function createEnemy(kind: EnemyKind, x: number, y: number, dir: -1 | 1 =
     mode: 'walk',
     hp: kind === 'chaser-bot' ? CHASER_HP : 1,
     age: 0,
+    contact: 0,
     baseY: y,
     dead: false,
   }
@@ -161,17 +170,25 @@ export function overlaps(a: Box, b: Box): boolean {
 }
 
 /**
- * A stomp is a downward move whose feet land in the top band of the enemy. The downward check is
- * load-bearing: without it a player rising through an enemy from below would count as a stomp.
- * A Spike-Beetle's back is spiked, so landing on it is a side hit, never a stomp.
+ * True when Pip's feet are landing in the top band of the enemy on a downward move — the geometric
+ * shape of a stomp, before the per-kind rules. The downward check is load-bearing: without it a
+ * player rising through an enemy from below would read as a landing.
  */
-export function stomps(player: Box, playerVy: number, e: Enemy): boolean {
+export function landsOnTop(player: Box, playerVy: number, e: Enemy): boolean {
   if (playerVy <= 0) return false
   if (e.mode === 'carried' || e.dead) return false
-  if (e.kind === 'spike-beetle') return false
   const feet = player.y + player.h
   if (feet < e.y || feet > e.y + STOMP_TOLERANCE) return false
   return player.x + player.w > e.x + EPS && player.x < e.x + e.w - EPS
+}
+
+/**
+ * A stomp is a landing that defeats or flattens. A Spike-Beetle's back is spiked, so landing on it is
+ * a side hit, never a stomp — `landsOnTop` is what the damage rule uses for that enemy instead.
+ */
+export function stomps(player: Box, playerVy: number, e: Enemy): boolean {
+  if (e.kind === 'spike-beetle') return false
+  return landsOnTop(player, playerVy, e)
 }
 
 /**
@@ -309,7 +326,19 @@ export function stepEnemies(
     // touchShell. Only a sliding shell hurts on contact.
     if (e.mode === 'shell') continue
 
-    if (overlaps(player, enemyBox(e))) hit = true
+    // A spiked top is a hazard surface, not an attack: a landing on it hurts at once, because the
+    // visible spikes are the telegraph. Every other contact waits out the wind-up.
+    if (e.kind === 'spike-beetle' && landsOnTop(player, playerVy, e)) {
+      hit = true
+      continue
+    }
+
+    if (overlaps(player, enemyBox(e))) {
+      e.contact += 1
+      if (e.contact >= WINDUP_F) hit = true
+    } else {
+      e.contact = 0
+    }
   }
 
   // Compact in place rather than filtering: `filter` builds a new array every frame, and the

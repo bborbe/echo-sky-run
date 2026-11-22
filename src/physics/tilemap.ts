@@ -16,6 +16,17 @@ export const QUESTION = '?'
 export const CHECKPOINT = 'C'
 /** A tutorial sign. Walking past it shows its hint, once. */
 export const SIGN = 'i'
+/** Nimbus, the companion mount, waits in this cell. */
+export const NIMBUS = 'n'
+/** An Echo switch (the blue gear) sits in this cell. */
+export const ECHO_SWITCH = 's'
+/**
+ * An Echo door's bottom tile. The door is three tiles tall (the art is 16×48), so it extends two
+ * tiles above the cell it is written in — the same feet-anchored convention `findEnemySpawns` uses.
+ */
+export const DOOR = 'D'
+/** The door spans three tiles; `DOOR_H` in `src/game/switches.ts` is the same 48 px. */
+export const DOOR_TILES_H = 3
 
 export interface TileMap {
   readonly cols: number
@@ -81,6 +92,31 @@ export function findEnemySpawns(map: TileMap): { kind: 'gear-goomba' | 'steam-tu
     for (const cell of findTiles(map, ch)) {
       spawns.push({ kind, x: cell.x, y: cell.y + TILE - h })
     }
+  }
+  return spawns
+}
+
+/**
+ * Where the level's Nimbus waits. It is one tile square, so the cell's top-left is its top-left —
+ * which is also its feet anchored to the cell's floor.
+ */
+export function findNimbusSpawns(map: TileMap): { x: number; y: number }[] {
+  return findTiles(map, NIMBUS)
+}
+
+/** Where the level's Echo switches sit. One tile square, so the cell's top-left is the switch. */
+export function findSwitchSpawns(map: TileMap): { x: number; y: number }[] {
+  return findTiles(map, ECHO_SWITCH)
+}
+
+/**
+ * Where the level's Echo doors stand. Anchored by their feet like `findEnemySpawns`: the cell the
+ * author wrote is the door's bottom tile, so a 3-tile door reaches two tiles above it.
+ */
+export function findDoorSpawns(map: TileMap): { x: number; y: number }[] {
+  const spawns: { x: number; y: number }[] = []
+  for (const cell of findTiles(map, DOOR)) {
+    spawns.push({ x: cell.x, y: cell.y + TILE - DOOR_TILES_H * TILE })
   }
   return spawns
 }

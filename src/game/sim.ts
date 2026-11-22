@@ -11,7 +11,10 @@ import { EPS, MAX_FALL, PLAYER_H, PLAYER_W, TILE } from '../physics/constants.ts
 import { createPlayer, stepPlayer, type PlayerInput, type PlayerState } from '../physics/player.ts'
 import {
   CHECKPOINT,
+  findDoorSpawns,
   findEnemySpawns,
+  findNimbusSpawns,
+  findSwitchSpawns,
   findTile,
   GOAL,
   QUESTION,
@@ -43,6 +46,7 @@ import {
   type PowerTier,
 } from './power.ts'
 import {
+  createNimbus,
   createNimbusField,
   glideFall,
   mountNimbus,
@@ -53,7 +57,7 @@ import {
   type NimbusField,
 } from './nimbus.ts'
 import { createPropField, type PropField } from './props.ts'
-import { createSwitchField, stepSwitches, type SwitchField } from './switches.ts'
+import { closedDoors, createDoor, createSwitch, createSwitchField, stepSwitches, type SwitchField } from './switches.ts'
 
 export interface SimInput extends PlayerInput {
   /** The Echo key went down this frame. */
@@ -79,6 +83,11 @@ export interface SimState {
   nimbus: NimbusField
   /** Echo switches and the doors they hold open. */
   switches: SwitchField
+  /**
+   * The closed doors as solid boxes, refilled once per step from `switches` and handed to the
+   * player's collision. Reused every frame so the fixed step allocates nothing.
+   */
+  doorBoxes: Box[]
   /** Pistons and windmills, whose state is a pure function of the frame. */
   props: PropField
   /** Pip's tier: Small dies to a hit, Super drops to Small. */
@@ -164,6 +173,20 @@ export function createSim(map: TileMap): SimState {
     enemies.enemies.push(createEnemy(spawnPoint.kind, spawnPoint.x, spawnPoint.y))
   }
 
+  const switches = createSwitchField()
+  for (const spawnPoint of findSwitchSpawns(map)) {
+    switches.switches.push(createSwitch(spawnPoint.x, spawnPoint.y))
+  }
+  for (const spawnPoint of findDoorSpawns(map)) {
+    switches.doors.push(createDoor(spawnPoint.x, spawnPoint.y))
+  }
+
+  // A level carries at most one Nimbus: the first spawn wins, so an accidental second one does not
+  // silently replace the mount the level meant.
+  const nimbus = createNimbusField()
+  const nimbusSpawns = findNimbusSpawns(map)
+  if (nimbusSpawns.length > 0) nimbus.nimbus = createNimbus(nimbusSpawns[0].x, nimbusSpawns[0].y)
+
   return {
     map,
     goal,
@@ -175,8 +198,9 @@ export function createSim(map: TileMap): SimState {
     field: createEchoField(),
     enemies,
     powers: createPowerField(),
-    nimbus: createNimbusField(),
-    switches: createSwitchField(),
+    nimbus,
+    switches,
+    doorBoxes: [],
     props: createPropField(),
     power: 'small',
     invuln: 0,
@@ -253,10 +277,14 @@ export function stepSim(sim: SimState, input: SimInput): void {
   // Place before the step, so a mid-air Echo can catch the player on the very frame it appears.
   if (input.echoPressed) placeEcho(sim.field, playerBox(sim.player), map)
 
+  // A closed door is solid. The door state is the switch result from the previous step — the state
+  // the player is walking into — and `stepSwitches` below refreshes it for the next frame.
+  closedDoors(sim.switches, sim.doorBoxes)
+
   // Nimbus's glide caps the fall at 1 px/f before the move, so the cap holds on the frame it is set.
   const preStepVy = sim.player.vy
   const fallCap = glideFall(sim.nimbus, input.jump, MAX_FALL)
-  stepPlayer(sim.player, input, map, echoPlatforms(sim.field), fallCap)
+  stepPlayer(sim.player, input, map, echoPlatforms(sim.field), fallCap, sim.doorBoxes)
   hitBlocks(sim)
 
   // A landing on Nimbus mounts it. `preStepVy` is the fall speed he arrived with, since stepPlayer
