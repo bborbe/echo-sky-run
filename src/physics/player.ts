@@ -1,4 +1,4 @@
-import { groundUnder, moveBox, type Box } from './collision.ts'
+import { groundUnder, moveBox, platformUnder, type Box } from './collision.ts'
 import {
   ACCEL,
   CORNER_CORRECTION_PX,
@@ -102,11 +102,12 @@ function ceilingCornerFix(
   h: number,
   map: TileMap,
   platforms: readonly Box[],
+  solids: readonly Box[],
 ): CornerFix | null {
   const probe = { x: startX, y: startY, w: PLAYER_W, h }
   for (let k = 1; k <= CORNER_CORRECTION_PX; k++) {
     for (const dx of [k, -k]) {
-      const moved = moveBox(probe, vx + dx, vy, map, platforms)
+      const moved = moveBox(probe, vx + dx, vy, map, platforms, solids)
       // `moved` is reused, so copy the fields out before the next probe overwrites them.
       if (!moved.hitTop) return { x: moved.x, y: moved.y, hitLeft: moved.hitLeft, hitRight: moved.hitRight }
     }
@@ -117,14 +118,26 @@ function ceilingCornerFix(
 /**
  * Advance the player one fixed step. Mutates and returns `state`; the simulation is a plain fold over
  * this function, which is what makes it deterministic for identical input sequences.
+ *
+ * `fallCap` bounds the downward speed before the move — the default MAX_FALL leaves ordinary play
+ * unchanged, and Nimbus's glide passes 1 px/f so the cap applies to the frame it is set, not the one
+ * after.
+ *
+ * `solids` are boxes that block from every side — the level's closed Echo doors.
  */
 export function stepPlayer(
   s: PlayerState,
   input: PlayerInput,
   map: TileMap,
   platforms: readonly Box[] = [],
+  fallCap: number = MAX_FALL,
+  solids: readonly Box[] = [],
 ): PlayerState {
   if (input.jumpPressed) s.jumpBuffer = JUMP_BUFFER_F
+
+  // Read before the move: a fresh landing is the transition from airborne to grounded, and the
+  // Echo's two landing rules below hang on it.
+  const wasGrounded = s.grounded
 
   // --- horizontal: accelerate toward the cap, or friction down to a stop
   const dir = (input.right ? 1 : 0) - (input.left ? 1 : 0)
@@ -159,7 +172,7 @@ export function stepPlayer(
 
   // --- gravity: holding jump while rising halves it, which is the whole variable jump
   const gravity = s.vy < 0 && input.jump ? GRAVITY_HELD : GRAVITY_FALL
-  s.vy = Math.min(s.vy + gravity, MAX_FALL)
+  s.vy = Math.min(s.vy + gravity, MAX_FALL, fallCap)
 
   // --- move, resolving each axis against the tile grid
   const startX = s.x
@@ -167,7 +180,7 @@ export function stepPlayer(
   PLAYER_BOX.x = startX
   PLAYER_BOX.y = startY
   PLAYER_BOX.h = s.h
-  const moved = moveBox(PLAYER_BOX, s.vx, s.vy, map, platforms)
+  const moved = moveBox(PLAYER_BOX, s.vx, s.vy, map, platforms, solids)
   let nextX = moved.x
   let nextY = moved.y
   let hitLeft = moved.hitLeft
@@ -177,7 +190,7 @@ export function stepPlayer(
 
   // --- corner correction: a rising jump that clips a ceiling corner by a few pixels slips past it
   if (hitTop && s.vy < 0) {
-    const fix = ceilingCornerFix(startX, startY, s.vx, s.vy, s.h, map, platforms)
+    const fix = ceilingCornerFix(startX, startY, s.vx, s.vy, s.h, map, platforms, solids)
     if (fix !== null) {
       nextX = fix.x
       nextY = fix.y
@@ -197,11 +210,36 @@ export function stepPlayer(
   PLAYER_BOX.x = s.x
   PLAYER_BOX.y = s.y
   PLAYER_BOX.h = s.h
-  const ground = groundUnder(PLAYER_BOX, map, platforms)
+  const ground = groundUnder(PLAYER_BOX, map, platforms, solids)
   s.grounded = ground !== 'none'
   s.onPlatform = ground === 'platform'
   if (s.grounded) s.coyote = COYOTE_F
   else if (s.coyote > 0) s.coyote -= 1
+
+  // --- the Echo is a foothold, not a runway
+  //
+  // A solid floor lets a runner carry his speed straight through a landing because it is as wide as
+  // the level. The Echo is 32 px, so the same speed crosses it in about ten frames and the player is
+  // off the far edge before he can react — the "I normally slide off the echo" report (play gate 3,
+  // row 2). Its edges therefore act as walls while he stands on it: he is stopped flush with the
+  // edge instead of running into the void, and he leaves it by running where there is room or by
+  // jumping, which is what keeps the jump off it at full speed.
+  //
+  // A landing he does not steer is stopped dead, the way a solid floor's would be — the report's own
+  // case, where the speed he arrived with carries him off with no key held.
+  //
+  // The same landing re-arms the jump buffer while jump is still held: the press that carried him
+  // onto the Echo is a single keydown edge, already spent, so without this the only way off is a
+  // release-and-press — the second half of the same report.
+  if (ground === 'platform') {
+    const platform = platformUnder(PLAYER_BOX, platforms)
+    if (platform !== null) {
+      if (s.x < platform.x) s.x = platform.x
+      else if (s.x + PLAYER_W > platform.x + platform.w) s.x = platform.x + platform.w - PLAYER_W
+    }
+    if (!wasGrounded && dir === 0) s.vx = 0
+    if (!wasGrounded && input.jump) s.jumpBuffer = JUMP_BUFFER_F
+  }
 
   if (s.jumpBuffer > 0) s.jumpBuffer -= 1
 

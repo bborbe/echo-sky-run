@@ -20,14 +20,16 @@ const page = await browser.newPage({ viewport: { width: 960, height: 540 } })
 // headless Chromium has no controller, and a real requestFullscreen needs a user gesture.
 await page.addInitScript(() => {
   window.__pads = []
-  window.__makePad = (pressed = []) => ({
+  // `values` sets an analog button's travel without marking it pressed — the shape a real trigger
+  // reports. A digital button reports value 1 while down, so the default keeps the old behaviour.
+  window.__makePad = (pressed = [], values = {}) => ({
     id: 'Xbox Wireless Controller',
     connected: true,
     mapping: 'standard',
     axes: [0, 0, 0, 0],
     buttons: Array.from({ length: 16 }, (_, i) => ({
       pressed: pressed.includes(i),
-      value: pressed.includes(i) ? 1 : 0,
+      value: values[i] ?? (pressed.includes(i) ? 1 : 0),
     })),
   })
   Object.defineProperty(navigator, 'getGamepads', {
@@ -84,14 +86,143 @@ try {
     card: window.__echoSkyRun.controls().visible,
     paused: window.__echoSkyRun.paused(),
   }))
-  check(title.menu?.screen === 'title', 'the game lands on the title screen', JSON.stringify(title.menu))
+  check(title.menu?.screen === 'tiles', 'the game lands on the tile view', JSON.stringify(title.menu))
   check(
-    JSON.stringify(title.menu?.items) === JSON.stringify(['START', 'CONTROLS']),
-    'the title offers START and CONTROLS',
+    JSON.stringify(title.menu?.items) === JSON.stringify(['1-1', '1-2']),
+    'the tile view lists the shipped levels',
     JSON.stringify(title.menu?.items),
   )
-  check(!title.card, 'the controls card does not cover the title: it is a row on it')
-  check(title.paused, 'nothing steps on the title screen')
+  check(!title.card, 'the controls card does not cover the tile view: H opens it')
+  check(title.paused, 'nothing steps on the tile view')
+
+  // The tile view draws its set heading and its level tile, so the landing screen is the catalogue.
+  await page.waitForFunction(() => window.__echoSkyRun.overlayLines().includes('1-1'))
+  const tilePanel = await page.evaluate(() => ({
+    lines: window.__echoSkyRun.overlayLines(),
+    box: window.__echoSkyRun.overlayBox(),
+  }))
+  check(
+    tilePanel.lines.includes('1-1') && tilePanel.lines.includes('WORLD 1'),
+    'the tile view draws its set heading and its level tile',
+    JSON.stringify(tilePanel.lines),
+  )
+  check(tilePanel.box !== null, 'the tile view draws a panel', JSON.stringify(tilePanel.box))
+
+  // The still preview: the focused tile's level is rendered behind the panel from its own data, and
+  // rendering it steps no simulation. The tile view is the first screen, so the sim's frame counter
+  // is the one to watch.
+  const preview = await page.evaluate(() => {
+    const api = window.__echoSkyRun
+    const game = document.querySelector('#game')
+    const { data } = game.getContext('2d').getImageData(0, 0, game.width, game.height)
+    const seen = new Set()
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] === 255) seen.add(`${data[i]},${data[i + 1]},${data[i + 2]}`)
+    }
+    const rgb = (hex) => {
+      const n = parseInt(hex.slice(1), 16)
+      return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`
+    }
+    const p = api.palette
+    return {
+      level: api.preview().level,
+      ready: api.preview().ready,
+      frames: api.state().frames,
+      ground: seen.has(rgb(p.ground)),
+      player: seen.has(rgb(p.pip)),
+    }
+  })
+  check(preview.level === '1-1', 'the tile view previews its focused level', JSON.stringify({ level: preview.level }))
+  check(
+    preview.ready && preview.ground && preview.player,
+    'the still preview renders the level behind the tiles',
+    JSON.stringify(preview),
+  )
+  check(preview.frames === 0, 'building the preview starts no simulation', `frames=${preview.frames}`)
+
+  // ---- each tile's hero-crop thumbnail ------------------------------------------------------
+  // Every tile draws a crop of its level's declared hero spot. The probe reads the crop's own
+  // pixels: a tile with no crop is one flat panel colour, and a spawn-framed crop would show the
+  // opening ground under the tile, so the 1-1 crop's bottom band must be pit, not floor.
+  const sampleTileThumbs = async (target) =>
+    target.evaluate(() => {
+      const api = window.__echoSkyRun
+      const canvas = document.querySelector('#game')
+      const ctx = canvas.getContext('2d')
+      const rgb = (hex) => {
+        const n = parseInt(hex.slice(1), 16)
+        return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+      }
+      const ground = [rgb(api.palette.ground), rgb(api.palette.groundTop)]
+      const isGround = (r, g, b) =>
+        ground.some(([gr, gg, gb]) => Math.abs(r - gr) <= 8 && Math.abs(g - gg) <= 8 && Math.abs(b - gb) <= 8)
+      return api
+        .tileBoxes()
+        .filter((box) => box.thumb !== null)
+        .map((box) => {
+          const r = box.thumb
+          const { data } = ctx.getImageData(r.x, r.y, r.w, r.h)
+          const colours = new Set()
+          let luma = 0
+          let groundPx = 0
+          let bottomPx = 0
+          for (let y = 0; y < r.h; y++) {
+            for (let x = 0; x < r.w; x++) {
+              const i = (y * r.w + x) * 4
+              const R = data[i]
+              const G = data[i + 1]
+              const B = data[i + 2]
+              colours.add(`${R},${G},${B}`)
+              luma += 0.2126 * R + 0.7152 * G + 0.0722 * B
+              if (y >= Math.floor((r.h * 2) / 3)) {
+                bottomPx += 1
+                if (isGround(R, G, B)) groundPx += 1
+              }
+            }
+          }
+          return {
+            level: box.level,
+            locked: box.locked,
+            colours: colours.size,
+            meanLuma: luma / (r.w * r.h),
+            bottomGround: groundPx / bottomPx,
+          }
+        })
+    })
+
+  const thumbs = await sampleTileThumbs(page)
+  const hero = thumbs.find((t) => t.level === '1-1')
+  check(hero !== undefined, 'the 1-1 tile draws a hero crop', JSON.stringify(thumbs))
+  check(
+    hero !== undefined && hero.colours > 3,
+    'the hero crop is a rendered still, not a flat panel',
+    JSON.stringify(hero),
+  )
+  check(
+    hero !== undefined && hero.bottomGround < 0.5,
+    "1-1's crop shows the Echo gap, not the spawn's floor",
+    JSON.stringify(hero),
+  )
+
+  // A locked tile keeps its crop, faded into the panel — never a blank tile.
+  const lockedPage = await browser.newPage({ viewport: { width: 960, height: 540 } })
+  await lockedPage.addInitScript(() => localStorage.setItem('echo-sky-run.v1', JSON.stringify({ unlockedLevels: [] })))
+  await lockedPage.goto(URL, { waitUntil: 'load' })
+  await lockedPage.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+  await lockedPage.waitForFunction(() => window.__echoSkyRun.overlayLines().includes('1-1'))
+  const lockedThumbs = await sampleTileThumbs(lockedPage)
+  const lockedHero = lockedThumbs.find((t) => t.level === '1-1')
+  check(
+    lockedHero !== undefined && lockedHero.locked && lockedHero.colours > 3,
+    'a locked tile still draws its hero crop',
+    JSON.stringify(lockedThumbs),
+  )
+  check(
+    lockedHero !== undefined && hero !== undefined && lockedHero.meanLuma < hero.meanLuma,
+    "the locked tile's crop is dimmed, not removed",
+    JSON.stringify({ locked: lockedHero?.meanLuma, unlocked: hero?.meanLuma }),
+  )
+  await lockedPage.close()
 
   // The 3 s budget covers the whole way in: page load, then the one press that hands over control.
   await page.keyboard.press('Space')
@@ -378,8 +509,8 @@ try {
   const timeLine = results.lines.find((l) => l.startsWith('TIME '))
   const bestLine = results.lines.find((l) => l.startsWith('BEST '))
   check(
-    results.screen === 'results' && JSON.stringify(results.menu?.items) === JSON.stringify(['RETRY', 'TITLE']),
-    'the flag hands the run to the results screen, offering RETRY and TITLE',
+    results.screen === 'results' && JSON.stringify(results.menu?.items) === JSON.stringify(['RETRY', 'MENU']),
+    'the flag hands the run to the results screen, offering RETRY and MENU',
     JSON.stringify({ screen: results.screen, menu: results.menu }),
   )
   check(
@@ -409,7 +540,7 @@ try {
     JSON.stringify({ retried, finishedFrames: results.frames }),
   )
 
-  // TITLE returns to the title panel, from the results.
+  // MENU returns to the tile view, from the results.
   await page.evaluate(() => window.__echoSkyRun.openScreen('results'))
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Space')
@@ -418,8 +549,8 @@ try {
     menu: window.__echoSkyRun.menu(),
   }))
   check(
-    atTitle.screen === 'title' && atTitle.menu?.items?.[0] === 'START',
-    'TITLE returns to the title panel',
+    atTitle.screen === 'tiles' && atTitle.menu?.items?.[0] === '1-1',
+    'MENU returns to the tile view',
     JSON.stringify(atTitle),
   )
 
@@ -498,7 +629,7 @@ try {
     lines: window.__echoSkyRun.overlayLines(),
   }))
   check(
-    pausePanel.paused && pausePanel.lines.includes('H / LB: CONTROLS'),
+    pausePanel.paused && pausePanel.lines.includes('H / SELECT: CONTROLS'),
     'the pause panel shows how to bring the controls back',
     JSON.stringify(pausePanel),
   )
@@ -528,8 +659,8 @@ try {
     return api.menu()
   })
   check(
-    JSON.stringify(pauseMenu?.items) === JSON.stringify(['RESUME', 'RESTART', 'SETTINGS']),
-    'the pause menu offers RESUME, RESTART and SETTINGS',
+    JSON.stringify(pauseMenu?.items) === JSON.stringify(['RESUME', 'RESTART', 'SETTINGS', 'QUIT']),
+    'the pause menu offers RESUME, RESTART, SETTINGS and QUIT',
     JSON.stringify(pauseMenu),
   )
 
@@ -607,6 +738,29 @@ try {
     JSON.stringify(settingsScreen.lines),
   )
 
+  // The card must not sit on top of the settings panel: opening it clears the canvas panel (no
+  // ghosted MUSIC / EFFECTS text under the card), and closing it brings the same screen back.
+  const settingsOverlap = await page.evaluate(async () => {
+    const api = window.__echoSkyRun
+    api.showControls()
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+    const withCard = { visible: api.controls().visible, box: api.overlayBox(), lines: api.overlayLines() }
+    api.hideControls()
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+    const without = { box: api.overlayBox(), lines: api.overlayLines() }
+    return { withCard, without }
+  })
+  check(
+    settingsOverlap.withCard.visible && settingsOverlap.withCard.box === null && settingsOverlap.withCard.lines.length === 0,
+    'the controls card clears the settings panel instead of overlapping it',
+    JSON.stringify(settingsOverlap.withCard),
+  )
+  check(
+    settingsOverlap.without.box !== null && settingsOverlap.without.lines.some((l) => l.startsWith('MUSIC ')),
+    'the settings panel returns when the card closes',
+    JSON.stringify(settingsOverlap.without),
+  )
+
   // BACK returns to the pause, and the back key leaves the settings for the pause too.
   await page.keyboard.press('Escape')
   const backFromSettings = await page.evaluate(() => window.__echoSkyRun.screen())
@@ -631,6 +785,25 @@ try {
     JSON.stringify(menuFrame),
   )
   await page.keyboard.press('p')
+
+  // The tile view is the same budget: its still preview is a cached blit, so it costs the menu
+  // nothing, and it is still there after returning from a run.
+  await page.evaluate(() => window.__echoSkyRun.openScreen('tiles'))
+  await page.waitForTimeout(1500)
+  const tileFrame = await page.evaluate(() => ({
+    timings: window.__echoSkyRun.frameTimings(),
+    preview: window.__echoSkyRun.preview(),
+  }))
+  check(
+    tileFrame.timings.samples >= 60 && tileFrame.timings.p99Ms <= 16.8 + 1e-6,
+    'a tile-view frame holds the 16.8 ms 60 Hz budget',
+    JSON.stringify(tileFrame.timings),
+  )
+  check(
+    tileFrame.preview.ready && tileFrame.preview.level === '1-1',
+    'the tile view still previews after returning from a run',
+    JSON.stringify(tileFrame.preview),
+  )
 
   // ---- controller ----------------------------------------------------------------------------
   await page.evaluate(() => {
@@ -657,15 +830,60 @@ try {
   check(hotPlug.toast.includes('connected'), 'a connection toast is shown', hotPlug.toast)
   check(hotPlug.card.pad, 'the controls card switches to pad labels')
 
+  // The pad rows name the buttons the map actually uses: Echo on RT, Run on LT, Controls on SELECT.
+  const padRows = hotPlug.card.rows
+  check(
+    padRows.some(([action, keys]) => action === 'Echo' && keys === 'RT') &&
+      padRows.some(([action, keys]) => action === 'Run / carry' && keys === 'LT') &&
+      padRows.some(([action, keys]) => action === 'Controls' && keys === 'View / Back'),
+    'the pad card names RT, LT and View / Back',
+    JSON.stringify(padRows),
+  )
+
+  // Labels follow the input that is connected at open time, not only the last connect event. The
+  // pad is plugged in and the card opened in the same tick, so no poll frame has fired onConnect.
+  const openTimeLabels = await page.evaluate(async () => {
+    const api = window.__echoSkyRun
+    window.__pads = []
+    await new Promise((r) => setTimeout(r, 150))
+    api.hideControls()
+    api.showControls()
+    const keyboard = api.controls()
+    api.hideControls()
+    window.__pads = [window.__makePad()]
+    api.showControls()
+    const pad = api.controls()
+    api.hideControls()
+    return { keyboard, pad }
+  })
+  check(
+    openTimeLabels.keyboard.pad === false &&
+      openTimeLabels.keyboard.rows.some(([a, k]) => a === 'Echo' && k === 'C / I'),
+    'with no pad the card shows keyboard codes',
+    JSON.stringify(openTimeLabels.keyboard.rows),
+  )
+  check(
+    openTimeLabels.pad.pad === true && openTimeLabels.pad.rows.some(([a, k]) => a === 'Echo' && k === 'RT'),
+    'the card reads the live pad at open time',
+    JSON.stringify(openTimeLabels.pad.rows),
+  )
+
   // The spec § 6 mapping, one button at a time. Each press must reach the game as its key code.
+  // The triggers are the primary bindings; X, Y and LB stay bound as aliases.
   const MAPPING = [
     [0, 'Space', 'A jump'],
     [1, 'KeyX', 'B spin'],
-    [2, 'ShiftLeft', 'X run'],
-    [3, 'KeyC', 'Y Echo'],
+    [2, 'ShiftLeft', 'X run (alias)'],
+    [3, 'KeyC', 'Y Echo (alias)'],
+    [4, 'KeyH', 'LB controls (alias)'],
+    [6, 'ShiftLeft', 'LT run'],
+    [7, 'KeyC', 'RT Echo'],
+    [8, 'KeyH', 'SELECT controls'],
   ]
   for (const [button, code, label] of MAPPING) {
     const pressed = await page.evaluate(async ({ button }) => {
+      // SELECT and the LB alias open the card, which then swallows the next key.
+      window.__echoSkyRun.hideControls()
       window.__keyCodes = []
       window.__pads = [window.__makePad([button])]
       await new Promise((resolve) => setTimeout(resolve, 150))
@@ -676,6 +894,38 @@ try {
     }, { button })
     check(pressed.includes(code), `pad ${label} presses ${code}`, JSON.stringify(pressed))
   }
+  await page.evaluate(() => window.__echoSkyRun.hideControls())
+
+  // A real trigger reports analog travel and leaves `pressed` false, so the threshold is what
+  // decides. Below it is no press; at or above it the action fires.
+  const analog = await page.evaluate(async () => {
+    const fire = async (values) => {
+      window.__echoSkyRun.hideControls()
+      window.__keyCodes = []
+      window.__pads = [window.__makePad([], values)]
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      const codes = window.__keyCodes
+      window.__pads = [window.__makePad()]
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      return codes
+    }
+    return {
+      rtBelow: await fire({ 7: 0.4 }),
+      rtAbove: await fire({ 7: 0.6 }),
+      ltBelow: await fire({ 6: 0.4 }),
+      ltAbove: await fire({ 6: 0.6 }),
+    }
+  })
+  check(
+    !analog.rtBelow.includes('KeyC') && analog.rtAbove.includes('KeyC'),
+    'RT reads by value: 0.4 does not echo, 0.6 does',
+    JSON.stringify(analog),
+  )
+  check(
+    !analog.ltBelow.includes('ShiftLeft') && analog.ltAbove.includes('ShiftLeft'),
+    'LT reads by value: 0.4 does not run, 0.6 does',
+    JSON.stringify(analog),
+  )
 
   // Start → Escape → pause. Pressed twice, so the run is left unpaused for the checks below.
   const startPauses = await page.evaluate(async () => {
@@ -715,18 +965,22 @@ try {
 
   const padControls = await page.evaluate(async () => {
     const api = window.__echoSkyRun
-    api.reset()
-    api.resume()
-    api.hideControls()
-    window.__pads = [window.__makePad([4])]
-    await new Promise((r) => setTimeout(r, 180))
-    const visible = api.controls().visible
-    window.__pads = [window.__makePad()]
-    await new Promise((r) => setTimeout(r, 120))
-    api.hideControls()
-    return visible
+    const press = async (button) => {
+      api.reset()
+      api.resume()
+      api.hideControls()
+      window.__pads = [window.__makePad([button])]
+      await new Promise((r) => setTimeout(r, 180))
+      const visible = api.controls().visible
+      window.__pads = [window.__makePad()]
+      await new Promise((r) => setTimeout(r, 120))
+      api.hideControls()
+      return visible
+    }
+    return { select: await press(8), lbAlias: await press(4) }
   })
-  check(padControls, 'pad LB opens the controls card', String(padControls))
+  check(padControls.select, 'pad SELECT opens the controls card', JSON.stringify(padControls))
+  check(padControls.lbAlias, 'pad LB still opens the controls card (alias)', JSON.stringify(padControls))
 
   // The first press after connect must not be swallowed. The pad appears already holding A — which
   // is exactly what a browser reports when the player presses a button to wake a pad — and Pip has
@@ -801,7 +1055,7 @@ try {
   // run state, the power tier and the level id are text by design, and requiring a digit of them
   // would force the executor to fake a number.
   const REQUIRED_FIELDS = [
-    'version', 'commit', 'level', 'checkpoint', 'state',
+    'version', 'commit', 'level', 'lead', 'checkpoint', 'state',
     'fps', 'frame', 'p99', 'steps',
     'x', 'y', 'vx', 'vy',
     'grounded', 'power', 'charge', 'timer', 'speed',
@@ -1150,23 +1404,30 @@ try {
     let moved = 0
     for (let i = 0; i < 30; i++) {
       await new Promise((r) => requestAnimationFrame(r))
-      const cam = api.cameraX()
+      // Read the camera the canvas was actually drawn at, not the live camera: the render loop can
+      // advance the camera after it draws, and pairing that newer value with the older pixels
+      // reports a one-pixel shift the camera never made. If a frame is drawn between the pixel grab
+      // and the camera read, skip it — the sample cannot be attributed to a single frame.
+      const before = { x: api.drawnCameraX(), y: api.drawnCameraY() }
       const data = ctx.getImageData(0, 192, W, 32).data
+      const after = { x: api.drawnCameraX(), y: api.drawnCameraY() }
+      if (before.x !== after.x || before.y !== after.y) continue
       if (prev) {
-        const d = cam - prev.cam
-        if (d !== 0) moved++
-        // Every pixel of the overlap, every channel. `cameraX()` is the scroll rounded to whole
-        // pixels, while the frame is drawn at the camera's unrounded position, so the band's true
-        // shift between two drawn frames can be `d` or one pixel either side of it. Take the best of
-        // the three: a build that repaints the ground for any other reason — the flicker this check
-        // exists to catch — still mismatches on all three shifts.
+        const d = before.x - prev.cam.x
+        const e = before.y - prev.cam.y
+        if (d !== 0 || e !== 0) moved++
+        // Every pixel of the overlap, every channel, shifted by the camera's own move on both axes.
+        // The drawn camera is rounded to whole pixels, while a frame is drawn at the camera's
+        // unrounded position, so the band's true horizontal shift can be `d` or one pixel either
+        // side of it; take the best of the three. A build that repaints the ground for any other
+        // reason — the flicker this check exists to catch — still mismatches on all three shifts.
         let best = Infinity
         for (const shift of [d - 1, d, d + 1]) {
           let bad = 0
           let n = 0
-          for (let y = 0; y < 32; y++) {
+          for (let y = Math.max(0, -e); y < Math.min(32, 32 - e); y++) {
             for (let x = Math.max(0, -shift); x < Math.min(W, W - shift); x++) {
-              const a = (y * W + x + shift) * 4
+              const a = ((y + e) * W + x + shift) * 4
               const b = (y * W + x) * 4
               n++
               if (
@@ -1184,7 +1445,7 @@ try {
         }
         mismatched += best
       }
-      prev = { cam, data }
+      prev = { cam: before, data }
     }
     window.dispatchEvent(new KeyboardEvent('keyup', { code: 'ArrowRight', bubbles: true }))
     return { moved, compared, mismatched }
@@ -1322,6 +1583,8 @@ try {
     'jump', 'land', 'echo-place', 'echo-expire', 'echo-refuse', 'stomp', 'block', 'mushroom-appear',
     'mushroom-collect', 'shell-kick', 'power-down', 'death', 'checkpoint', 'goal', 'ui-open', 'ui-close',
     'ui-tick',
+    // World 1's new entities, driven by the `world1-new` fixture scene below.
+    'spike-beetle', 'gust-wing', 'chaser-bot', 'nimbus', 'piston', 'windmill', 'echo-door', 'echo-switch',
   ]
   const trace = []
   const audioState = () => page.evaluate(() => window.__echoSkyRun.audio())
@@ -1628,15 +1891,179 @@ try {
     for (let i = 0; i < 300 && g.state().deaths === 0; i++) g.step({ right: true })
   })
 
+  // The world-1 fixture scene: one of every new entity's sound, driven directly so the trace proves
+  // each recipe plays. The shipped levels do not place these entities yet — the engine task owns that —
+  // so the fixture's `fixtureSounds()` is the producer the trace check reads.
+  await openAudioPage('&fixture=world1-new&x=300&y=178')
+  await page.waitForFunction(() => window.__echoSkyRun.audio().ready, null, { timeout: 10000 })
+  await page.keyboard.press('z')
+  await page.waitForFunction(() => window.__echoSkyRun.audio().ready, null, { timeout: 10000 })
+  await page.evaluate(() => window.__echoSkyRun.fixtureSounds())
+  await page.waitForTimeout(200)
+  await keepTrace()
+
   const heard = new Set(trace.filter((e) => e.played).map((e) => e.event))
   const missingSounds = SOUND_EVENTS.filter((e) => !heard.has(e))
-  check(missingSounds.length === 0, 'every one of the 17 sound events of 1-1 is in the audiolog, played', `missing=${JSON.stringify(missingSounds)}`)
-  const wrongRecipe = trace.filter((e) => e.recipe !== e.event)
+  check(
+    missingSounds.length === 0,
+    'every sound event — 1-1\'s 17 and world 1\'s eight — is in the audiolog, played',
+    `missing=${JSON.stringify(missingSounds)}`,
+  )
+  // The Echo switch plays the shared `switch` recipe; every other event's recipe id is its own name.
+  const wrongRecipe = trace.filter((e) => e.recipe !== e.event && !(e.event === 'echo-switch' && e.recipe === 'switch'))
   check(
     trace.length > 0 && wrongRecipe.length === 0,
     'each audiolog entry carries its event\'s own recipe id',
     `entries=${trace.length} wrong=${JSON.stringify(wrongRecipe.slice(0, 3))}`,
   )
+
+  // ---- the overworld map (?map=1) ------------------------------------------------------------
+  // The map is the level select over World 1's path, and its node lines are read off the save. The
+  // save is seeded before each load, so a renderer that ignores it draws the same line twice and the
+  // two fixtures below cannot both pass.
+  // The script's own `URL` constant shadows the global `URL` class, so the map URL is built by hand.
+  const MAP_URL = `${URL}${URL.includes('?') ? '&' : '?'}map=1`
+  const MAP_SAVE = {
+    version: 2,
+    bestSeconds: 42.3,
+    unlockedLevels: ['1-1'],
+    relics: { '1-1': 2 },
+    bestTimes: { '1-1': 42.3 },
+  }
+
+  // Count storage writes from here on, so a refused node can be shown to write nothing. Installed as
+  // an init script so the counter survives the reload that opens the map.
+  await page.addInitScript(() => {
+    window.__saveWrites = 0
+    const real = Storage.prototype.setItem
+    Storage.prototype.setItem = function (key, value) {
+      window.__saveWrites += 1
+      return real.call(this, key, value)
+    }
+  })
+
+  await page.evaluate((save) => localStorage.setItem('echo-sky-run.v1', JSON.stringify(save)), MAP_SAVE)
+  await page.goto(MAP_URL, { waitUntil: 'load' })
+  await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+
+  const mapView = await page.evaluate(() => ({
+    screen: window.__echoSkyRun.screen(),
+    items: window.__echoSkyRun.menu()?.items ?? [],
+  }))
+  check(
+    mapView.screen === 'tiles' && mapView.items.length > 0 && mapView.items.includes('1-1'),
+    '?map=1 opens the map with its nodes and the 1-1 label',
+    JSON.stringify(mapView),
+  )
+
+  await page.waitForFunction(() => window.__echoSkyRun.overlayLines().some((l) => l.startsWith('1-1 ')))
+  const mapLines = await page.evaluate(() => window.__echoSkyRun.overlayLines())
+  check(
+    mapLines.includes('1-1 ◆◆◇ · 42.3 s'),
+    'the 1-1 node draws its Relic Coins and its best time',
+    JSON.stringify(mapLines),
+  )
+  check(mapLines.includes('1-2 LOCKED'), 'a locked node draws LOCKED, not a time', JSON.stringify(mapLines))
+
+  // Selecting an unlocked node enters the level screen.
+  await page.keyboard.press('Space')
+  await page.waitForFunction(() => window.__echoSkyRun.screen() === 'level', null, { timeout: 3000 }).catch(() => {})
+  check(
+    (await page.evaluate(() => window.__echoSkyRun.screen())) === 'level',
+    'selecting the unlocked 1-1 node enters the level screen',
+  )
+
+  // Back on the map, a locked node refuses and writes nothing.
+  await page.goto(MAP_URL, { waitUntil: 'load' })
+  await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+  // Positive control: the write counter sees a real write, so the unchanged count below means
+  // something. Without it, "0 before, 0 after" is equally consistent with a counter that never fires.
+  const spyWorks = await page.evaluate(() => {
+    const before = window.__saveWrites
+    localStorage.setItem('echo-sky-run.e2e-probe', '1')
+    localStorage.removeItem('echo-sky-run.e2e-probe')
+    return window.__saveWrites > before
+  })
+  check(spyWorks, 'the storage-write probe counts a real write')
+  const beforePress = await page.evaluate(() => ({
+    raw: localStorage.getItem('echo-sky-run.v1'),
+    writes: window.__saveWrites,
+  }))
+  await page.keyboard.press('ArrowRight') // focus 1-2, which this save has not unlocked
+  await page.keyboard.press('Space')
+  const afterPress = await page.evaluate(() => ({
+    raw: localStorage.getItem('echo-sky-run.v1'),
+    writes: window.__saveWrites,
+    screen: window.__echoSkyRun.screen(),
+  }))
+  check(afterPress.screen === 'tiles', 'a locked node refuses to start the level', JSON.stringify(afterPress))
+  check(
+    afterPress.raw === beforePress.raw && afterPress.writes === beforePress.writes,
+    'the refused node writes nothing to the save',
+    JSON.stringify({ before: beforePress.writes, after: afterPress.writes }),
+  )
+
+  // An unlocked level with no module reads NOT BUILT YET, and confirming it is a no-op.
+  // 1-3, not 1-2: 1-2 ships a level module, so it is built now.
+  await page.evaluate(() =>
+    localStorage.setItem(
+      'echo-sky-run.v1',
+      JSON.stringify({ version: 2, bestSeconds: null, unlockedLevels: ['1-1', '1-2', '1-3'], relics: {}, bestTimes: {} }),
+    ),
+  )
+  await page.goto(MAP_URL, { waitUntil: 'load' })
+  await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+  await page.waitForFunction(() => window.__echoSkyRun.overlayLines().some((l) => l.startsWith('1-3 ')))
+  const unbuiltLines = await page.evaluate(() => window.__echoSkyRun.overlayLines())
+  check(
+    unbuiltLines.includes('1-3 NOT BUILT YET'),
+    'an unlocked level with no module reads NOT BUILT YET',
+    JSON.stringify(unbuiltLines),
+  )
+  // Focus starts on 1-1, so 1-3 is two nodes along the path.
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('Space')
+  check(
+    (await page.evaluate(() => window.__echoSkyRun.screen())) === 'tiles',
+    'an unbuilt node is a no-op',
+  )
+
+  // ---- level 1-2, driven deterministically ------------------------------------------------
+  // A second catalogue entry is only worth shipping if it is playable end to end, so the browser
+  // check plays 1-2 to the goal the same way it plays 1-1.
+  await page.goto(`${URL}?level=1-2`, { waitUntil: 'load' })
+  await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+  const run12 = await page.evaluate(() => {
+    const game = window.__echoSkyRun
+    game.reset()
+    let wantEchoOnce = false
+    let echoesPlaced = 0
+    let previousEchoes = game.state().echoes
+    for (let i = 0; i < 3000; i++) {
+      const s = game.state()
+      const enemyNear = game.enemyXs().some((ex) => ex > s.x && ex - s.x < 40)
+      const jumpPressed = s.grounded && (game.lipMissingAt(s.x) || enemyNear)
+      // 1-2 has no Echo beat yet, so `echoAtX` is null and the driver never places one.
+      const echoAtX = game.echoAtX
+      const wantEcho =
+        echoAtX !== null && !wantEchoOnce && !s.grounded && s.x >= echoAtX && s.airCharges > 0
+      if (wantEcho) wantEchoOnce = true
+      const next = game.step({
+        right: true,
+        jump: true,
+        jumpPressed,
+        sprint: true,
+        echoPressed: wantEcho,
+      })
+      if (next.echoes > previousEchoes) echoesPlaced += 1
+      previousEchoes = next.echoes
+      if (next.goalReached) return { won: true, frames: i + 1, echoesPlaced, x: next.x }
+      if (next.deaths > 0) return { won: false, died: true, frames: i + 1, x: next.x }
+    }
+    return { won: false, timedOut: true }
+  })
+  check(run12.won, 'level 1-2 is cleared', JSON.stringify(run12))
 
   check(errors.length === 0, 'no console errors', errors.slice(0, 3).join(' | '))
 } catch (err) {

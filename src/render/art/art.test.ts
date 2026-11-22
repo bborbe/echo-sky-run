@@ -1,13 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import { ECHO_LIFE_F } from '../../echo/echo.ts'
 import {
+  CHASER_BOT_H,
+  CHASER_BOT_W,
   GEAR_GOOMBA_H,
   GEAR_GOOMBA_W,
+  GUST_WING_H,
+  GUST_WING_W,
   SHELL_H,
   SHELL_W,
+  SPIKE_BEETLE_H,
+  SPIKE_BEETLE_W,
   STEAM_TURTLE_H,
   STEAM_TURTLE_W,
 } from '../../game/enemies.ts'
+import { PISTON_H, PISTON_W, WINDMILL_H, WINDMILL_W } from '../../game/props.ts'
 import { SMALL_H, SMALL_W, SUPER_H, SUPER_W } from '../../physics/constants.ts'
 import { parseLevel } from '../../physics/tilemap.ts'
 import { CATALOGUE, animation } from './catalogue.ts'
@@ -32,6 +39,11 @@ const MOVING = new Set([
   'echo-timer-ring',
   'echo-spark',
   'dust',
+  'spike-beetle-walk',
+  'gust-wing-fly',
+  'chaser-bot-walk',
+  'nimbus-fly',
+  'windmill-spin',
 ])
 
 /** Two frames of a moving animation must differ by more than a stray pixel. */
@@ -121,6 +133,21 @@ describe('the sprite catalogue', () => {
       'sign',
       'tile-top',
       'tile-edges',
+      'spike-beetle-walk',
+      'gust-wing-fly',
+      'chaser-bot-walk',
+      'nimbus-fly',
+      'echo-switch',
+      'echo-door',
+      'piston-retracted',
+      'piston-extended',
+      'windmill-spin',
+      'map-path',
+      'relic-coin-1',
+      'relic-coin-2',
+      'relic-coin-3',
+      'map-node',
+      'map-node-current',
     ]) {
       expect(names.has(name), name).toBe(true)
     }
@@ -139,6 +166,11 @@ describe('hitbox and sprite sizes (spec § 4)', () => {
     ['turtle-walk', STEAM_TURTLE_W, STEAM_TURTLE_H],
     ['turtle-shell', SHELL_W, SHELL_H],
     ['turtle-shell-kicked', SHELL_W, SHELL_H],
+    ['spike-beetle-walk', SPIKE_BEETLE_W, SPIKE_BEETLE_H],
+    ['gust-wing-fly', GUST_WING_W, GUST_WING_H],
+    ['chaser-bot-walk', CHASER_BOT_W, CHASER_BOT_H],
+    ['piston-retracted', PISTON_W, PISTON_H],
+    ['windmill-spin', WINDMILL_W, WINDMILL_H],
   ] as const
 
   it('keeps every hazard hitbox at 85–90 % of what is drawn, on each axis', () => {
@@ -161,6 +193,11 @@ describe('hitbox and sprite sizes (spec § 4)', () => {
     expect(drawn('turtle-walk')).toEqual({ w: 18, h: 27 })
     expect(drawn('turtle-shell')).toEqual({ w: 18, h: 18 })
     expect(drawn('turtle-shell-kicked')).toEqual({ w: 18, h: 18 })
+    expect(drawn('spike-beetle-walk')).toEqual({ w: 18, h: 18 })
+    expect(drawn('gust-wing-fly')).toEqual({ w: 18, h: 18 })
+    expect(drawn('chaser-bot-walk')).toEqual({ w: 18, h: 18 })
+    expect(drawn('piston-retracted')).toEqual({ w: 36, h: 36 })
+    expect(drawn('windmill-spin')).toEqual({ w: 54, h: 54 })
   })
 
   it('never draws a hazard frame smaller than its hitbox', () => {

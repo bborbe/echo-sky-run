@@ -33,12 +33,30 @@ export const GAME_EVENTS = [
   'ui-tick',
 ] as const
 
-export type SoundEvent = (typeof GAME_EVENTS)[number]
+/**
+ * The world-1 entities' own sounds (spec § 9 Sound, "Arrive with their action"). The Echo switch
+ * reuses the existing `switch` recipe; every other event owns a recipe of the same name.
+ */
+export const WORLD1_EVENTS = [
+  'spike-beetle',
+  'gust-wing',
+  'chaser-bot',
+  'nimbus',
+  'piston',
+  'windmill',
+  'echo-door',
+  'echo-switch',
+] as const
+
+export type SoundEvent = (typeof GAME_EVENTS)[number] | (typeof WORLD1_EVENTS)[number]
 
 /** Recipes for actions not in 1-1 yet. They are rendered and unit-tested now, and fire once built. */
 export const LATER_RECIPES = ['spin', 'coin', 'switch'] as const
 
-export type RecipeId = SoundEvent | (typeof LATER_RECIPES)[number]
+/** Every event except the Echo switch, which plays the shared `switch` recipe rather than its own. */
+type OwnRecipe = Exclude<SoundEvent, 'echo-switch'>
+
+export type RecipeId = OwnRecipe | (typeof LATER_RECIPES)[number]
 
 /** Which recipe each event plays. One recipe per event — a test holds it injective. */
 export const EVENT_RECIPE: Readonly<Record<SoundEvent, RecipeId>> = {
@@ -59,6 +77,14 @@ export const EVENT_RECIPE: Readonly<Record<SoundEvent, RecipeId>> = {
   'ui-open': 'ui-open',
   'ui-close': 'ui-close',
   'ui-tick': 'ui-tick',
+  'spike-beetle': 'spike-beetle',
+  'gust-wing': 'gust-wing',
+  'chaser-bot': 'chaser-bot',
+  nimbus: 'nimbus',
+  piston: 'piston',
+  windmill: 'windmill',
+  'echo-door': 'echo-door',
+  'echo-switch': 'switch',
 }
 
 /** A brass note: two detuned saws through a low-pass that opens with the envelope. */
@@ -249,6 +275,83 @@ export const RECIPES: Readonly<Record<RecipeId, readonly Voice[]>> = {
   ],
   'ui-tick': [{ wave: 'square', at: 0, dur: 0.05, freq: 1320, gain: 0.12, decay: 0.05, sustain: 0, lowpass: 4000 }],
 
+  // --- world 1's new entities (spec § 9 Sound, "Arrive with their action")
+  // A beetle's dry chitin clicks: three sharp square ticks and a scrape.
+  'spike-beetle': [
+    { wave: 'square', at: 0, dur: 0.02, freq: 1500, gain: 0.3, duty: 0.3, decay: 0.02, sustain: 0, lowpass: 6000 },
+    { wave: 'square', at: 0.035, dur: 0.02, freq: 1700, gain: 0.3, duty: 0.3, decay: 0.02, sustain: 0, lowpass: 6000 },
+    { wave: 'square', at: 0.07, dur: 0.02, freq: 1450, gain: 0.28, duty: 0.3, decay: 0.02, sustain: 0, lowpass: 6000 },
+    { wave: 'noise', at: 0.1, dur: 0.03, freq: 3000, gain: 0.16, decay: 0.03, sustain: 0, lowpass: 6000, seed: 31 },
+  ],
+  // A gust of wind through brass feathers: low-passed noise swelling and fading.
+  'gust-wing': [
+    {
+      wave: 'noise',
+      at: 0,
+      dur: 0.34,
+      freq: 0,
+      gain: 0.35,
+      attack: 0.06,
+      decay: 0.1,
+      sustain: 0.6,
+      release: 0.12,
+      lowpass: 1200,
+      lowpassEnv: 1800,
+      seed: 41,
+    },
+  ],
+  // A servo hunting: a low square buzz stepping up to a higher beep.
+  'chaser-bot': [
+    { wave: 'square', at: 0, dur: 0.06, freq: 320, freqEnd: 420, gain: 0.3, duty: 0.4, decay: 0.06, sustain: 0, lowpass: 3000 },
+    { wave: 'square', at: 0.07, dur: 0.1, freq: 640, freqEnd: 760, gain: 0.22, duty: 0.3, decay: 0.1, sustain: 0, lowpass: 4000 },
+  ],
+  // A soft cloud chime: two high sines ringing out.
+  nimbus: [
+    { wave: 'sine', at: 0, dur: 0.55, freq: hz(86), freqEnd: hz(87), gain: 0.28, attack: 0.02, decay: 0.4, sustain: 0, release: 0.1 },
+    { wave: 'sine', at: 0.02, dur: 0.3, freq: hz(93), gain: 0.1, decay: 0.3, sustain: 0, release: 0.05 },
+  ],
+  // A hydraulic clank: a low thud, a metal tick and a short steam hiss.
+  piston: [
+    { wave: 'sine', at: 0, dur: 0.09, freq: 130, freqEnd: 48, gain: 0.5, attack: 0.001, decay: 0.09, sustain: 0 },
+    { wave: 'noise', at: 0, dur: 0.03, freq: 2000, gain: 0.22, decay: 0.03, sustain: 0, lowpass: 2600, seed: 53 },
+    { wave: 'square', at: 0.01, dur: 0.04, freq: 200, gain: 0.12, decay: 0.04, sustain: 0 },
+  ],
+  // A wooden creak: a low triangle rising a little under a slow wobble.
+  windmill: [
+    {
+      wave: 'triangle',
+      at: 0,
+      dur: 0.4,
+      freq: 180,
+      freqEnd: 230,
+      gain: 0.28,
+      attack: 0.03,
+      decay: 0.1,
+      sustain: 0.6,
+      release: 0.08,
+      vibratoRate: 9,
+      vibratoDepth: 0.7,
+      lowpass: 1600,
+    },
+  ],
+  // A portal opening: a saw sweeping up under a bell on the way out.
+  'echo-door': [
+    {
+      wave: 'saw',
+      at: 0,
+      dur: 0.5,
+      freq: 110,
+      freqEnd: 660,
+      gain: 0.22,
+      attack: 0.02,
+      decay: 0.05,
+      sustain: 0.8,
+      release: 0.12,
+      lowpass: 2500,
+    },
+    { wave: 'sine', at: 0.3, dur: 0.3, freq: hz(81), gain: 0.12, decay: 0.3, sustain: 0, release: 0.05 },
+  ],
+
   // --- recipes for actions that arrive after 1-1
   spin: [
     {
@@ -277,5 +380,15 @@ export const RECIPES: Readonly<Record<RecipeId, readonly Voice[]>> = {
   ],
 }
 
-/** Every recipe id, the 17 events' own first. */
-export const RECIPE_IDS: readonly RecipeId[] = [...GAME_EVENTS, ...LATER_RECIPES]
+/** Every recipe id: the 17 events of 1-1, the seven new world-1 entity recipes, then the later ones. */
+export const RECIPE_IDS: readonly RecipeId[] = [
+  ...GAME_EVENTS,
+  'spike-beetle',
+  'gust-wing',
+  'chaser-bot',
+  'nimbus',
+  'piston',
+  'windmill',
+  'echo-door',
+  ...LATER_RECIPES,
+]

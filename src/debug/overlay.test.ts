@@ -3,9 +3,11 @@ import {
   DEBUG_COPY_KEY,
   debugToggle,
   debugVisible,
+  readAutopilot,
   readEchoSpot,
   readFreeze,
   readLevel,
+  readLoop,
   readSpawn,
   spawnQuery,
 } from './overlay.ts'
@@ -77,5 +79,31 @@ describe('debug spawn', () => {
     expect(readFreeze('?level=1-1&x=10&y=20')).toBe(false)
     expect(readFreeze('?freeze=0')).toBe(false)
     expect(readFreeze('')).toBe(false)
+  })
+
+  it('hands the level to the autopilot only on ?autopilot=1', () => {
+    expect(readAutopilot('?level=1-1&autopilot=1')).toBe(true)
+    expect(readAutopilot('?autopilot=1')).toBe(true)
+    expect(readAutopilot('?level=1-1')).toBe(false)
+    expect(readAutopilot('?autopilot=0')).toBe(false)
+    expect(readAutopilot('?autopilot=yes')).toBe(false)
+    expect(readAutopilot('')).toBe(false)
+  })
+
+  it('stays a single recorded clear unless ?loop=1 opts in', () => {
+    expect(readLoop('?autopilot=1')).toBe(false)
+    expect(readLoop('?level=1-1&autopilot=1&vol=0')).toBe(false)
+    expect(readLoop('?autopilot=1&loop=0')).toBe(false)
+  })
+
+  it('loops on ?loop=1, so one page load clears over and over', () => {
+    expect(readLoop('?autopilot=1&loop=1')).toBe(true)
+    expect(readLoop('?level=1-1&autopilot=1&loop=1&vol=0')).toBe(true)
+  })
+
+  it('never loops without the autopilot, so loop on its own turns nothing on', () => {
+    expect(readLoop('?loop=1')).toBe(false)
+    expect(readLoop('?level=1-1')).toBe(false)
+    expect(readLoop('')).toBe(false)
   })
 })

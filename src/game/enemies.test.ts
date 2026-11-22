@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { PLAYER_H, PLAYER_W } from '../physics/constants.ts'
 import { parseLevel } from '../physics/tilemap.ts'
 import {
+  chaserTarget,
   createEnemy,
   createEnemyField,
   dropShell,
@@ -9,6 +10,7 @@ import {
   enemyBox,
   GEAR_GOOMBA_H,
   GEAR_GOOMBA_W,
+  GUST_WING_PERIOD_F,
   SHELL_H,
   SHELL_SPEED,
   STEAM_TURTLE_H,
@@ -16,6 +18,7 @@ import {
   stepEnemies,
   stomps,
   touchShell,
+  WINDUP_F,
   type EnemyField,
 } from './enemies.ts'
 
@@ -32,6 +35,11 @@ function playerAt(x: number) {
 function playerAbove(x: number, top: number, dy = 0) {
   const feet = top + dy
   return { x, y: feet - PLAYER_H, w: PLAYER_W, h: PLAYER_H }
+}
+
+/** A player box sitting exactly on the enemy, so every step counts as a contact frame. */
+function inContact(e: { x: number; y: number }) {
+  return { x: e.x, y: e.y, w: PLAYER_W, h: PLAYER_H }
 }
 
 function goombaOnFloor(x: number, dir: -1 | 1 = -1) {
@@ -186,15 +194,19 @@ describe('shell', () => {
 })
 
 describe('damage', () => {
-  it('reports a side touch as a hit, not a stomp', () => {
+  it('reports a side touch as a hit only after the wind-up', () => {
     const g = goombaOnFloor(32)
     const field = fieldWith(g)
 
-    // Level with the enemy, not above it: feet are far below its top band.
-    const events = stepEnemies(field, playerAt(32), 0, FLOOR)
+    // Level with the enemy, not above it: feet are far below its top band. The first contact frame
+    // is inside the wind-up, so it does not hurt.
+    const first = stepEnemies(field, playerAt(32), 0, FLOOR)
+    expect(first.stomped).toHaveLength(0)
+    expect(first.hit).toBe(false)
 
-    expect(events.stomped).toHaveLength(0)
-    expect(events.hit).toBe(true)
+    // 17 contact frames in total is still inside the wind-up; the 18th hurts.
+    for (let i = 1; i < WINDUP_F - 1; i++) expect(stepEnemies(field, playerAt(32), 0, FLOOR).hit).toBe(false)
+    expect(stepEnemies(field, playerAt(32), 0, FLOOR).hit).toBe(true)
     expect(enemyBox(g).w).toBe(GEAR_GOOMBA_W)
   })
 
@@ -202,5 +214,138 @@ describe('damage', () => {
     const field = fieldWith(goombaOnFloor(32))
     const events = stepEnemies(field, playerAt(140), 0, FLOOR)
     expect(events.hit).toBe(false)
+  })
+
+  it('resets the wind-up when contact breaks for a frame', () => {
+    const field = fieldWith(goombaOnFloor(32))
+
+    for (let i = 0; i < WINDUP_F - 1; i++) stepEnemies(field, inContact(field.enemies[0]), 0, FLOOR)
+    // One frame clear of it, then back in: the counter starts from zero again.
+    stepEnemies(field, playerAt(140), 0, FLOOR)
+    expect(stepEnemies(field, inContact(field.enemies[0]), 0, FLOOR).hit).toBe(false)
+  })
+})
+
+describe('contact wind-up', () => {
+  const KINDS = ['gear-goomba', 'spike-beetle', 'gust-wing', 'chaser-bot', 'steam-turtle'] as const
+
+  for (const kind of KINDS) {
+    it(`${kind} refuses side contact until its ${WINDUP_F}-frame wind-up elapses`, () => {
+      const e = createEnemy(kind, 32, FLOOR_Y - (kind === 'steam-turtle' ? STEAM_TURTLE_H : 16), 1)
+      const field = fieldWith(e)
+
+      // The player box sits on the enemy, so every step is a contact frame — the shape a player
+      // standing against it produces. 17 frames do nothing; the 18th hurts.
+      for (let i = 0; i < WINDUP_F - 1; i++) {
+        expect(stepEnemies(field, inContact(field.enemies[0]), 0, FLOOR).hit).toBe(false)
+      }
+      expect(stepEnemies(field, inContact(field.enemies[0]), 0, FLOOR).hit).toBe(true)
+    })
+  }
+})
+
+describe('Spike-Beetle', () => {
+  it('is 16x16 and walks at 0.5 px/f', () => {
+    const s = createEnemy('spike-beetle', 32, FLOOR_Y - 16)
+    expect([s.w, s.h]).toEqual([16, 16])
+    expect(Math.abs(s.vx)).toBe(ENEMY_WALK_SPEED)
+  })
+
+  it('is spiked on top, so a landing is a hit, not a stomp', () => {
+    const s = createEnemy('spike-beetle', 32, FLOOR_Y - 16)
+    const field = fieldWith(s)
+
+    const events = stepEnemies(field, playerAbove(32, s.y, 2), 1, FLOOR)
+
+    expect(events.stomped).toHaveLength(0)
+    expect(events.hit).toBe(true)
+    expect(field.enemies).toHaveLength(1)
+  })
+})
+
+describe('Gust-Wing', () => {
+  it('is 16x16 and flies at 1 px/f', () => {
+    const g = createEnemy('gust-wing', 32, 16)
+    expect([g.w, g.h]).toEqual([16, 16])
+    expect(Math.abs(g.vx)).toBe(1)
+  })
+
+  it('follows a sine path of amplitude 24 px', () => {
+    const g = createEnemy('gust-wing', 32, 16, 1)
+    const field = fieldWith(g)
+    let min = Infinity
+    let max = -Infinity
+
+    for (let i = 0; i < GUST_WING_PERIOD_F; i++) {
+      stepEnemies(field, playerAt(400), 0, FLOOR)
+      if (g.y < min) min = g.y
+      if (g.y > max) max = g.y
+    }
+
+    expect(min).toBeCloseTo(16 - 24, 6)
+    expect(max).toBeCloseTo(16 + 24, 6)
+    expect(max - min).toBeCloseTo(48, 6)
+  })
+
+  it('is defeated by a stomp', () => {
+    const g = createEnemy('gust-wing', 32, 16)
+    const field = fieldWith(g)
+
+    const events = stepEnemies(field, playerAbove(32, 16, 2), 1, FLOOR)
+
+    expect(events.stomped).toHaveLength(1)
+    expect(field.enemies).toHaveLength(0)
+  })
+})
+
+describe('Chaser-Bot', () => {
+  it('is 16x16 and closes at 1.25 px/f', () => {
+    const c = createEnemy('chaser-bot', 32, FLOOR_Y - 16)
+    expect([c.w, c.h]).toEqual([16, 16])
+    expect(Math.abs(c.vx)).toBe(1.25)
+  })
+
+  it('locks the Echo when it is nearer than Pip', () => {
+    const bot = createEnemy('chaser-bot', 100, 100)
+    const pip = { x: 180, y: 100, w: 12, h: 14 }
+    const echo = { x: 120, y: 100, w: 32, h: 4 }
+    expect(chaserTarget(bot, pip, [echo])).toBe(echo)
+  })
+
+  it('locks Pip when Pip is nearer than the Echo', () => {
+    const bot = createEnemy('chaser-bot', 100, 100)
+    const pip = { x: 120, y: 100, w: 12, h: 14 }
+    const echo = { x: 180, y: 100, w: 32, h: 4 }
+    expect(chaserTarget(bot, pip, [echo])).toBe(pip)
+  })
+
+  it('locks nothing when both are beyond 96 px', () => {
+    const bot = createEnemy('chaser-bot', 0, 0)
+    const pip = { x: 200, y: 0, w: 12, h: 14 }
+    const echo = { x: 300, y: 0, w: 32, h: 4 }
+    expect(chaserTarget(bot, pip, [echo])).toBeNull()
+  })
+
+  it('moves toward the target it locked', () => {
+    const c = createEnemy('chaser-bot', 32, FLOOR_Y - 16)
+    const field = fieldWith(c)
+    const before = c.x
+
+    stepEnemies(field, playerAt(100), 0, FLOOR)
+
+    expect(c.x).toBeGreaterThan(before)
+  })
+
+  it('takes two stomps to defeat', () => {
+    const c = createEnemy('chaser-bot', 32, FLOOR_Y - 16)
+    const field = fieldWith(c)
+
+    const first = stepEnemies(field, playerAbove(32, c.y, 2), 1, FLOOR)
+    expect(first.stomped).toHaveLength(1)
+    expect(field.enemies).toHaveLength(1)
+
+    const second = stepEnemies(field, playerAbove(32, field.enemies[0].y, 2), 1, FLOOR)
+    expect(second.stomped).toHaveLength(1)
+    expect(field.enemies).toHaveLength(0)
   })
 })

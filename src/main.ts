@@ -1,11 +1,15 @@
 import { AudioEngine } from './audio/engine.ts'
+import { createAutopilotDriver } from './autopilot-driver.ts'
 import { SoundWatcher } from './audio/events.ts'
+import { WORLD1_EVENTS } from './audio/recipes.ts'
 import { loadVolumes, nudgeVolume, saveVolumes, type Volumes } from './audio/settings.ts'
 import { BUILD_LABEL } from './build-info.ts'
-import { mountDebugOverlay, readEchoSpot, readFreeze, readLevel, readSpawn, spawnQuery } from './debug/overlay.ts'
+import { mountDebugOverlay, readAutopilot, readEchoSpot, readFreeze, readLead, readLevel, readLoop, readSpawn, spawnQuery } from './debug/overlay.ts'
 import { ECHO_LIFE_F, placeEcho } from './echo/echo.ts'
 import { createSim, stepSim, type SimInput, type SimState } from './game/sim.ts'
-import { LEVEL_1_1_ECHO_AT_X, LEVEL_1_1_ROWS } from './levels/level1-1.ts'
+import { LEVEL_1_1_ECHO_AT_X } from './levels/level1-1.level.ts'
+import { LEVEL_CATALOGUE, findLevel, groupBySet, tileIndexFor, tileItems } from './levels/catalogue.ts'
+import { mapItems, mapNodes, WORLD1_PATH, completeLevel } from './levels/map.ts'
 import { PLAYER_W, TILE } from './physics/constants.ts'
 import { FixedStepper } from './physics/loop.ts'
 import { parseLevel, tileAt } from './physics/tilemap.ts'
@@ -13,19 +17,23 @@ import { Juice, type StepFacts, type StompFact } from './render/juice.ts'
 import { skyColourAt } from './render/parallax.ts'
 import { PipAnimator } from './render/pose.ts'
 import { INK } from './render/art/palette.ts'
-import { Renderer, PALETTE, type MenuView } from './render/renderer.ts'
-import { loadSave, recordBest, storeSave, type Save } from './save/save.ts'
+import { Renderer, PALETTE, type MenuView, type TileRect } from './render/renderer.ts'
+import type { FixtureSprite } from './render/world.ts'
+import { isUnlocked, loadSave, storeSave, type Save } from './save/save.ts'
 import { createControlsCard, ECHO_HINT } from './ui/controls-card.ts'
 import { escapeLeavesFullscreen, toggleFullscreen, watchFullscreen } from './ui/fullscreen.ts'
 import { mountGamepad } from './ui/gamepad-shell.ts'
 import {
   activate,
   backTarget,
+  canActivate,
   isVolumeRow,
   menuFor,
+  moveFocus,
   moveSelection,
+  type FocusDirection,
   type GameScreen,
-  type MenuId,
+  type MenuItem,
 } from './ui/screens.ts'
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game')
@@ -71,22 +79,29 @@ const sounds = new SoundWatcher()
 let volumes: Volumes = audio.volumes()
 /**
  * The screen that is up. Only `level` steps the simulation. A debug URL (`?level=`, `?x=&y=`,
- * `?echo=`, `?freeze=1`) is asking for the level itself, so it starts there and skips the title.
+ * `?echo=`, `?freeze=1`, `?autopilot=1`, `?lead=`) is asking for the level itself, so it starts there
+ * and skips the tile view — a camera-lead dial that opened on the menu would never step the camera.
  */
-const debugEntry = ['level', 'x', 'y', 'echo', 'freeze'].some((key) => params.has(key))
-let screen: GameScreen = debugEntry ? 'level' : 'title'
+const debugEntry = ['level', 'x', 'y', 'echo', 'freeze', 'autopilot', 'lead', 'fixture'].some((key) => params.has(key))
+let screen: GameScreen = debugEntry ? 'level' : 'tiles'
+/** `?map=1` shows the overworld map instead of the catalogue grid on the tile screen. */
+const mapMode = params.get('map') === '1'
 /** The selected row on the current menu screen. */
 let selected = 0
 
-const map = parseLevel(LEVEL_1_1_ROWS)
-const renderer = new Renderer(canvas, skyCanvas)
+/** The camera's look-ahead: `?lead=<px>` dials it, `CAMERA_LEAD_X` when the URL names none. */
+const lead = readLead(location.search)
+
+const renderer = new Renderer(canvas, skyCanvas, lead)
 window.addEventListener('resize', () => renderer.fit())
 // Fullscreen changes the window size, so the canvas has to re-fit on every change, not just a resize.
 watchFullscreen(() => renderer.fit())
 
-// The controls card, opened by H, by pad LB, and from a menu row. It is not shown on load: the
-// title screen is the first thing a player sees, and it carries CONTROLS as a row of its own.
-const controls = createControlsCard(document.body)
+// The controls card, opened by H, by pad SELECT, and from a menu row. It is not shown on load: the
+// title screen is the first thing a player sees, and it carries CONTROLS as a row of its own. Its
+// labels are read from the pad's live state on every open, so a card opened while a pad is connected
+// never falls back to keyboard codes.
+const controls = createControlsCard(document.body, { padConnected: () => gamepad.isConnected() })
 
 // On by default on the dev server, `?debug=1` forces it on and `?debug=0` hides it; a production
 // build hides it unless `?debug=1` is set, so a shipped screenshot carries no debug noise. O copies
@@ -99,6 +114,72 @@ const overlay = mountDebugOverlay({
 
 /** The level id the URL asked for, so the overlay's level row reflects what is actually running. */
 const levelId = readLevel(location.search)
+
+/** The save, read once at load. The tile view's lock state comes from it, never from a catalogue literal. */
+let save: Save = loadSave(storage())
+
+/**
+ * The tile view's rows, grouped under their set headings, and the same rows flattened for selection.
+ * A level the save has not unlocked is marked locked: drawn dimmed, and confirming it starts nothing.
+ */
+const levelGroups = groupBySet().map((group) => ({
+  set: group.set,
+  items: tileItems(group.levels, (id) => isUnlocked(save, id)),
+}))
+const tiles = levelGroups.flatMap((group) => group.items)
+/** Tiles per set, in drawing order — the grid the tile view's focus moves across. */
+const tileRowSizes = levelGroups.map((group) => group.items.length)
+
+/**
+ * The map's nodes, resolved against the current save on every read rather than once at load: clearing
+ * a level writes an unlock, and the map must show it on the next frame without a reload.
+ */
+function mapNodesNow() {
+  return mapNodes((id) => isUnlocked(save, id))
+}
+
+/** The map's rows as menu items, so the shell's selection and `canActivate` gate serve it unchanged. */
+function mapItemsNow() {
+  return mapItems(mapNodesNow())
+}
+
+/** The rows the tile screen is showing: the map's path when `?map=1`, the catalogue grid otherwise. */
+function tileScreenItems() {
+  return mapMode ? mapItemsNow() : tiles
+}
+
+/** The focus grid for the tile screen: one row of map nodes, or the catalogue's set rows. */
+function tileScreenRows() {
+  return mapMode ? [WORLD1_PATH.length] : tileRowSizes
+}
+
+/** The tile screen's selected row for a level: its map node, or its catalogue tile. */
+function tileScreenIndexFor(level: string | null): number {
+  if (!mapMode) return tileIndexFor(tiles, level)
+  const i = level === null ? -1 : WORLD1_PATH.indexOf(level)
+  return i >= 0 ? i : 0
+}
+/** The level the tile view starts, kept so leaving a run returns to the same tile. */
+let focusedLevel: string | null = null
+/** The level the level screen is running, and its parsed map. */
+let currentLevel = findLevel(levelId)?.id ?? LEVEL_CATALOGUE[0]?.id ?? '1-1'
+let map = parseLevel(findLevel(currentLevel)?.rows ?? [])
+
+/**
+ * `?autopilot=1`: the level plays itself. The driver replaces the keyboard's input for every fixed
+ * step, so the run goes through the same `advance()` a player's does — no simulation shortcut.
+ */
+const autopilot = readAutopilot(location.search) ? createAutopilotDriver(LEVEL_1_1_ECHO_AT_X) : null
+
+/**
+ * A looping run restarts itself after the results screen, so the operator opens one URL and watches
+ * the level play over and over. Looping is opt-in via `?loop=1`; a plain `?autopilot=1` stays on its
+ * results screen as the single recorded clear. The hold keeps the results screen's time and best
+ * time readable before the next run starts.
+ */
+const loopAutopilot = readLoop(location.search)
+const RESULTS_HOLD_MS = 1500
+let loopRestartTimer = 0
 
 // The pad presses the game's own keys, so nothing downstream knows a controller exists — and the
 // card switches to pad labels the moment one connects.
@@ -134,6 +215,34 @@ const frozenAtLoad = readFreeze(location.search)
 /** `?echo=x,y` starts the level with an Echo standing there — the screenshot tool's Echo poses. */
 const echoSpot = readEchoSpot(location.search)
 
+/**
+ * `?fixture=world1-new`: a test-only debug scene that draws one of every new world-1 sprite at a fixed
+ * spot, so the screenshot review and readability check can measure art the shipped levels do not place
+ * yet. Debug-only and additive — no level layout, and `src/boot.ts` is untouched.
+ */
+const fixtureMode = params.get('fixture') === 'world1-new'
+
+/** The fixture scene's sprites: the eight entities, the Echo switch and door, and the map art. */
+function world1FixtureSprites(): readonly FixtureSprite[] {
+  return [
+    // Ground row, feet on the floor at y = 178.
+    { name: 'spike-beetle-walk', x: 120, y: 160, w: 18, h: 18 },
+    { name: 'chaser-bot-walk', x: 150, y: 160, w: 18, h: 18 },
+    { name: 'echo-switch', x: 180, y: 162, w: 16, h: 16 },
+    { name: 'map-path', x: 205, y: 162, w: 16, h: 16 },
+    { name: 'map-node', x: 230, y: 162, w: 16, h: 16 },
+    { name: 'relic-coin-2', x: 255, y: 162, w: 16, h: 16 },
+    // Upper row, clear of the ground row.
+    { name: 'gust-wing-fly', x: 120, y: 106, w: 18, h: 18 },
+    { name: 'nimbus-fly', x: 150, y: 106, w: 18, h: 18 },
+    { name: 'echo-door', x: 190, y: 104, w: 16, h: 48 },
+    { name: 'piston-retracted', x: 225, y: 116, w: 36, h: 36 },
+    { name: 'windmill-spin', x: 300, y: 88, w: 54, h: 54 },
+  ]
+}
+
+const fixtureSprites: readonly FixtureSprite[] = fixtureMode ? world1FixtureSprites() : []
+
 function newSim(): SimState {
   const next = createSim(map)
   if (spawnPoint !== null) {
@@ -145,6 +254,12 @@ function newSim(): SimState {
     // A box whose feet are at the spot: placeEcho puts the platform's top exactly there.
     placeEcho(next.field, { x: echoSpot.x, y: echoSpot.y - next.player.h, w: PLAYER_W, h: next.player.h }, map)
     next.field.airCharges = 1
+  }
+  if (fixtureMode) {
+    // Frame the fixture scene the same way every time: Pip on the left, the sprites filling the view.
+    next.player.x = 300
+    next.player.y = 178
+    next.respawn = { x: 300, y: 178 }
   }
   return next
 }
@@ -243,7 +358,6 @@ const isHalted = (): boolean => isPaused() || frozen || seamHalted
 let tick = 0
 /** Set once the tally for this run has been recorded, so a finished level is not saved every frame. */
 let recorded = false
-let save: Save = loadSave(storage())
 
 const held = new Set<string>()
 const edge = { jump: false, echo: false }
@@ -270,6 +384,7 @@ const GAME_KEYS = new Set([
 const JUMP_KEYS = new Set(['Space', 'ArrowUp', 'KeyW'])
 
 function resetGame(): void {
+  map = parseLevel(findLevel(currentLevel)?.rows ?? [])
   sim = newSim()
   prevX = sim.player.x
   prevY = sim.player.y
@@ -282,6 +397,8 @@ function resetGame(): void {
   tick = 0
   recorded = false
   signShown = false
+  // A restarted run starts with the Echo unplaced, or the autopilot would never place it again.
+  autopilot?.reset()
   // A new run starts the music from the top; a death inside a run never does.
   audio.restartMusic()
   stepper.reset()
@@ -289,7 +406,27 @@ function resetGame(): void {
   juice.reset()
 }
 
+/**
+ * Schedule the next run of a looping autopilot. The results screen holds for `RESULTS_HOLD_MS` so its
+ * time and best time can be read, then the run starts again through the same `resetGame()` a manual
+ * RETRY uses. A manual RETRY, TITLE or reset in the meantime wins: the timer only restarts a run whose
+ * results screen is still up, so it can never pull a player off a menu they chose.
+ */
+function scheduleLoopRestart(): void {
+  clearTimeout(loopRestartTimer)
+  loopRestartTimer = window.setTimeout(() => {
+    if (screen !== 'results') return
+    resetGame()
+    show('level')
+  }, RESULTS_HOLD_MS)
+}
+
+/** The input for this step: the autopilot's when `?autopilot=1` asked for it, otherwise the keyboard's. */
 function readInput(): SimInput {
+  return autopilot === null ? readKeys() : autopilot.input(sim)
+}
+
+function readKeys(): SimInput {
   let jump = false
   for (const key of held) if (JUMP_KEYS.has(key)) jump = true
 
@@ -307,8 +444,15 @@ function readInput(): SimInput {
 function show(next: GameScreen): void {
   if (next === screen) return
   screen = next
-  selected = 0
+  // The tile view reopens on the level that was last started, so leaving a run returns to its tile.
+  selected = next === 'tiles' ? tileScreenIndexFor(focusedLevel) : 0
   audio.play(next === 'level' ? 'ui-close' : 'ui-open')
+}
+
+/** The rows of the screen that is up. The tile view's rows are the catalogue's, or the map's. */
+function menuItems(): readonly MenuItem[] {
+  if (screen === 'tiles') return tileScreenItems()
+  return menuFor(screen, tiles)
 }
 
 /**
@@ -323,16 +467,38 @@ function menuKey(code: string): void {
     if (back !== null) show(back)
     return
   }
+  // The tile view is a grid, so its arrows move focus in two dimensions rather than down a flat list.
+  if (screen === 'tiles') {
+    const dir = tileFocusDirection(code)
+    if (dir !== null) return moveFocusBy(dir)
+  }
   if (code === 'ArrowUp' || code === 'KeyW' || code === 'PadUp') return moveSelectionBy(-1)
   if (code === 'ArrowDown' || code === 'KeyS' || code === 'PadDown') return moveSelectionBy(1)
   if (code === 'ArrowLeft' || code === 'KeyA') return adjustVolume(-1)
   if (code === 'ArrowRight' || code === 'KeyD') return adjustVolume(1)
-  if (code === 'Space' || code === 'Enter' || code === 'KeyK') return confirm(menuFor(screen)[selected]?.id)
+  if (code === 'Space' || code === 'Enter' || code === 'KeyK') return confirm(menuItems()[selected])
 }
 
 function moveSelectionBy(dir: -1 | 1): void {
-  const items = menuFor(screen)
+  const items = menuItems()
   const next = moveSelection(items.length, selected, dir)
+  if (next === selected) return
+  selected = next
+  audio.play('ui-tick')
+}
+
+/** The tile view's directional keys: arrows/WASD, plus the pad's own up/down codes. */
+function tileFocusDirection(code: string): FocusDirection | null {
+  if (code === 'ArrowLeft' || code === 'KeyA') return 'left'
+  if (code === 'ArrowRight' || code === 'KeyD') return 'right'
+  if (code === 'ArrowUp' || code === 'KeyW' || code === 'PadUp') return 'up'
+  if (code === 'ArrowDown' || code === 'KeyS' || code === 'PadDown') return 'down'
+  return null
+}
+
+/** Move the tile view's focus one step, wrapping per `moveFocus`'s rule. */
+function moveFocusBy(dir: FocusDirection): void {
+  const next = moveFocus(tileScreenRows(), selected, dir)
   if (next === selected) return
   selected = next
   audio.play('ui-tick')
@@ -343,7 +509,7 @@ function moveSelectionBy(dir: -1 | 1): void {
  * screen mixes sliders with plain rows, and a left/right there must not move the selection.
  */
 function adjustVolume(dir: -1 | 1): void {
-  const item = menuFor(screen)[selected]
+  const item = menuItems()[selected]
   if (!isVolumeRow(item)) return
   const row = item.id === 'music' ? 'music' : 'effects'
   const next = nudgeVolume(volumes, row, dir)
@@ -354,14 +520,24 @@ function adjustVolume(dir: -1 | 1): void {
   audio.play('ui-tick')
 }
 
-/** Confirm the selected row. A run that starts or restarts begins from a clean level. */
-function confirm(id: MenuId | undefined): void {
-  if (id === undefined) return
-  const outcome = activate(screen, id)
+/**
+ * Confirm the selected row. A run that starts or restarts begins from a clean level.
+ *
+ * A locked tile is refused here and nowhere else: the press does not start the level and does not
+ * leave the tile view, so the still preview behind the focused locked tile keeps showing.
+ */
+function confirm(item: MenuItem | undefined): void {
+  if (item === undefined || !canActivate(item)) return
+  const outcome = activate(screen, item.id)
   if (outcome.controls) {
     controls.show()
     audio.play('ui-open')
     return
+  }
+  // A tile carries the level it starts; every other row leaves the current level alone.
+  if (item.level !== undefined) {
+    currentLevel = item.level
+    focusedLevel = item.level
   }
   if (outcome.restart) resetGame()
   show(outcome.screen)
@@ -372,12 +548,14 @@ function menuView(): MenuView | null {
   if (screen === 'level') return null
   return {
     screen,
-    items: menuFor(screen),
+    items: menuItems(),
     index: selected,
     music: volumes.music,
     effects: volumes.effects,
     runSeconds: sim.frames / 60,
     bestSeconds: save.bestSeconds,
+    groups: screen === 'tiles' && !mapMode ? levelGroups : undefined,
+    map: screen === 'tiles' && mapMode ? { nodes: mapNodesNow(), counts: { relics: save.relics, bestTimes: save.bestTimes } } : undefined,
   }
 }
 
@@ -510,7 +688,8 @@ function pushOverlay(stats: { fps: number; frameMs: number; frameP99Ms: number; 
     echoes: sim.field.echoes.length,
     charge: sim.field.airCharges,
     life: Number.isFinite(oldest) ? oldest : 0,
-    level: levelId,
+    level: currentLevel,
+    lead,
     checkpoint: {
       exists: sim.checkpoint !== null,
       claimed:
@@ -561,18 +740,23 @@ function frame(now: number): void {
     showSignHint()
   }
 
-  // Record the run once it is finished: the first finish, and every faster one after it.
+  // Record the run once it is finished: the level's best time, and the next node unlocked, through
+  // the map's own completion path — so the map reads them on the next frame and a reload keeps them.
   if (sim.goalReached && !recorded) {
     recorded = true
-    const next = recordBest(save, sim.frames / 60)
+    const next = completeLevel(save, currentLevel, sim.frames / 60)
     if (next !== save) {
       save = next
       storeSave(storage(), save)
     }
   }
 
-  // The flag hands the run to the results screen, which carries the time and the best time.
-  if (sim.goalReached && screen === 'level') show('results')
+  // The flag hands the run to the results screen, which carries the time and the best time. A
+  // looping run (`?loop=1`) restarts from there; the default one-shot run stays on the screen.
+  if (sim.goalReached && screen === 'level') {
+    show('results')
+    if (loopAutopilot) scheduleLoopRestart()
+  }
 
   renderer.draw({
     map,
@@ -582,6 +766,8 @@ function frame(now: number): void {
     echoes: sim.field.echoes,
     enemies: sim.enemies.enemies,
     mushrooms: sim.powers.mushrooms,
+    switches: sim.switches,
+    nimbus: sim.nimbus,
     usedBlocks: sim.usedBlocks,
     paused: isPaused(),
     runSeconds: sim.frames / 60,
@@ -598,7 +784,11 @@ function frame(now: number): void {
     poseFrame: animator.frame,
     facing: animator.facing,
     juice,
-    menu: menuView(),
+    fixture: fixtureSprites,
+    // The card is a DOM overlay over a canvas panel; the two cannot share the screen without the
+    // settings text ghosting through. While the card is up it replaces the menu, and dismissing it
+    // brings the screen back unchanged.
+    menu: controls.visible() ? null : menuView(),
   })
 
   pushOverlay(frameStats(frameMs, steps))
@@ -649,8 +839,12 @@ interface EchoSkyRunTestApi {
   reset(): void
   /** The screen that is up. Only `level` steps the simulation. */
   screen(): GameScreen
-  /** The menu on screen: its rows and the selected index. Null while the level plays. */
-  menu(): { screen: GameScreen; index: number; items: string[] } | null
+  /** The menu on screen: its rows, the selected index, and which tile rows are locked. Null while the level plays. */
+  menu(): { screen: GameScreen; index: number; items: string[]; locked: boolean[] } | null
+  /** The still preview the tile view is showing: its focused level and whether a frame is cached. */
+  preview(): { level: string | null; ready: boolean }
+  /** The tile view's tiles as drawn: each tile's box, its thumbnail box, and whether it is locked. */
+  tileBoxes(): readonly TileRect[]
   /** Go to a screen the way a player would, without the sound — the screenshot tool's shortcut. */
   openScreen(name: GameScreen): void
   step(input: Partial<SimInput>): ReturnType<typeof snapshot>
@@ -675,6 +869,8 @@ interface EchoSkyRunTestApi {
   frameTimings(): { samples: number; meanMs: number; p99Ms: number; maxMs: number }
   /** Turn a seam pause into a freeze: the sim stays still and no PAUSED plate is drawn (screenshots). */
   hold(): void
+  /** Play every new world-1 entity's sound once — the fixture scene's trigger for the trace check. */
+  fixtureSounds(): void
   /** The juice the loop is running: holds, shake, and fixed steps held so far. */
   juice(): {
     hitStop: number
@@ -699,6 +895,12 @@ interface EchoSkyRunTestApi {
   overlayLines(): string[]
   /** The camera's integer scroll, for the flicker probe. */
   cameraX(): number
+  /** The camera's integer vertical scroll, for the flicker probe. */
+  cameraY(): number
+  /** The camera the current canvas was drawn at — race-free reference for the flicker probe. */
+  drawnCameraX(): number
+  /** The vertical camera the current canvas was drawn at. */
+  drawnCameraY(): number
   /** The sky gradient's colour at a screen row — what a gap must show. */
   skyAt(y: number): [number, number, number]
   /** World boxes of what the readability check measures: Pip, the ground under him, enemies, ? blocks, Echoes and their rings. */
@@ -745,9 +947,16 @@ const api: EchoSkyRunTestApi = {
   screen: () => screen,
   menu: () => {
     if (screen === 'level') return null
-    const items = menuFor(screen)
-    return { screen, index: selected, items: items.map((item) => item.label) }
+    const items = menuItems()
+    return {
+      screen,
+      index: selected,
+      items: items.map((item) => item.label),
+      locked: items.map((item) => item.locked === true),
+    }
   },
+  preview: () => renderer.previewInfo(),
+  tileBoxes: () => renderer.tileBoxes(),
   openScreen(name) {
     resetGame()
     screen = name
@@ -781,6 +990,11 @@ const api: EchoSkyRunTestApi = {
     visible: controls.visible(),
     pad: controls.isPad(),
     labels: Array.from(document.querySelectorAll('#controls-card dt')).map((el) => el.textContent ?? ''),
+    /** Action → key text, so a check can assert what the card actually tells the player. */
+    rows: Array.from(document.querySelectorAll('#controls-card dt')).map((dt) => [
+      dt.textContent ?? '',
+      dt.nextElementSibling?.textContent ?? '',
+    ]),
   }),
   showControls: () => controls.show(),
   hideControls: () => controls.hide(),
@@ -810,6 +1024,9 @@ const api: EchoSkyRunTestApi = {
     frozen = true
     renderAlpha = 1
   },
+  fixtureSounds() {
+    for (const event of WORLD1_EVENTS) audio.play(event)
+  },
   juice: () => {
     const o = juice.shakeOffset()
     const scale = juice.pipScale()
@@ -831,6 +1048,9 @@ const api: EchoSkyRunTestApi = {
   overlayInks: () => [INK.panel, INK.brass, INK.brassLight, INK.cream, INK.echo],
   overlayLines: () => [...renderer.overlayLines],
   cameraX: () => renderer.cameraX,
+  cameraY: () => renderer.cameraY,
+  drawnCameraX: () => renderer.drawnCameraX,
+  drawnCameraY: () => renderer.drawnCameraY,
   elements: () => {
     const out: { name: string; x: number; y: number; w: number; h: number }[] = []
     const p = sim.player
@@ -854,6 +1074,7 @@ const api: EchoSkyRunTestApi = {
       const ghostH = (sim.power === 'super' ? 28 : 16) + 2
       out.push({ name: 'echo-ring', x: e.x + (e.w - 13) / 2, y: e.y - ghostH + 1 - 14, w: 13, h: 13 })
     }
+    for (const s of fixtureSprites) out.push({ name: s.name, x: s.x, y: s.y, w: s.w, h: s.h })
     return out
   },
   skyAt: (y: number) => skyColourAt(y),
@@ -866,7 +1087,7 @@ const api: EchoSkyRunTestApi = {
     gains: audio.gains(),
     levels: audio.levels(),
     musicTime: audio.musicTime(),
-    menu: { open: screen !== 'level', row: menuFor(screen)[selected]?.id ?? '' },
+    menu: { open: screen !== 'level', row: menuItems()[selected]?.id ?? '' },
   }),
   frameTimings: () => {
     const sorted = [...frameTimes].sort((a, b) => a - b)

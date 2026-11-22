@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { LEVEL_1_1_ROWS } from '../levels/level1-1.ts'
+import { LEVEL_1_1_ROWS } from '../levels/level1-1.level.ts'
 import { parseLevel } from '../physics/tilemap.ts'
 import { createSim, stepSim, type SimInput } from './sim.ts'
 

@@ -55,6 +55,11 @@ export const FONT: Readonly<Record<string, Mask>> = {
   '·': ['.....', '.....', '.....', '..#..', '.....', '.....', '.....'],
   '<': ['...#.', '..#..', '.#...', '#....', '.#...', '..#..', '...#.'],
   '>': ['.#...', '..#..', '...#.', '....#', '...#.', '..#..', '.#...'],
+  // The map's Relic-Coin slots. Filled and hollow are separate glyphs, so ◆◆◇ reads at a glance.
+  '◆': ['..#..', '.###.', '#####', '#####', '.###.', '..#..', '.....'],
+  '◇': ['..#..', '.#.#.', '#...#', '#...#', '.#.#.', '..#..', '.....'],
+  // The map's time unit (`42.3 s`). The font is otherwise uppercase; the suffix is the one lowercase.
+  s: ['.....', '.....', '.####', '#....', '.###.', '....#', '####.'],
   ' ': ['.....', '.....', '.....', '.....', '.....', '.....', '.....'],
 }
 
@@ -75,7 +80,7 @@ export const OVERLAY_TEXT = {
   world: 'WORLD 1 · 1-1',
   /** Pause menu. The controls line is a hint, not a row: the card opens over the pause. */
   paused: 'PAUSED',
-  pausedControls: 'H / LB: CONTROLS',
+  pausedControls: 'H / SELECT: CONTROLS',
   /** Settings: the two sliders, the card and the way back. */
   settings: 'SETTINGS',
   music: 'MUSIC',

@@ -7,11 +7,14 @@ import {
   type EchoField,
 } from '../echo/echo.ts'
 import type { Box } from '../physics/collision.ts'
-import { EPS, PLAYER_H, PLAYER_W, TILE } from '../physics/constants.ts'
+import { EPS, MAX_FALL, PLAYER_H, PLAYER_W, TILE } from '../physics/constants.ts'
 import { createPlayer, stepPlayer, type PlayerInput, type PlayerState } from '../physics/player.ts'
 import {
   CHECKPOINT,
+  findDoorSpawns,
   findEnemySpawns,
+  findNimbusSpawns,
+  findSwitchSpawns,
   findTile,
   GOAL,
   QUESTION,
@@ -42,6 +45,19 @@ import {
   type PowerField,
   type PowerTier,
 } from './power.ts'
+import {
+  createNimbus,
+  createNimbusField,
+  glideFall,
+  mountNimbus,
+  startPeck,
+  stepNimbus,
+  stepPeck,
+  throwOff,
+  type NimbusField,
+} from './nimbus.ts'
+import { createPropField, type PropField } from './props.ts'
+import { closedDoors, createDoor, createSwitch, createSwitchField, stepSwitches, type SwitchField } from './switches.ts'
 
 export interface SimInput extends PlayerInput {
   /** The Echo key went down this frame. */
@@ -63,6 +79,17 @@ export interface SimState {
   field: EchoField
   enemies: EnemyField
   powers: PowerField
+  /** Nimbus, the companion mount: where it is, whether Pip rides it, and its peck timer. */
+  nimbus: NimbusField
+  /** Echo switches and the doors they hold open. */
+  switches: SwitchField
+  /**
+   * The closed doors as solid boxes, refilled once per step from `switches` and handed to the
+   * player's collision. Reused every frame so the fixed step allocates nothing.
+   */
+  doorBoxes: Box[]
+  /** Pistons and windmills, whose state is a pure function of the frame. */
+  props: PropField
   /** Pip's tier: Small dies to a hit, Super drops to Small. */
   power: PowerTier
   /** Frames of invincibility left. A hit during this window is ignored. */
@@ -146,6 +173,20 @@ export function createSim(map: TileMap): SimState {
     enemies.enemies.push(createEnemy(spawnPoint.kind, spawnPoint.x, spawnPoint.y))
   }
 
+  const switches = createSwitchField()
+  for (const spawnPoint of findSwitchSpawns(map)) {
+    switches.switches.push(createSwitch(spawnPoint.x, spawnPoint.y))
+  }
+  for (const spawnPoint of findDoorSpawns(map)) {
+    switches.doors.push(createDoor(spawnPoint.x, spawnPoint.y))
+  }
+
+  // A level carries at most one Nimbus: the first spawn wins, so an accidental second one does not
+  // silently replace the mount the level meant.
+  const nimbus = createNimbusField()
+  const nimbusSpawns = findNimbusSpawns(map)
+  if (nimbusSpawns.length > 0) nimbus.nimbus = createNimbus(nimbusSpawns[0].x, nimbusSpawns[0].y)
+
   return {
     map,
     goal,
@@ -157,6 +198,10 @@ export function createSim(map: TileMap): SimState {
     field: createEchoField(),
     enemies,
     powers: createPowerField(),
+    nimbus,
+    switches,
+    doorBoxes: [],
+    props: createPropField(),
     power: 'small',
     invuln: 0,
     usedBlocks: new Set<string>(),
@@ -177,6 +222,10 @@ export function respawnPlayer(sim: SimState): void {
   sim.field = createEchoField()
   sim.powers = createPowerField()
   sim.combo = 0
+  // A death throws Pip off Nimbus and ends its flee, so it is waiting again at the level's start.
+  sim.nimbus.mounted = false
+  sim.nimbus.peck = 0
+  if (sim.nimbus.nimbus !== null) sim.nimbus.nimbus.flee = 0
 }
 
 /** Grow or shrink Pip, keeping his feet where they are. */
@@ -228,15 +277,31 @@ export function stepSim(sim: SimState, input: SimInput): void {
   // Place before the step, so a mid-air Echo can catch the player on the very frame it appears.
   if (input.echoPressed) placeEcho(sim.field, playerBox(sim.player), map)
 
-  stepPlayer(sim.player, input, map, echoPlatforms(sim.field))
+  // A closed door is solid. The door state is the switch result from the previous step — the state
+  // the player is walking into — and `stepSwitches` below refreshes it for the next frame.
+  closedDoors(sim.switches, sim.doorBoxes)
+
+  // Nimbus's glide caps the fall at 1 px/f before the move, so the cap holds on the frame it is set.
+  const preStepVy = sim.player.vy
+  const fallCap = glideFall(sim.nimbus, input.jump, MAX_FALL)
+  stepPlayer(sim.player, input, map, echoPlatforms(sim.field), fallCap, sim.doorBoxes)
   hitBlocks(sim)
 
+  // A landing on Nimbus mounts it. `preStepVy` is the fall speed he arrived with, since stepPlayer
+  // has already zeroed it if he hit the ground.
+  mountNimbus(sim.nimbus, playerBox(sim.player), preStepVy)
+
   // Enemies move after the player, so a stomp is tested against the position he actually reached.
-  const events = stepEnemies(sim.enemies, playerBox(sim.player), sim.player.vy, map)
+  // The Echo list is passed so a Chaser-Bot can target the nearer of Pip and an Echo.
+  const events = stepEnemies(sim.enemies, playerBox(sim.player), sim.player.vy, map, echoPlatforms(sim.field))
   sim.stomped = events.stomped
 
-  // Shells: hold the run key to carry one, touch it without to kick it away, release to drop it.
+  // A peck: the run key, while mounted, reaches 24 px forward and defeats Gear-Goombas and Gust-Wings.
   const facing: -1 | 1 = input.left && !input.right ? -1 : 1
+  if (sim.nimbus.mounted && input.sprint && sim.nimbus.peck <= 0) startPeck(sim.nimbus)
+  stepPeck(sim.nimbus, playerBox(sim.player), facing, sim.enemies)
+
+  // Shells: hold the run key to carry one, touch it without to kick it away, release to drop it.
   if (sim.enemies.carried !== null && !input.sprint) dropShell(sim.enemies, facing)
   touchShell(sim.enemies, playerBox(sim.player), facing, input.sprint)
 
@@ -256,20 +321,29 @@ export function stepSim(sim: SimState, input: SimInput): void {
     setTier(sim, 'super')
   }
 
-  // --- damage: Super drops to Small, Small is death. Invincibility swallows both.
+  // --- damage: a hit while mounted throws Pip off Nimbus (no damage to Pip); otherwise Super drops
+  // to Small and Small is death. Invincibility swallows both.
   if (events.hit && sim.invuln === 0) {
-    const hit = applyHit(sim.power)
-    if (hit.died) {
-      sim.deaths += 1
-      respawnPlayer(sim)
+    if (sim.nimbus.mounted) {
+      throwOff(sim.nimbus)
+      sim.player.vy = -STOMP_BOUNCE
+      sim.player.grounded = false
     } else {
-      setTier(sim, hit.tier)
-      sim.invuln = INVULN_F
+      const hit = applyHit(sim.power)
+      if (hit.died) {
+        sim.deaths += 1
+        respawnPlayer(sim)
+      } else {
+        setTier(sim, hit.tier)
+        sim.invuln = INVULN_F
+      }
     }
   }
   if (sim.invuln > 0) sim.invuln -= 1
 
+  stepNimbus(sim.nimbus)
   tickEchoes(sim.field)
+  stepSwitches(sim.switches, playerBox(sim.player), echoPlatforms(sim.field))
   refreshAirCharges(sim.field, playerBox(sim.player), map, echoPlatforms(sim.field))
 
   // The checkpoint claims the respawn point the first time Pip reaches it, keeps it thereafter, and

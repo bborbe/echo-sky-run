@@ -29,6 +29,10 @@ function goombaAt(x: number, y: number): Enemy {
     w: GEAR_GOOMBA_W,
     h: GEAR_GOOMBA_H,
     mode: 'walk',
+    hp: 1,
+    age: 0,
+    windup: 0,
+    baseY: y,
     dead: false,
   }
 }

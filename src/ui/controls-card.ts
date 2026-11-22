@@ -8,15 +8,17 @@ const KEYBOARD_ROWS: readonly (readonly [string, string])[] = [
   ['Run / carry', 'Shift / J'],
   ['Spin jump', 'X / L'],
   ['Echo', 'C / I'],
+  ['Controls', 'H'],
 ]
 
-/** The same actions with an Xbox pad in hand. */
+/** The same actions with an Xbox pad in hand. Echo and Run are the analog triggers. */
 const PAD_ROWS: readonly (readonly [string, string])[] = [
   ['Move', 'Left stick / D-pad'],
   ['Jump', 'A'],
-  ['Run / carry', 'X'],
+  ['Run / carry', 'LT'],
   ['Spin jump', 'B'],
-  ['Echo', 'Y'],
+  ['Echo', 'RT'],
+  ['Controls', 'View / Back'],
 ]
 
 /** The one line that explains the twist. It is the whole reason the card exists. */
@@ -30,6 +32,15 @@ export interface ControlsCard {
   setPad(connected: boolean): void
   /** True when the pad labels are showing. */
   isPad(): boolean
+}
+
+export interface ControlsCardOptions {
+  /**
+   * Read every time the card opens, so the labels follow the input that is connected now. The
+   * connect event alone is not enough: a card opened while a pad is already live must not show
+   * keyboard codes just because no event fired since it was built.
+   */
+  padConnected?: () => boolean
 }
 
 const STYLE_ID = 'controls-card-style'
@@ -65,7 +76,7 @@ function installStyles(): void {
  * Build the card into `root`. It starts hidden; the caller decides when it is on screen, because
  * "first start only" and "H brings it back" are the shell's rules, not the card's.
  */
-export function createControlsCard(root: HTMLElement): ControlsCard {
+export function createControlsCard(root: HTMLElement, options: ControlsCardOptions = {}): ControlsCard {
   installStyles()
 
   const card = document.createElement('div')
@@ -102,7 +113,16 @@ export function createControlsCard(root: HTMLElement): ControlsCard {
       dd.textContent = keys
       list.append(dt, dd)
     }
+    footer.textContent = pad
+      ? 'View / Back — controls again · any button — start'
+      : 'H — controls again · any key — start'
     card.dataset.layout = pad ? 'pad' : 'keyboard'
+  }
+
+  function setPad(connected: boolean): void {
+    if (pad === connected) return
+    pad = connected
+    render()
   }
 
   render()
@@ -111,6 +131,8 @@ export function createControlsCard(root: HTMLElement): ControlsCard {
 
   return {
     show() {
+      // Follow the input connected right now, not the state the last event left behind.
+      setPad(options.padConnected?.() ?? pad)
       shown = true
       card.style.display = ''
     },
@@ -119,11 +141,7 @@ export function createControlsCard(root: HTMLElement): ControlsCard {
       card.style.display = 'none'
     },
     visible: () => shown,
-    setPad(connected: boolean) {
-      if (pad === connected) return
-      pad = connected
-      render()
-    },
+    setPad,
     isPad: () => pad,
   }
 }

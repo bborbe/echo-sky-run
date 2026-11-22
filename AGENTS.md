@@ -25,7 +25,9 @@ Use the Makefile targets; each installs dependencies first when `node_modules` i
 
 **Debug spawn URL:** `?level=1-1&x=<px>&y=<px>` starts Pip at that spot (pixel coordinates, not
 tiles). Add `&freeze=1` to hold the simulation on the frame the page loaded — it renders one still
-frame without the PAUSED banner, which is what makes a screenshot reproducible. The debug overlay's
+frame without the PAUSED banner, which is what makes a screenshot reproducible. `?lead=<px>` dials the
+camera's look-ahead on a running build (`0` is no lead; absent uses `CAMERA_LEAD_X`), and any debug URL
+starts in the level rather than on the tile view. The debug overlay's
 P copies the current spot as that URL.
 
 ## Layout
@@ -35,7 +37,7 @@ P copies the current spot as that URL.
 | `src/physics/` | Fixed-timestep simulation: the 60 Hz accumulator loop, player movement and tile collision. Pure TypeScript. |
 | `src/echo/` | Ghost Echo rules: mid-air placement, the air charge, the 240 f lifetime, the one-way top, the wall refusal. Pure and tested. |
 | `src/render/` | Canvas renderer filling the browser window: a fixed 224 px logical height, a logical width derived from the window's aspect, and a fractional nearest-neighbour scale. The only place that touches the DOM or a canvas context. |
-| `src/render/camera.ts` | The camera as a pure value — scroll offset and deadzone, with no velocity term. DOM-free, so the framing is a unit test. |
+| `src/render/camera.ts` | The camera as a pure value — scroll offset, deadzone and a small speed-scaled look-ahead. DOM-free, so the framing is a unit test. |
 | `src/levels/` | Level tile strings, one character per tile, plus the level's own playthrough tests and its level-toolkit gate (`<level>.toolkit.test.ts`). |
 | `src/toolkit/` | The level toolkit every level must pass: `level.ts` (pits, the measured sprint-jump reach, and which pits are Echo beats), `autopilot.ts` (a scripted clear of the populated level, recording every take-off), `no-echo.ts` (the launch sweep that proves an Echo beat cannot be crossed without the Echo) and `blind-jump.ts` (a landing outside the view at take-off). Pure and DOM-free; the browser playthrough is the toolkit's fourth check and lives in `scripts/e2e.mjs`. |
 | `src/save/` | The versioned save and its migration: `save.ts` owns the key, the schema version and `migrate`, so G1's unversioned `{ bestSeconds }` store is upgraded in place. Settings are not part of it — they live under their own key. |
@@ -58,7 +60,8 @@ P copies the current spot as that URL.
   A frame-rate change must not change what the simulation does.
 - **Tuning values live in one place.** `RUN_MAX` 2.25 px/f, `SPRINT_MAX` 3.0 px/f at meter 112,
   `METER_MAX` 112, coyote time `COYOTE_F` 6 f, jump buffer `JUMP_BUFFER_F` 6 f, Echo life `ECHO_LIFE_F`
-  240 f, one air charge `ECHO_AIR_CHARGES` 1. Never loosen a test to make a constant pass.
+  240 f, one air charge `ECHO_AIR_CHARGES` 1, camera lead `CAMERA_LEAD_X` 64 px at a sprint. Never
+  loosen a test to make a constant pass.
 - **Tests drive the real path:** go through the simulation's own step function, never a hand-set flag
   the game does not produce.
 - **Every level passes the toolkit:** `make test` runs the autopilot clear and the browser
@@ -81,7 +84,7 @@ a test, not a note — a regression fails `make test` or `make e2e` instead of s
 |---|---|---|
 | Input-to-frame | ≤ 3 frames | `src/physics/input-latency.test.ts` (fixed-step sampling, 30–165 Hz), and a real key press measured in `make e2e` |
 | Corner correction | ≤ 4 px | `src/physics/corner.test.ts` — a rising jump that clips a ceiling corner slips past; a 6 px overlap still stops |
-| Camera framing | No lead in the direction of travel — Pip stays within the dead zone of the view centre | `src/render/camera.test.ts`, over view widths 224–800 px at 1 px and 3 px steps |
+| Camera framing | A 64 px look-ahead (`CAMERA_LEAD_X`) in the direction of travel, scaled by speed — 48 px ahead of centre at a sprint, well short of the 30%-of-view version the operator rejected | `src/render/camera.test.ts`, over view widths 224–800 px at 1 px and 3 px steps, at the default and a configured lead |
 | Frame time | p99 < 18 ms | `make e2e` — the live `requestAnimationFrame` loop's own p99 over a 120-frame window |
 | Heap allocations | zero per frame in the fixed step | `src/game/alloc.test.ts` — asserts the per-frame scratch objects and arrays keep their identity |
 | Golden replay | frame-exact | `src/levels/level1-1.replay.test.ts` — a recorded 1-1 run must land on the same frame, position and velocity |

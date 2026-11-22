@@ -1,13 +1,20 @@
-// Ground enemies for level 1-1, from the game description § 4 and § 5. Pure: nothing here reads the
-// DOM, a clock or a random source, so the level's own test and the browser drive the same rules.
+// Ground and flying enemies for World 1, from the game description § 4 and § 5. Pure: nothing here
+// reads the DOM, a clock or a random source, so the level's own test and the browser drive the same
+// rules.
 
 import { moveBox, type Box } from '../physics/collision.ts'
 import { EPS, GRAVITY_FALL, MAX_FALL, TILE } from '../physics/constants.ts'
 import type { TileMap } from '../physics/tilemap.ts'
 
-/** Gear-Goomba is one tile square. */
+/** Gear-Goomba, Spike-Beetle, Gust-Wing and Chaser-Bot are one tile square. */
 export const GEAR_GOOMBA_W = 16
 export const GEAR_GOOMBA_H = 16
+export const SPIKE_BEETLE_W = 16
+export const SPIKE_BEETLE_H = 16
+export const GUST_WING_W = 16
+export const GUST_WING_H = 16
+export const CHASER_BOT_W = 16
+export const CHASER_BOT_H = 16
 /** Steam-Turtle is a tile wide and a tile and a half tall. */
 export const STEAM_TURTLE_W = 16
 export const STEAM_TURTLE_H = 24
@@ -15,8 +22,20 @@ export const STEAM_TURTLE_H = 24
 export const SHELL_W = 16
 export const SHELL_H = 16
 
-/** Every ground enemy in 1-1 walks at half a pixel per frame. */
+/** Ground walkers step at half a pixel per frame. */
 export const ENEMY_WALK_SPEED = 0.5
+/** A Spike-Beetle walks at the same half-pixel step as a Gear-Goomba. */
+export const SPIKE_BEETLE_SPEED = 0.5
+/** A Gust-Wing flies at one pixel per frame. */
+export const GUST_WING_SPEED = 1
+/** A Chaser-Bot closes at 1.25 px/f and locks on within 96 px. */
+export const CHASER_SPEED = 1.25
+export const CHASER_RANGE = 96
+/** A Chaser-Bot takes two stomps to defeat. */
+export const CHASER_HP = 2
+/** A Gust-Wing's vertical path is a sine wave of this amplitude, one cycle per 2 s. */
+export const GUST_WING_AMPLITUDE = 24
+export const GUST_WING_PERIOD_F = 120
 /** A kicked shell slides at 3 px/f — six times its owner's walk, so it is a projectile, not a walker. */
 export const SHELL_SPEED = 3
 
@@ -27,8 +46,25 @@ export const SHELL_SPEED = 3
 export const STOMP_TOLERANCE = 8
 /** The upward velocity a stomp gives Pip. */
 export const STOMP_BOUNCE = 4.5
+/**
+ * Frames between an enemy first noticing Pip and its touch hurting: 18 f ≈ 300 ms, the platformer
+ * guide's telegraph minimum. Every contact-damaging kind waits it out; a landing on a spiked top is
+ * the one exempt path, because the visible spikes are themselves the telegraph.
+ */
+export const WINDUP_F = 18
+/**
+ * How far beyond its own box an enemy starts winding up. The telegraph runs on *approach*, not on
+ * contact: a sprinting Pip closes at ~3.5 px/f, so 64 px covers the full 18 frames before he can
+ * reach the body — which is what keeps a running player from slipping through an enemy untouched.
+ */
+export const WINDUP_RANGE_PX = 64
 
-export type EnemyKind = 'gear-goomba' | 'steam-turtle'
+export type EnemyKind =
+  | 'gear-goomba'
+  | 'steam-turtle'
+  | 'spike-beetle'
+  | 'gust-wing'
+  | 'chaser-bot'
 /**
  * `walk` is a live enemy, `shell` a stomped turtle at rest, `sliding` a shell kicked into motion, and
  * `carried` a shell in Pip's hands — which follows him and collides with nothing.
@@ -44,6 +80,14 @@ export interface Enemy {
   w: number
   h: number
   mode: EnemyMode
+  /** Stomps left before it dies: 2 for a Chaser-Bot, 1 for everything else. */
+  hp: number
+  /** Frames alive — the Gust-Wing's sine path is a function of it. */
+  age: number
+  /** Frames the player has been inside the wind-up range; resets to 0 once he is clear of it. */
+  windup: number
+  /** The Gust-Wing's path centre; every other enemy ignores it. */
+  baseY: number
   /** Set the frame the enemy leaves play; the field drops it before returning. */
   dead: boolean
 }
@@ -68,6 +112,34 @@ export interface EnemyEvents {
  */
 const STOMPED: Enemy[] = []
 const EVENTS: { stomped: Enemy[]; hit: boolean } = { stomped: STOMPED, hit: false }
+/** The default Echo list for callers that pass none, so the hot path allocates nothing. */
+const NO_ECHOES: readonly Box[] = []
+
+function sizeOf(kind: EnemyKind): { w: number; h: number } {
+  switch (kind) {
+    case 'steam-turtle':
+      return { w: STEAM_TURTLE_W, h: STEAM_TURTLE_H }
+    case 'spike-beetle':
+      return { w: SPIKE_BEETLE_W, h: SPIKE_BEETLE_H }
+    case 'gust-wing':
+      return { w: GUST_WING_W, h: GUST_WING_H }
+    case 'chaser-bot':
+      return { w: CHASER_BOT_W, h: CHASER_BOT_H }
+    default:
+      return { w: GEAR_GOOMBA_W, h: GEAR_GOOMBA_H }
+  }
+}
+
+function speedOf(kind: EnemyKind): number {
+  switch (kind) {
+    case 'gust-wing':
+      return GUST_WING_SPEED
+    case 'chaser-bot':
+      return CHASER_SPEED
+    default:
+      return ENEMY_WALK_SPEED
+  }
+}
 
 export function createEnemyField(): EnemyField {
   return { enemies: [], carried: null }
@@ -75,9 +147,22 @@ export function createEnemyField(): EnemyField {
 
 /** A live enemy of this kind, with its top-left at (x, y). It starts walking toward `dir`. */
 export function createEnemy(kind: EnemyKind, x: number, y: number, dir: -1 | 1 = -1): Enemy {
-  const w = kind === 'gear-goomba' ? GEAR_GOOMBA_W : STEAM_TURTLE_W
-  const h = kind === 'gear-goomba' ? GEAR_GOOMBA_H : STEAM_TURTLE_H
-  return { kind, x, y, vx: dir * ENEMY_WALK_SPEED, vy: 0, w, h, mode: 'walk', dead: false }
+  const { w, h } = sizeOf(kind)
+  return {
+    kind,
+    x,
+    y,
+    vx: dir * speedOf(kind),
+    vy: 0,
+    w,
+    h,
+    mode: 'walk',
+    hp: kind === 'chaser-bot' ? CHASER_HP : 1,
+    age: 0,
+    windup: 0,
+    baseY: y,
+    dead: false,
+  }
 }
 
 /** The enemy's collision box. */
@@ -91,15 +176,65 @@ export function overlaps(a: Box, b: Box): boolean {
 }
 
 /**
- * A stomp is a downward move whose feet land in the top band of the enemy. The downward check is
- * load-bearing: without it a player rising through an enemy from below would count as a stomp.
+ * True when the player is inside the enemy's wind-up range — its own box grown by `WINDUP_RANGE_PX`.
+ * Computed from the edges rather than a grown box object, so the fixed step allocates nothing.
  */
-export function stomps(player: Box, playerVy: number, e: Enemy): boolean {
+function withinWindup(player: Box, e: Enemy): boolean {
+  const r = WINDUP_RANGE_PX
+  return (
+    player.x + player.w > e.x - r &&
+    player.x < e.x + e.w + r &&
+    player.y + player.h > e.y - r &&
+    player.y < e.y + e.h + r
+  )
+}
+
+/**
+ * True when Pip's feet are landing in the top band of the enemy on a downward move — the geometric
+ * shape of a stomp, before the per-kind rules. The downward check is load-bearing: without it a
+ * player rising through an enemy from below would read as a landing.
+ */
+export function landsOnTop(player: Box, playerVy: number, e: Enemy): boolean {
   if (playerVy <= 0) return false
   if (e.mode === 'carried' || e.dead) return false
   const feet = player.y + player.h
   if (feet < e.y || feet > e.y + STOMP_TOLERANCE) return false
   return player.x + player.w > e.x + EPS && player.x < e.x + e.w - EPS
+}
+
+/**
+ * A stomp is a landing that defeats or flattens. A Spike-Beetle's back is spiked, so landing on it is
+ * a side hit, never a stomp — `landsOnTop` is what the damage rule uses for that enemy instead.
+ */
+export function stomps(player: Box, playerVy: number, e: Enemy): boolean {
+  if (e.kind === 'spike-beetle') return false
+  return landsOnTop(player, playerVy, e)
+}
+
+/**
+ * The nearest of Pip and the Echoes within CHASER_RANGE, or null when both are out of reach. A
+ * Chaser-Bot aims at the centre of the nearer box, which is what lets an Echo decoy it.
+ */
+export function chaserTarget(e: Enemy, player: Box, echoes: readonly Box[]): Box | null {
+  const cx = e.x + e.w / 2
+  const cy = e.y + e.h / 2
+  let best: Box | null = null
+  let bestDist = CHASER_RANGE
+
+  const playerDist = Math.hypot(player.x + player.w / 2 - cx, player.y + player.h / 2 - cy)
+  if (playerDist <= bestDist) {
+    best = player
+    bestDist = playerDist
+  }
+  for (let i = 0; i < echoes.length; i++) {
+    const b = echoes[i]
+    const d = Math.hypot(b.x + b.w / 2 - cx, b.y + b.h / 2 - cy)
+    if (d <= bestDist) {
+      best = b
+      bestDist = d
+    }
+  }
+  return best
 }
 
 /** Turn a stomped turtle into a resting shell, keeping its feet on the ground it already stood on. */
@@ -111,14 +246,26 @@ function toShell(e: Enemy): void {
   e.vx = 0
 }
 
+/** A shell is a projectile; a Chaser-Bot's plating shrugs it off (it is weak only to stomps and fire). */
+function shellProof(kind: EnemyKind): boolean {
+  return kind === 'chaser-bot'
+}
+
 /**
  * Advance every enemy one fixed step and resolve what each did to Pip. Mutates the field.
  *
  * A carried shell is pinned above Pip's head and touches nothing. A sliding shell kills the walkers
- * it runs into and reverses off a wall. A stomp flattens a Gear-Goomba and turns a Steam-Turtle into
- * a resting shell; stomping a shell stops it dead.
+ * it runs into and reverses off a wall. A stomp flattens a Gear-Goomba, turns a Steam-Turtle into a
+ * resting shell, defeats a Gust-Wing, and costs a Chaser-Bot one of its two hit points; a Spike-Beetle
+ * is spiked on top, so landing on it is a side hit.
  */
-export function stepEnemies(field: EnemyField, player: Box, playerVy: number, map: TileMap): EnemyEvents {
+export function stepEnemies(
+  field: EnemyField,
+  player: Box,
+  playerVy: number,
+  map: TileMap,
+  echoes: readonly Box[] = NO_ECHOES,
+): EnemyEvents {
   // --- 1. move everything that moves on its own
   for (const e of field.enemies) {
     if (e.mode === 'carried') {
@@ -129,14 +276,35 @@ export function stepEnemies(field: EnemyField, player: Box, playerVy: number, ma
       continue
     }
 
+    // A Gust-Wing flies its own path: no gravity, horizontal at its speed, vertical as a sine wave.
+    if (e.kind === 'gust-wing') {
+      e.age += 1
+      const flown = moveBox(enemyBox(e), e.vx, 0, map)
+      e.x = flown.x
+      if (flown.hitLeft || flown.hitRight) e.vx = -e.vx
+      e.y = e.baseY + Math.sin((e.age * 2 * Math.PI) / GUST_WING_PERIOD_F) * GUST_WING_AMPLITUDE
+      if (e.x < -2 * TILE || e.x > map.cols * TILE + 2 * TILE) e.dead = true
+      continue
+    }
+
+    e.age += 1
+    // A Chaser-Bot steers at the nearest target this frame; with none in range it holds still.
+    if (e.kind === 'chaser-bot') {
+      const target = chaserTarget(e, player, echoes)
+      e.vx = target === null ? 0 : Math.sign(target.x + target.w / 2 - (e.x + e.w / 2)) * CHASER_SPEED
+    }
+
     e.vy = Math.min(e.vy + GRAVITY_FALL, MAX_FALL)
     const moved = moveBox(enemyBox(e), e.vx, e.vy, map)
     e.x = moved.x
     e.y = moved.y
 
     if (moved.hitLeft || moved.hitRight) {
-      // A walker turns at a wall; a sliding shell keeps its speed and reverses.
-      e.vx = e.mode === 'sliding' ? -e.vx : -Math.sign(e.vx) * ENEMY_WALK_SPEED
+      // A walker turns at a wall; a sliding shell keeps its speed and reverses; a Chaser-Bot stops
+      // and re-targets next frame.
+      if (e.mode === 'sliding') e.vx = -e.vx
+      else if (e.kind === 'chaser-bot') e.vx = 0
+      else e.vx = -Math.sign(e.vx) * speedOf(e.kind)
     }
     if (moved.hitTop || moved.hitBottom) e.vy = 0
 
@@ -151,6 +319,7 @@ export function stepEnemies(field: EnemyField, player: Box, playerVy: number, ma
     for (const other of field.enemies) {
       if (other === shell || other.dead) continue
       if (other.mode === 'carried' || other.mode === 'sliding') continue
+      if (shellProof(other.kind)) continue
       if (overlaps(enemyBox(shell), enemyBox(other))) other.dead = true
     }
   }
@@ -164,8 +333,12 @@ export function stepEnemies(field: EnemyField, player: Box, playerVy: number, ma
 
     if (stomps(player, playerVy, e)) {
       STOMPED.push(e)
-      if (e.kind === 'gear-goomba') e.dead = true
-      else toShell(e)
+      if (e.kind === 'gear-goomba' || e.kind === 'gust-wing') e.dead = true
+      else if (e.kind === 'steam-turtle') toShell(e)
+      else if (e.kind === 'chaser-bot') {
+        e.hp -= 1
+        if (e.hp <= 0) e.dead = true
+      }
       continue
     }
 
@@ -173,7 +346,21 @@ export function stepEnemies(field: EnemyField, player: Box, playerVy: number, ma
     // touchShell. Only a sliding shell hurts on contact.
     if (e.mode === 'shell') continue
 
-    if (overlaps(player, enemyBox(e))) hit = true
+    // A spiked top is a hazard surface, not an attack: a landing on it hurts at once, because the
+    // visible spikes are the telegraph. Every other contact waits out the wind-up.
+    if (e.kind === 'spike-beetle' && landsOnTop(player, playerVy, e)) {
+      hit = true
+      continue
+    }
+
+    // The wind-up runs on approach: it fills while Pip is inside the enemy's range, and only a
+    // contact after it has filled hurts. A running player is therefore warned before he arrives.
+    if (withinWindup(player, e)) {
+      if (e.windup < WINDUP_F) e.windup += 1
+    } else {
+      e.windup = 0
+    }
+    if (e.windup >= WINDUP_F && overlaps(player, enemyBox(e))) hit = true
   }
 
   // Compact in place rather than filtering: `filter` builds a new array every frame, and the

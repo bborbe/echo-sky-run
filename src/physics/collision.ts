@@ -78,6 +78,17 @@ function overlapsHorizontally(x: number, w: number, p: Box): boolean {
   return x + w > p.x + EPS && x < p.x + p.w - EPS
 }
 
+/**
+ * The first solid box the box would overlap, or null. Solid boxes are the level's dynamic solids —
+ * a closed Echo door — and unlike a platform they block from every side.
+ */
+function hitsSolidBox(x: number, y: number, w: number, h: number, solids: readonly Box[]): Box | null {
+  for (const s of solids) {
+    if (x + w > s.x + EPS && x < s.x + s.w - EPS && y + h > s.y + EPS && y < s.y + s.h - EPS) return s
+  }
+  return null
+}
+
 /** The highest platform top a downward move crosses, or null when it crosses none. */
 function platformStop(
   x: number,
@@ -98,13 +109,22 @@ function platformStop(
 }
 
 /**
- * Move a box by (dx, dy) through the tile grid and any dynamic platforms, resolving each axis
- * separately and in sub-steps of at most one pixel, so no surface can be tunnelled through at any
- * speed the game produces. A blocked axis snaps flush to the surface edge.
+ * Move a box by (dx, dy) through the tile grid, any dynamic platforms and any solid boxes, resolving
+ * each axis separately and in sub-steps of at most one pixel, so no surface can be tunnelled through
+ * at any speed the game produces. A blocked axis snaps flush to the surface edge.
+ *
+ * `platforms` are one-way tops (a ghost Echo). `solids` block from every side (a closed Echo door).
  *
  * The result object is reused between calls — read its fields before calling `moveBox` again.
  */
-export function moveBox(box: Box, dx: number, dy: number, map: TileMap, platforms: readonly Box[] = []): MoveResult {
+export function moveBox(
+  box: Box,
+  dx: number,
+  dy: number,
+  map: TileMap,
+  platforms: readonly Box[] = [],
+  solids: readonly Box[] = [],
+): MoveResult {
   let { x, y } = box
   let hitLeft = false
   let hitRight = false
@@ -116,14 +136,15 @@ export function moveBox(box: Box, dx: number, dy: number, map: TileMap, platform
   while (Math.abs(remaining) > EPS) {
     const step = Math.sign(remaining) * Math.min(Math.abs(remaining), 1)
     const nx = x + step
-    if (hitsSolid(nx, y, box.w, box.h, map)) {
-      // Snap flush to the blocking tile edge. Stopping at the last free sub-step instead would leave
-      // the box up to a pixel short of the surface, which breaks the ground probe.
+    const boxBlock = hitsSolidBox(nx, y, box.w, box.h, solids)
+    if (hitsSolid(nx, y, box.w, box.h, map) || boxBlock !== null) {
+      // Snap flush to the blocking edge. Stopping at the last free sub-step instead would leave the
+      // box up to a pixel short of the surface, which breaks the ground probe.
       if (step > 0) {
-        x = Math.floor((nx + box.w) / TILE) * TILE - box.w
+        x = boxBlock !== null ? boxBlock.x - box.w : Math.floor((nx + box.w) / TILE) * TILE - box.w
         hitRight = true
       } else {
-        x = (Math.floor(nx / TILE) + 1) * TILE
+        x = boxBlock !== null ? boxBlock.x + boxBlock.w : (Math.floor(nx / TILE) + 1) * TILE
         hitLeft = true
       }
       break
@@ -143,16 +164,18 @@ export function moveBox(box: Box, dx: number, dy: number, map: TileMap, platform
       hitsSolid(x, ny, box.w, box.h, map) ||
       (step > 0 && hitsOneWayFromAbove(x, ny, box.w, box.h, map, prevBottom))
     const pStop = step > 0 ? platformStop(x, box.w, prevBottom, ny + box.h, platforms) : null
+    const boxBlock = hitsSolidBox(x, ny, box.w, box.h, solids)
 
-    if (tileBlocked || pStop !== null) {
+    if (tileBlocked || pStop !== null || boxBlock !== null) {
       if (step > 0) {
         let stop = Number.POSITIVE_INFINITY
         if (tileBlocked) stop = Math.floor((ny + box.h) / TILE) * TILE
         if (pStop !== null) stop = Math.min(stop, pStop)
+        if (boxBlock !== null) stop = Math.min(stop, boxBlock.y)
         y = stop - box.h
         hitBottom = true
       } else {
-        y = (Math.floor(ny / TILE) + 1) * TILE
+        y = boxBlock !== null ? boxBlock.y + boxBlock.h : (Math.floor(ny / TILE) + 1) * TILE
         hitTop = true
       }
       break
@@ -171,8 +194,13 @@ export function moveBox(box: Box, dx: number, dy: number, map: TileMap, platform
   return MOVE_RESULT
 }
 
-/** What is under the box: a solid tile, a one-way tile at exactly its feet, a platform, or nothing. */
-export function groundUnder(box: Box, map: TileMap, platforms: readonly Box[] = []): Ground {
+/** What is under the box: a solid tile, a one-way tile at exactly its feet, a platform, a solid box, or nothing. */
+export function groundUnder(
+  box: Box,
+  map: TileMap,
+  platforms: readonly Box[] = [],
+  solids: readonly Box[] = [],
+): Ground {
   const feet = box.y + box.h
   const row = Math.floor(feet / TILE)
   const { c0, c1 } = cellsOverlapping(box.x, box.y, box.w, box.h)
@@ -183,6 +211,11 @@ export function groundUnder(box: Box, map: TileMap, platforms: readonly Box[] = 
     if (isOneWay(ch) && feet <= row * TILE + EPS) return 'tile'
   }
 
+  for (const s of solids) {
+    if (!overlapsHorizontally(box.x, box.w, s)) continue
+    if (Math.abs(feet - s.y) <= EPS) return 'tile'
+  }
+
   for (const p of platforms) {
     if (!overlapsHorizontally(box.x, box.w, p)) continue
     if (Math.abs(feet - p.y) <= EPS) return 'platform'
@@ -191,8 +224,18 @@ export function groundUnder(box: Box, map: TileMap, platforms: readonly Box[] = 
   return 'none'
 }
 
-export function isGrounded(box: Box, map: TileMap, platforms: readonly Box[] = []): boolean {
-  return groundUnder(box, map, platforms) !== 'none'
+export function isGrounded(box: Box, map: TileMap, platforms: readonly Box[] = [], solids: readonly Box[] = []): boolean {
+  return groundUnder(box, map, platforms, solids) !== 'none'
+}
+
+/** The platform whose top the box is resting on, or null. The box the player stands on, not a copy. */
+export function platformUnder(box: Box, platforms: readonly Box[]): Box | null {
+  const feet = box.y + box.h
+  for (const p of platforms) {
+    if (!overlapsHorizontally(box.x, box.w, p)) continue
+    if (Math.abs(feet - p.y) <= EPS) return p
+  }
+  return null
 }
 
 /** True when the box overlaps any solid tile — used to refuse an Echo placed inside a wall. */
