@@ -52,6 +52,9 @@ export const FONT: Readonly<Record<string, Mask>> = {
   '.': ['.....', '.....', '.....', '.....', '.....', '.##..', '.##..'],
   '/': ['....#', '....#', '...#.', '..#..', '.#...', '#....', '#....'],
   '-': ['.....', '.....', '.....', '#####', '.....', '.....', '.....'],
+  // The results screen's per-section delta sign. `-` is the other half, so a loss and a gain read
+  // as a pair rather than as a bare number.
+  '+': ['.....', '..#..', '..#..', '#####', '..#..', '..#..', '.....'],
   '·': ['.....', '.....', '.....', '..#..', '.....', '.....', '.....'],
   '<': ['...#.', '..#..', '.#...', '#....', '.#...', '..#..', '...#.'],
   '>': ['.#...', '..#..', '...#.', '....#', '...#.', '..#..', '.#...'],
@@ -86,10 +89,12 @@ export const OVERLAY_TEXT = {
   music: 'MUSIC',
   effects: 'EFFECTS',
   settingsHint: '< >: VOLUME · ESC / B: BACK',
-  /** Results: the run's time and the best time, then the two ways on. */
+  /** Results: the run's time, the best time, the medal and the per-section splits, then the two ways on. */
   clear: 'LEVEL CLEAR',
   time: 'TIME',
   best: 'BEST',
   noBest: 'BEST --',
+  medal: 'MEDAL',
+  noMedal: 'MEDAL --',
   selectHint: 'SPACE / A: SELECT',
 } as const

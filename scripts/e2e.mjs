@@ -554,6 +554,102 @@ try {
     JSON.stringify(atTitle),
   )
 
+  // ---- the results screen: the medal and the per-section time lost -------------------------
+  // Two clears, one on each side of a threshold, driven through the same seam the level run above
+  // used. A fresh save isolates the deltas: the first clear writes the section bests and the second
+  // compares against them. The medal line must match the thresholds the game itself exposes, so the
+  // check cannot pass on a hardcoded table that has drifted from the module.
+  await page.evaluate(() => localStorage.removeItem('echo-sky-run.v1'))
+  await page.goto(`${URL}?level=1-1`, { waitUntil: 'load' })
+  await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+
+  const thresholds = await page.evaluate(() => window.__echoSkyRun.medalTimes())
+  const medalFor = (frames) => {
+    if (!thresholds) return null
+    if (frames <= thresholds.author) return 'AUTHOR'
+    if (frames <= thresholds.gold) return 'GOLD'
+    if (frames <= thresholds.silver) return 'SILVER'
+    if (frames <= thresholds.bronze) return 'BRONZE'
+    return null
+  }
+
+  // One clear through the seam. `idleFrames` stands still at the spawn first, which adds exactly that
+  // many frames to the timer — how the slow clear lands above a threshold without touching the level.
+  const clearLevel = (idleFrames, sprint) =>
+    page.evaluate(
+      ({ idleFrames, sprint }) => {
+        const game = window.__echoSkyRun
+        game.reset()
+        for (let i = 0; i < idleFrames; i++) game.step({})
+        let wantEchoOnce = false
+        let echoesPlaced = 0
+        let previousEchoes = game.state().echoes
+        for (let i = 0; i < 3000; i++) {
+          const s = game.state()
+          const enemyNear = game.enemyXs().some((ex) => ex > s.x && ex - s.x < 40)
+          const jumpPressed = s.grounded && (game.lipMissingAt(s.x) || enemyNear)
+          const wantEcho = !wantEchoOnce && !s.grounded && s.x >= game.echoAtX && s.airCharges > 0
+          if (wantEcho) wantEchoOnce = true
+          const next = game.step({ right: true, jump: true, jumpPressed, sprint, echoPressed: wantEcho })
+          if (next.echoes > previousEchoes) echoesPlaced += 1
+          previousEchoes = next.echoes
+          if (next.goalReached) return { won: true, frames: next.frames, echoesPlaced }
+          if (next.deaths > 0) return { won: false, died: true, frames: next.frames }
+        }
+        return { won: false, timedOut: true }
+      },
+      { idleFrames, sprint },
+    )
+
+  const readResults = () =>
+    page.evaluate(() => ({
+      screen: window.__echoSkyRun.screen(),
+      lines: window.__echoSkyRun.overlayLines(),
+      results: window.__echoSkyRun.results(),
+    }))
+
+  const slowRun = await clearLevel(400, false)
+  await page.waitForTimeout(250)
+  const slowResults = await readResults()
+  const slowSections = slowResults.lines.filter((line) => /^S\d /.test(line))
+  check(slowRun.won, 'the slow clear reaches the flag', JSON.stringify(slowRun))
+  check(
+    slowResults.screen === 'results' &&
+      slowResults.lines.includes(`MEDAL ${medalFor(slowRun.frames)}`) &&
+      slowResults.results?.medal === medalFor(slowRun.frames),
+    'the results screen names the medal the slow clear earned',
+    JSON.stringify({ frames: slowRun.frames, expected: medalFor(slowRun.frames), lines: slowResults.lines }),
+  )
+  check(
+    slowSections.length === 4 && slowSections.every((line) => line.endsWith(' --')),
+    'the first clear splits the run into four sections, with no best to compare yet',
+    JSON.stringify(slowSections),
+  )
+
+  // The sprint clear on the same fresh save: faster along the same line, so every section gains time.
+  const fastRun = await clearLevel(0, true)
+  await page.waitForTimeout(250)
+  const fastResults = await readResults()
+  const fastSections = fastResults.lines.filter((line) => /^S\d /.test(line))
+  check(fastRun.won, 'the fast clear reaches the flag', JSON.stringify(fastRun))
+  check(
+    fastResults.screen === 'results' &&
+      fastResults.lines.includes(`MEDAL ${medalFor(fastRun.frames)}`) &&
+      fastResults.results?.medal === medalFor(fastRun.frames),
+    'the results screen names the medal the fast clear earned',
+    JSON.stringify({ frames: fastRun.frames, expected: medalFor(fastRun.frames), lines: fastResults.lines }),
+  )
+  check(
+    fastSections.length === 4 && fastSections.every((line) => /\s-\d+\.\d$/.test(line)),
+    'every section line carries the time gained against the stored best',
+    JSON.stringify(fastSections),
+  )
+  check(
+    medalFor(slowRun.frames) !== medalFor(fastRun.frames),
+    'the two clears landed on different medals, so a threshold was actually crossed',
+    JSON.stringify({ slow: medalFor(slowRun.frames), fast: medalFor(fastRun.frames) }),
+  )
+
   // Back to a running level for the checks below.
   await page.evaluate(() => {
     window.__echoSkyRun.reset()

@@ -48,6 +48,12 @@ export interface AutopilotOptions {
    * `RUN_MAX`; it simply never unlocks `SPRINT_MAX`, because nothing reads it without the key.)
    */
   readonly sprint?: boolean
+  /**
+   * A per-frame sprint plan, read with the player's x at decision time. It overrides `sprint`: a
+   * designed route sprints where its line says and runs elsewhere, which is what makes a fast route
+   * a route rather than "hold the sprint key". Absent means `sprint` decides every frame.
+   */
+  readonly sprintPlan?: (x: number) => boolean
 }
 
 /** The viewport the toolkit rates at, and the worst case: a smaller window shows less of the level. */
@@ -110,6 +116,7 @@ export function runAutopilot(profile: LevelToolkitProfile, options: AutopilotOpt
   const echoAtX = options.echoAtX !== undefined ? options.echoAtX : profile.echoAtX
   const maxFrames = options.maxFrames ?? MAX_FRAMES
   const sprint = options.sprint ?? true
+  const sprintPlan = options.sprintPlan ?? null
 
   const camera = new Camera()
   camera.setViewWidth(logicalViewWidth(viewport.width, viewport.height))
@@ -147,7 +154,7 @@ export function runAutopilot(profile: LevelToolkitProfile, options: AutopilotOpt
       right: true,
       jump: true,
       jumpPressed,
-      sprint,
+      sprint: sprintPlan === null ? sprint : sprintPlan(p.x),
       echoPressed: wantEcho,
     }
     stepSim(sim, input)
