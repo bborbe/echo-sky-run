@@ -166,6 +166,24 @@ export class Renderer {
     return Math.round(this.camera.x)
   }
 
+  /** The camera's vertical scroll, for the browser check's flicker probe. */
+  get cameraY(): number {
+    return Math.round(this.camera.y)
+  }
+
+  /** The camera the last frame was actually drawn at — the flicker probe's race-free reference. */
+  private lastCam = { x: 0, y: 0 }
+
+  /** X the current canvas was drawn at, so the probe never pairs pixels with a newer camera. */
+  get drawnCameraX(): number {
+    return this.lastCam.x
+  }
+
+  /** Y the current canvas was drawn at. */
+  get drawnCameraY(): number {
+    return this.lastCam.y
+  }
+
   /**
    * Size the canvases to the window. The pixel canvas's backing store is `viewW x 224` logical
    * pixels, stretched over the whole window and drawn nearest-neighbour, so there are never bars.
@@ -202,6 +220,7 @@ export class Renderer {
     const shake = juice.shakeOffset()
     const camX = Math.round(this.camera.x) - shake.x
     const camY = Math.round(this.camera.y) - shake.y
+    this.lastCam = { x: camX, y: camY }
 
     this.background.draw(camX, camY, juice.dying() ? [] : state.echoes)
     this.world.draw(this.ctx, this.viewW, camX, camY, state)

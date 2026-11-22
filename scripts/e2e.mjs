@@ -1404,23 +1404,30 @@ try {
     let moved = 0
     for (let i = 0; i < 30; i++) {
       await new Promise((r) => requestAnimationFrame(r))
-      const cam = api.cameraX()
+      // Read the camera the canvas was actually drawn at, not the live camera: the render loop can
+      // advance the camera after it draws, and pairing that newer value with the older pixels
+      // reports a one-pixel shift the camera never made. If a frame is drawn between the pixel grab
+      // and the camera read, skip it — the sample cannot be attributed to a single frame.
+      const before = { x: api.drawnCameraX(), y: api.drawnCameraY() }
       const data = ctx.getImageData(0, 192, W, 32).data
+      const after = { x: api.drawnCameraX(), y: api.drawnCameraY() }
+      if (before.x !== after.x || before.y !== after.y) continue
       if (prev) {
-        const d = cam - prev.cam
-        if (d !== 0) moved++
-        // Every pixel of the overlap, every channel. `cameraX()` is the scroll rounded to whole
-        // pixels, while the frame is drawn at the camera's unrounded position, so the band's true
-        // shift between two drawn frames can be `d` or one pixel either side of it. Take the best of
-        // the three: a build that repaints the ground for any other reason — the flicker this check
-        // exists to catch — still mismatches on all three shifts.
+        const d = before.x - prev.cam.x
+        const e = before.y - prev.cam.y
+        if (d !== 0 || e !== 0) moved++
+        // Every pixel of the overlap, every channel, shifted by the camera's own move on both axes.
+        // The drawn camera is rounded to whole pixels, while a frame is drawn at the camera's
+        // unrounded position, so the band's true horizontal shift can be `d` or one pixel either
+        // side of it; take the best of the three. A build that repaints the ground for any other
+        // reason — the flicker this check exists to catch — still mismatches on all three shifts.
         let best = Infinity
         for (const shift of [d - 1, d, d + 1]) {
           let bad = 0
           let n = 0
-          for (let y = 0; y < 32; y++) {
+          for (let y = Math.max(0, -e); y < Math.min(32, 32 - e); y++) {
             for (let x = Math.max(0, -shift); x < Math.min(W, W - shift); x++) {
-              const a = (y * W + x + shift) * 4
+              const a = ((y + e) * W + x + shift) * 4
               const b = (y * W + x) * 4
               n++
               if (
@@ -1438,7 +1445,7 @@ try {
         }
         mismatched += best
       }
-      prev = { cam, data }
+      prev = { cam: before, data }
     }
     window.dispatchEvent(new KeyboardEvent('keyup', { code: 'ArrowRight', bubbles: true }))
     return { moved, compared, mismatched }
