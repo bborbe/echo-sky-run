@@ -10,7 +10,7 @@
 
 import { createSim, stepSim, type SimInput, type SimState } from '../game/sim.ts'
 import { PLAYER_W, TILE } from '../physics/constants.ts'
-import { tileAt } from '../physics/tilemap.ts'
+import { isSolid, tileAt } from '../physics/tilemap.ts'
 import { Camera, logicalViewWidth } from '../render/camera.ts'
 import { profileMap, requireEchoAnswer, type LevelToolkitProfile } from './level.ts'
 
@@ -62,6 +62,8 @@ export const TOOLKIT_VIEWPORT = { width: 960, height: 540 } as const
 const MAX_FRAMES = 3000
 /** How close an enemy has to be before the autopilot jumps it rather than walking into it. */
 const ENEMY_LOOKAHEAD = 40
+/** How far ahead of the leading edge a solid tile counts as a wall or ledge to climb. */
+const WALL_LOOKAHEAD = TILE
 
 /** The floor under Pip's leading edge is gone — the bot's jump trigger. */
 function lipMissingAhead(sim: SimState): boolean {
@@ -69,6 +71,26 @@ function lipMissingAhead(sim: SimState): boolean {
   const feetRow = Math.floor((p.y + p.h) / TILE)
   const col = Math.floor((p.x + PLAYER_W) / TILE)
   return tileAt(sim.map, col, feetRow) !== '#'
+}
+
+/**
+ * A solid tile at Pip's body height just ahead — a wall or a step-up the run would stall against.
+ *
+ * `lipMissingAhead` covers the floor falling away; this covers the floor rising. Both are jump
+ * triggers, and both are read while grounded: a flush stop against the wall leaves no run-up and no
+ * carry, so the jump has to go in before the wall does. The probe reaches one tile past the leading
+ * edge, which presses the jump while there is still room to rise clear of the top instead of on the
+ * frame the run has already been stopped.
+ */
+function wallAhead(sim: SimState): boolean {
+  const p = sim.player
+  const row = Math.floor((p.y + p.h - 1) / TILE)
+  const first = Math.floor((p.x + PLAYER_W) / TILE)
+  const last = Math.floor((p.x + PLAYER_W + WALL_LOOKAHEAD) / TILE)
+  for (let col = first; col <= last; col++) {
+    if (isSolid(tileAt(sim.map, col, row))) return true
+  }
+  return false
 }
 
 /** A live enemy close enough ahead that holding right would walk into it. */
@@ -98,7 +120,7 @@ export interface AutopilotDecision {
  */
 export function autopilotDecision(sim: SimState, echoAtX: number | null, echoUsed: boolean): AutopilotDecision {
   const p = sim.player
-  const jumpPressed = p.grounded && (lipMissingAhead(sim) || enemyAhead(sim))
+  const jumpPressed = p.grounded && (lipMissingAhead(sim) || wallAhead(sim) || enemyAhead(sim))
   const wantEcho = !echoUsed && echoAtX !== null && !p.grounded && p.x >= echoAtX && sim.field.airCharges > 0
   return { jumpPressed, echoPressed: wantEcho, echoUsed: echoUsed || wantEcho }
 }

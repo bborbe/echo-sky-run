@@ -12,7 +12,7 @@ import { crossedBoundaries, sectionDeltas, sectionDurations } from './game/split
 import { LEVEL_1_1_ECHO_AT_X, LEVEL_1_1_SECTION_BOUNDS } from './levels/level1-1.level.ts'
 import { medalTimesFor } from './levels/medal-times.ts'
 import { LEVEL_CATALOGUE, findLevel, groupBySet, tileIndexFor, tileItems } from './levels/catalogue.ts'
-import { mapItems, mapNodes, WORLD1_PATH, completeLevel } from './levels/map.ts'
+import { mapItems, mapNodes, MAP_NODE_IDS, completeLevel, unlockSecretLevel } from './levels/map.ts'
 import { PLAYER_W, TILE } from './physics/constants.ts'
 import { FixedStepper } from './physics/loop.ts'
 import { parseLevel, tileAt } from './physics/tilemap.ts'
@@ -151,15 +151,15 @@ function tileScreenItems() {
   return mapMode ? mapItemsNow() : tiles
 }
 
-/** The focus grid for the tile screen: one row of map nodes, or the catalogue's set rows. */
+/** The focus grid for the tile screen: one row of map nodes (path plus secret branch), or the catalogue's set rows. */
 function tileScreenRows() {
-  return mapMode ? [WORLD1_PATH.length] : tileRowSizes
+  return mapMode ? [MAP_NODE_IDS.length] : tileRowSizes
 }
 
 /** The tile screen's selected row for a level: its map node, or its catalogue tile. */
 function tileScreenIndexFor(level: string | null): number {
   if (!mapMode) return tileIndexFor(tiles, level)
-  const i = level === null ? -1 : WORLD1_PATH.indexOf(level)
+  const i = level === null ? -1 : MAP_NODE_IDS.indexOf(level)
   return i >= 0 ? i : 0
 }
 /** The level the tile view starts, kept so leaving a run returns to the same tile. */
@@ -797,6 +797,17 @@ function frame(now: number): void {
     }
     // One write carries both: the improved section bests and the level best/unlock.
     const next = completeLevel(recordSectionBests(save, currentLevel, durations), currentLevel, finish)
+    if (next !== save) {
+      save = next
+      storeSave(storage(), save)
+    }
+  }
+
+  // A secret switch unlocks the secret level the first time Pip touches one. The write goes through
+  // the same guard `completeLevel` uses: `unlockSecretLevel` returns the same save once it holds
+  // 1-S, so a second touch — or the same touch on later frames — is a no-op and writes nothing.
+  if (sim.secretSwitchTouched) {
+    const next = unlockSecretLevel(save)
     if (next !== save) {
       save = next
       storeSave(storage(), save)

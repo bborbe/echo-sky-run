@@ -14,6 +14,20 @@ import type { MenuItem } from '../ui/screens.ts'
 export const WORLD1_PATH: readonly string[] = ['1-1', '1-2', '1-3', '1-4']
 
 /**
+ * The secret level's id. It is a branch off 1-3, reached only through that level's secret switch, so
+ * it is deliberately **not** on `WORLD1_PATH`: the linear completion path (`nextLevelId`) can never
+ * walk onto it, which is what keeps the switch the only producer of its unlock.
+ */
+export const SECRET_LEVEL_ID = '1-S'
+
+/**
+ * The nodes the map draws: the linear path, then the secret branch. The branch is appended rather
+ * than interleaved, so `WORLD1_PATH` stays the only list `nextLevelId` walks and the map's drawing
+ * order is independent of its progression order.
+ */
+export const MAP_NODE_IDS: readonly string[] = [...WORLD1_PATH, SECRET_LEVEL_ID]
+
+/**
  * How a node reads:
  *  - `locked`  — the save does not hold it, so it cannot be started.
  *  - `unbuilt` — the save holds it but no level module exists yet: a placeholder.
@@ -29,12 +43,12 @@ export interface MapNode {
   readonly state: MapNodeState
 }
 
-/** The map's nodes in path order, resolved against the save's unlock state and the catalogue. */
+/** The map's nodes in drawing order, resolved against the save's unlock state and the catalogue. */
 export function mapNodes(
   isUnlocked: (id: string) => boolean,
   built: (id: string) => boolean = (id) => findLevel(id) !== undefined,
 ): readonly MapNode[] {
-  return WORLD1_PATH.map((id) => {
+  return MAP_NODE_IDS.map((id) => {
     if (!isUnlocked(id)) return { id, state: 'locked' as const }
     return built(id) ? { id, state: 'open' as const } : { id, state: 'unbuilt' as const }
   })
@@ -84,6 +98,16 @@ export function completeLevel(save: Save, levelId: string, seconds: number): Sav
   const withBest = recordLevelBest(save, levelId, seconds)
   const after = nextLevelId(levelId)
   return after === null ? withBest : unlockLevel(withBest, after)
+}
+
+/**
+ * The save with the secret level unlocked — the **only** producer of `1-S`. The secret switch calls
+ * it; `completeLevel` cannot, because `1-S` is not on `WORLD1_PATH`. It returns the same object when
+ * the save already holds the level, so a caller can skip the write (`if (next !== save)`) exactly as
+ * the completion path does, which is what makes a second touch of the switch a no-op.
+ */
+export function unlockSecretLevel(save: Save): Save {
+  return unlockLevel(save, SECRET_LEVEL_ID)
 }
 
 /** Relic-Coin slots a level holds, the denominator of `◆◆◇`. */
@@ -166,22 +190,40 @@ export const MAP_DISC_H = 14
  * The node centres along the winding trail, as fractions of the layout box — mockup B, which the
  * operator picked on 2026-11-21. The S-curve climbs from the bottom left to the top left, so the
  * path reads as a journey upward.
+ *
+ * The fifth spot is the secret branch's: it sits in the free top-right corner, so its box clears
+ * 1-2's and 1-3's on the right column and 1-1's and 1-4's on the left. One spot per entry in
+ * `MAP_NODE_IDS`; `layoutMap` refuses to fall back to a shared spot, because a sixth node drawing
+ * on top of the fifth is exactly the silent overlap this list exists to prevent.
  */
 const NODE_SPOTS: readonly { readonly fx: number; readonly fy: number }[] = [
   { fx: 0.2, fy: 0.8 },
   { fx: 0.63, fy: 0.62 },
   { fx: 0.63, fy: 0.38 },
   { fx: 0.2, fy: 0.19 },
+  { fx: 0.8, fy: 0.14 },
 ]
 
 /**
- * Lay the nodes out along the winding trail and join every adjacent pair with a connector, so a map
- * without a path is not representable: the connector list is derived from the node order and always
- * holds one segment fewer than there are nodes.
+ * The trail's edges: each adjacent pair on the linear path, then the secret branch off 1-3. Kept
+ * explicit rather than derived from the node order, because `1-S` is a branch — an order-derived
+ * list would join `1-4` to `1-S` and draw the secret level as the next step of the path.
+ */
+const MAP_EDGES: readonly (readonly [string, string])[] = [
+  ...WORLD1_PATH.slice(0, -1).map((id, i) => [id, WORLD1_PATH[i + 1]] as const),
+  ['1-3', SECRET_LEVEL_ID] as const,
+]
+
+/**
+ * Lay the nodes out along the winding trail and join each `MAP_EDGES` pair with a connector. The
+ * edges are explicit, so a branch is drawn as a branch: the linear path runs 1-1→1-2→1-3→1-4 and
+ * the secret level hangs off 1-3, never off 1-4. Every node needs its own spot — a missing spot
+ * throws rather than drawing two nodes on top of each other.
  */
 export function layoutMap(nodes: readonly MapNode[], counts: MapCounts, box: MapBox): MapLayout {
   const boxes: MapNodeBox[] = nodes.map((node, i) => {
-    const spot = NODE_SPOTS[i] ?? NODE_SPOTS[NODE_SPOTS.length - 1]
+    const spot = NODE_SPOTS[i]
+    if (spot === undefined) throw new Error(`no layout spot for map node ${i} (${node.id})`)
     const cx = box.x + spot.fx * box.w
     const cy = box.y + spot.fy * box.h
     return {
@@ -195,13 +237,16 @@ export function layoutMap(nodes: readonly MapNode[], counts: MapCounts, box: Map
       meta: mapNodeMeta(node, counts.relics?.[node.id] ?? 0, counts.bestTimes?.[node.id] ?? null),
     }
   })
+  const byId = new Map(boxes.map((b) => [b.id, b]))
   const connectors: MapConnector[] = []
-  for (let i = 0; i + 1 < boxes.length; i++) {
-    const a = boxes[i]
-    const b = boxes[i + 1]
+  for (const [from, to] of MAP_EDGES) {
+    const a = byId.get(from)
+    const b = byId.get(to)
+    // A caller may lay out a subset of the map; an edge with an absent end is simply not drawn.
+    if (a === undefined || b === undefined) continue
     connectors.push({
-      from: a.id,
-      to: b.id,
+      from,
+      to,
       x1: a.x + a.w / 2,
       y1: a.y + MAP_DISC_H / 2,
       x2: b.x + b.w / 2,
