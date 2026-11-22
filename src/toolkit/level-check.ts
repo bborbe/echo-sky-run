@@ -14,6 +14,7 @@
  * not decide, and it is printed with the cap it hit. Only `fail` fails the run.
  */
 
+import { ECHO_LIFE_F } from '../echo/echo.ts'
 import { createSim, stepSim, type SimInput } from '../game/sim.ts'
 import { findTile, GOAL, parseLevel, SPAWN, tileAt } from '../physics/tilemap.ts'
 import type { LevelSpec } from './level-spec.ts'
@@ -85,8 +86,8 @@ export function echoTimingMargin(map: ReturnType<typeof parseLevel>, inputs: rea
   const finish = frame
   return placements.map((p) => {
     const elapsed = finish - p.placeFrame
-    const remaining = Math.max(0, 240 - elapsed)
-    return { placeFrame: p.placeFrame, x: p.x, y: p.y, remainingLife: remaining, margin: remaining / 240 }
+    const remaining = Math.max(0, ECHO_LIFE_F - elapsed)
+    return { placeFrame: p.placeFrame, x: p.x, y: p.y, remainingLife: remaining, margin: remaining / ECHO_LIFE_F }
   })
 }
 
@@ -188,7 +189,7 @@ export function levelCheck(spec: LevelSpec, caps?: { readonly maxStates?: number
         check: 'Echo timing margin (check M)',
         status: worst.margin >= ECHO_MARGIN_FLOOR ? 'pass' : 'fail',
         detail:
-          `${(worst.margin * 100).toFixed(0)}% of ${240} f left at the end of the Echo-dependent sequence ` +
+          `${(worst.margin * 100).toFixed(0)}% of ${ECHO_LIFE_F} f left at the end of the Echo-dependent sequence ` +
           `(floor ${ECHO_MARGIN_FLOOR * 100}%; ${withEchoCompletion.label}, placed at frame ${worst.placeFrame}, ` +
           `finish at frame ${withEchoCompletion.inputs.length})`,
       })

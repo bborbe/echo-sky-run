@@ -23,14 +23,17 @@
  */
 
 import { createSim } from '../game/sim.ts'
-import { MAX_FALL, PLAYER_H, PLAYER_W, TILE } from '../physics/constants.ts'
+import { MAX_FALL, PLAYER_H, PLAYER_W, SPRINT_MAX, TILE } from '../physics/constants.ts'
 import { findTile, isSolid, SPAWN, tileAt, type TileMap } from '../physics/tilemap.ts'
 import type { ReachTarget } from './reachability.ts'
 
-/** One frame's horizontal travel at the fastest the engine allows. */
-const MAX_HORIZONTAL_PER_FRAME = 3 // SPRINT_MAX; kept literal so the bound cannot drift silently
-/** The distance a switch and a door must exceed, horizontally and vertically, to be provably unreachable. */
-const HORIZONTAL_GAP_LIMIT = PLAYER_W + MAX_HORIZONTAL_PER_FRAME
+/**
+ * The distance a switch and a door must exceed, horizontally and vertically, to be provably unreachable.
+ * Both bounds are read from the engine's own constants rather than copied: a hard-coded speed would
+ * silently stop matching a retuned `SPRINT_MAX` and turn this proof into a false `unreachable`, which is
+ * the one output this tool must never produce.
+ */
+const HORIZONTAL_GAP_LIMIT = PLAYER_W + SPRINT_MAX
 const VERTICAL_GAP_LIMIT = PLAYER_H + MAX_FALL
 
 export interface DoorSealProof {
