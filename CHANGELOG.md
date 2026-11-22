@@ -8,7 +8,11 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.6.1
+
+- chore: restate the do-not-merge contract in the gate workflow
+
+## v0.6.0
 
 - fix: the flicker probe pairs each frame's pixels with the camera that frame was actually drawn at. The render loop advances the camera after it draws, so the old probe read the newer live `cameraX()` against the previous frame's pixels and reported a one-pixel shift the camera never made — intermittently, and on either side of the 1-2 merge. `Renderer` now records the camera it drew with (`drawnCameraX` / `drawnCameraY`), the running probe reads those and skips any frame drawn between the pixel grab and the camera read, and the ground band is compared on both axes. The ±1 px tolerance and `mismatched === 0` are unchanged.
 - fix: 1-2's Echo-switch corridor is sealed, so the door is actually required. A free-standing 48 px door on an open 21-tile ledge could be jumped over (a plain jump peaks at ~67 px) or simply walked around. A roof at row 5 sits directly on the door's top edge and spans the ledge's full width, so the corridor is exactly the door's height and there is no side route. The far end is walled at the ledge's last column (rows 6-8) while the near end is left open, so the door is the only way in — without that wall the reward was reachable from the open right end with no Echo at all. `level1-2.toolkit.test.ts` asserts the seal — the door's top equals the roof's bottom, the roof spans the ledge end to end, and every corridor row is solid at the far column and open at the near one.
