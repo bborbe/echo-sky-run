@@ -30,3 +30,6 @@ playwright-report
 
 # `make shots` output
 shots
+
+# `make level-check` / autopilot recordings
+artifacts
