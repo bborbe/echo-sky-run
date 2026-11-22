@@ -8,15 +8,15 @@
 // Both edges are closed full height at column 0 and the last column: an open edge lets the player
 // walk out of the world, and a wall shorter than the jump arc is not a wall.
 //
-// The Echo-switch lesson sits on a raised ledge at columns 6-26, in the enemy-free opening: the
-// switch at 10 and the door at 18 are three rows above the floor, so the first thing the level asks
-// is the new mechanic, with nothing to fall from and nothing hunting Pip. A player who never looks
-// up still finishes, because the running line stays clear. The door is solid while no switch is
-// pressed and opens on the frame one is, which is why standing on the switch is not enough — the
-// door is eight tiles away and closes the moment Pip steps off. The Echo is what holds it: placed
-// at Pip's feet on the switch it keeps pressing for its 240-frame life, long enough to walk
-// through. A ? block and Nimbus wait behind the door as the reward — the mount the level then
-// teaches.
+// The Echo-switch lesson sits in a walled corridor at columns 6-26, in the enemy-free opening: the
+// switch at 10 and the door at 17 are three rows above the floor, under a roof at row 5 that sits
+// directly on the door's top edge, so the corridor is 48 px tall — exactly the door's height. That
+// is what makes the door mean something: a plain jump peaks at ~67 px, which would clear a free-
+// standing 48 px door and walk around it on an open ledge, but the roof caps the rise at the door's
+// own top. The door is solid while no switch is pressed and opens on the frame one is, and it is
+// seven tiles from the switch, so standing on the switch is not enough. The Echo is what holds it:
+// placed at Pip's feet on the switch it keeps pressing for its 240-frame life, long enough to walk
+// through. A ? block and the level's Nimbus sit behind the door as the reward.
 
 import { TILE } from '../physics/constants.ts'
 
@@ -26,10 +26,10 @@ export const LEVEL_1_2_ROWS: readonly string[] = [
   '#..........................................................................................................................................................................................................................................................................................................#',
   '#..........................................................................................................................................................................................................................................................................................................#',
   '#..........................................................................................................................................................................................................................................................................................................#',
+  '#.....#####################................................................................................................................................................................................................................................................................................#',
   '#..........................................................................................................................................................................................................................................................................................................#',
   '#..........................................................................................................................................................................................................................................................................................................#',
-  '#..........................................................................................................................................................................................................................................................................................................#',
-  '#.........s.......D....?n..................................................................................................................................................................................................................................................................................#',
+  '#.........s......D.....?n..................................................................................................................................................................................................................................................................................#',
   '#.....#####################.......?.................................................................................................................................................................................................................?......................................................#',
   '#..........................................................................................................................................................................................................................................................................................................#',
   '#S..........................................g.t.......................g.......................................t...................g...................C.........i...................t.............................g...................t...................g.........i....................................F.#',
@@ -51,8 +51,10 @@ export const LEVEL_1_2_CHECKPOINT_COL = 150
 
 /** The raised ledge carrying the Echo-switch lesson, its switch and its door. */
 export const LEVEL_1_2_LEDGE = { firstCol: 6, lastCol: 26, row: 9 } as const
+/** The corridor's roof, which sits on the door's top edge so the door cannot be jumped over. */
+export const LEVEL_1_2_CEILING = { firstCol: 6, lastCol: 26, row: 5 } as const
 export const LEVEL_1_2_SWITCH_COL = 10
-export const LEVEL_1_2_DOOR_COL = 18
+export const LEVEL_1_2_DOOR_COL = 17
 
 /**
  * The spot the tile view's thumbnail is framed on: the switch ledge, so a tile shows the level's
