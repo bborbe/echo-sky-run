@@ -42,10 +42,10 @@ import {
 } from '../physics/constants.ts'
 import { createPlayer, stepPlayer } from '../physics/player.ts'
 import { CHECKPOINT, findTile, GOAL, GUST_WING, SPAWN, SECRET_SWITCH, tileAt } from '../physics/tilemap.ts'
-import { runAutopilot, TOOLKIT_VIEWPORT, type Takeoff } from '../toolkit/autopilot.ts'
+import { runAutopilot, autopilotDecision, TOOLKIT_VIEWPORT, type Takeoff } from '../toolkit/autopilot.ts'
 import { blindJumps } from '../toolkit/blind-jump.ts'
+import { Camera, logicalViewWidth } from '../render/camera.ts'
 import { echoBeats, floorTop, profileMap, tierHeight, type LevelToolkitProfile } from '../toolkit/level.ts'
-import { logicalViewWidth } from '../render/camera.ts'
 import { freshSave, isUnlocked, loadSave, SAVE_KEY, storeSave } from '../save/save.ts'
 import { mapNodes, SECRET_LEVEL_ID, unlockSecretLevel } from './map.ts'
 
@@ -180,6 +180,43 @@ function sweepSwitchWithoutEcho(): { attempts: number; clears: Launch[] } {
     }
   }
   return { attempts, clears }
+}
+
+/**
+ * The autopilot clear with every jump press delayed by `delayF` frames — the rating guide's ±3 f
+ * jitter proxy (check H). The trigger is treated as a rising edge, so a held trigger does not
+ * re-schedule the press every frame; a delayed press is queued and fires once.
+ */
+function runWithJumpDelay(delayF: number): { won: boolean; deaths: number; frames: number } {
+  const sim = createSim(MAP)
+  const camera = new Camera()
+  camera.setViewWidth(VIEW_W)
+  const worldW = MAP.cols * TILE
+  const worldH = MAP.rows * TILE
+  let wasTrigger = false
+  let pending = 0
+
+  for (let frame = 0; frame < 4000; frame++) {
+    const p = sim.player
+    camera.update(p.x, p.y, p.h, worldW, worldH)
+    const decision = autopilotDecision(sim, null, false)
+
+    let jumpPressed = false
+    if (decision.jumpPressed && !wasTrigger) {
+      if (delayF === 0) jumpPressed = true
+      else pending = delayF
+    }
+    wasTrigger = decision.jumpPressed
+    if (pending > 0) {
+      pending -= 1
+      if (pending === 0) jumpPressed = true
+    }
+
+    stepSim(sim, { left: false, right: true, jump: true, jumpPressed, sprint: true, echoPressed: false })
+    if (sim.goalReached) return { won: true, deaths: sim.deaths, frames: frame + 1 }
+    if (sim.deaths > 0) return { won: false, deaths: sim.deaths, frames: frame + 1 }
+  }
+  return { won: false, deaths: sim.deaths, frames: 4000 }
 }
 
 describe('level 1-3 passes the level toolkit', () => {
@@ -342,6 +379,22 @@ describe('level 1-3 passes the level toolkit', () => {
   it('gives every attack at least 18 frames of wind-up', () => {
     expect(WINDUP_F).toBeGreaterThanOrEqual(18)
     expect(WINDUP_RANGE_PX).toBeGreaterThan(0)
+  })
+
+  it('still clears with every jump press up to 3 frames late', () => {
+    // Check H's ±3 f jitter proxy — half the 6 f coyote and buffer windows. An early press is
+    // absorbed by the 6-frame jump buffer, so the late direction is the one that can eat a run-up:
+    // at a sprint a 3 f delay is 9 px further into the riser, and a terrace too shallow would turn
+    // that into a stalled jump against the wall.
+    for (let delay = 0; delay <= 3; delay++) {
+      const run = runWithJumpDelay(delay)
+      expect(run.won, `delay=${delay} ${JSON.stringify(run)}`).toBe(true)
+      expect(run.deaths, `delay=${delay}`).toBe(0)
+    }
+
+    // The perturbation is real: a delay that changed nothing would make the check above vacuous.
+    const frames = [0, 1, 2, 3].map((delay) => runWithJumpDelay(delay).frames)
+    expect(new Set(frames).size).toBeGreaterThan(1)
   })
 
   it('keeps every Gust-Wing above the autopilot jump arc, so the clear is not luck', () => {
