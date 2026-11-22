@@ -1,6 +1,7 @@
 import { AudioEngine } from './audio/engine.ts'
 import { createAutopilotDriver } from './autopilot-driver.ts'
 import { SoundWatcher } from './audio/events.ts'
+import { WORLD1_EVENTS } from './audio/recipes.ts'
 import { loadVolumes, nudgeVolume, saveVolumes, type Volumes } from './audio/settings.ts'
 import { BUILD_LABEL } from './build-info.ts'
 import { mountDebugOverlay, readAutopilot, readEchoSpot, readFreeze, readLead, readLevel, readLoop, readSpawn, spawnQuery } from './debug/overlay.ts'
@@ -16,6 +17,7 @@ import { skyColourAt } from './render/parallax.ts'
 import { PipAnimator } from './render/pose.ts'
 import { INK } from './render/art/palette.ts'
 import { Renderer, PALETTE, type MenuView, type TileRect } from './render/renderer.ts'
+import type { FixtureSprite } from './render/world.ts'
 import { isUnlocked, loadSave, recordBest, storeSave, type Save } from './save/save.ts'
 import { createControlsCard, ECHO_HINT } from './ui/controls-card.ts'
 import { escapeLeavesFullscreen, toggleFullscreen, watchFullscreen } from './ui/fullscreen.ts'
@@ -79,7 +81,7 @@ let volumes: Volumes = audio.volumes()
  * `?echo=`, `?freeze=1`, `?autopilot=1`, `?lead=`) is asking for the level itself, so it starts there
  * and skips the tile view — a camera-lead dial that opened on the menu would never step the camera.
  */
-const debugEntry = ['level', 'x', 'y', 'echo', 'freeze', 'autopilot', 'lead'].some((key) => params.has(key))
+const debugEntry = ['level', 'x', 'y', 'echo', 'freeze', 'autopilot', 'lead', 'fixture'].some((key) => params.has(key))
 let screen: GameScreen = debugEntry ? 'level' : 'tiles'
 /** The selected row on the current menu screen. */
 let selected = 0
@@ -180,6 +182,34 @@ const frozenAtLoad = readFreeze(location.search)
 /** `?echo=x,y` starts the level with an Echo standing there — the screenshot tool's Echo poses. */
 const echoSpot = readEchoSpot(location.search)
 
+/**
+ * `?fixture=world1-new`: a test-only debug scene that draws one of every new world-1 sprite at a fixed
+ * spot, so the screenshot review and readability check can measure art the shipped levels do not place
+ * yet. Debug-only and additive — no level layout, and `src/boot.ts` is untouched.
+ */
+const fixtureMode = params.get('fixture') === 'world1-new'
+
+/** The fixture scene's sprites: the eight entities, the Echo switch and door, and the map art. */
+function world1FixtureSprites(): readonly FixtureSprite[] {
+  return [
+    // Ground row, feet on the floor at y = 178.
+    { name: 'spike-beetle-walk', x: 120, y: 160, w: 18, h: 18 },
+    { name: 'chaser-bot-walk', x: 150, y: 160, w: 18, h: 18 },
+    { name: 'echo-switch', x: 180, y: 162, w: 16, h: 16 },
+    { name: 'map-path', x: 205, y: 162, w: 16, h: 16 },
+    { name: 'map-node', x: 230, y: 162, w: 16, h: 16 },
+    { name: 'relic-coin-2', x: 255, y: 162, w: 16, h: 16 },
+    // Upper row, clear of the ground row.
+    { name: 'gust-wing-fly', x: 120, y: 106, w: 18, h: 18 },
+    { name: 'nimbus-fly', x: 150, y: 106, w: 18, h: 18 },
+    { name: 'echo-door', x: 190, y: 104, w: 16, h: 48 },
+    { name: 'piston-retracted', x: 225, y: 116, w: 36, h: 36 },
+    { name: 'windmill-spin', x: 300, y: 88, w: 54, h: 54 },
+  ]
+}
+
+const fixtureSprites: readonly FixtureSprite[] = fixtureMode ? world1FixtureSprites() : []
+
 function newSim(): SimState {
   const next = createSim(map)
   if (spawnPoint !== null) {
@@ -191,6 +221,12 @@ function newSim(): SimState {
     // A box whose feet are at the spot: placeEcho puts the platform's top exactly there.
     placeEcho(next.field, { x: echoSpot.x, y: echoSpot.y - next.player.h, w: PLAYER_W, h: next.player.h }, map)
     next.field.airCharges = 1
+  }
+  if (fixtureMode) {
+    // Frame the fixture scene the same way every time: Pip on the left, the sprites filling the view.
+    next.player.x = 300
+    next.player.y = 178
+    next.respawn = { x: 300, y: 178 }
   }
   return next
 }
@@ -710,6 +746,7 @@ function frame(now: number): void {
     poseFrame: animator.frame,
     facing: animator.facing,
     juice,
+    fixture: fixtureSprites,
     // The card is a DOM overlay over a canvas panel; the two cannot share the screen without the
     // settings text ghosting through. While the card is up it replaces the menu, and dismissing it
     // brings the screen back unchanged.
@@ -794,6 +831,8 @@ interface EchoSkyRunTestApi {
   frameTimings(): { samples: number; meanMs: number; p99Ms: number; maxMs: number }
   /** Turn a seam pause into a freeze: the sim stays still and no PAUSED plate is drawn (screenshots). */
   hold(): void
+  /** Play every new world-1 entity's sound once — the fixture scene's trigger for the trace check. */
+  fixtureSounds(): void
   /** The juice the loop is running: holds, shake, and fixed steps held so far. */
   juice(): {
     hitStop: number
@@ -941,6 +980,9 @@ const api: EchoSkyRunTestApi = {
     frozen = true
     renderAlpha = 1
   },
+  fixtureSounds() {
+    for (const event of WORLD1_EVENTS) audio.play(event)
+  },
   juice: () => {
     const o = juice.shakeOffset()
     const scale = juice.pipScale()
@@ -985,6 +1027,7 @@ const api: EchoSkyRunTestApi = {
       const ghostH = (sim.power === 'super' ? 28 : 16) + 2
       out.push({ name: 'echo-ring', x: e.x + (e.w - 13) / 2, y: e.y - ghostH + 1 - 14, w: 13, h: 13 })
     }
+    for (const s of fixtureSprites) out.push({ name: s.name, x: s.x, y: s.y, w: s.w, h: s.h })
     return out
   },
   skyAt: (y: number) => skyColourAt(y),

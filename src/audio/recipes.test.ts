@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EVENT_RECIPE, GAME_EVENTS, LATER_RECIPES, RECIPE_IDS, RECIPES } from './recipes.ts'
+import { EVENT_RECIPE, GAME_EVENTS, LATER_RECIPES, RECIPE_IDS, RECIPES, WORLD1_EVENTS } from './recipes.ts'
 import { distinct, fingerprint, peak, renderSound, rms } from './synth.ts'
 import { EFFECT_SAMPLE_RATE } from './bank.ts'
 
@@ -7,10 +7,11 @@ const rendered = new Map(RECIPE_IDS.map((id) => [id, renderSound(RECIPES[id], EF
 const prints = new Map(RECIPE_IDS.map((id) => [id, fingerprint(rendered.get(id)!, EFFECT_SAMPLE_RATE)]))
 
 describe('effect recipes, measured from their rendered samples', () => {
-  it('covers the 17 events of 1-1 plus spin, coin and switch', () => {
+  it('covers the 17 events of 1-1, the eight world-1 entity events and spin, coin and switch', () => {
     expect(GAME_EVENTS).toHaveLength(17)
+    expect(WORLD1_EVENTS).toHaveLength(8)
     expect([...LATER_RECIPES]).toEqual(['spin', 'coin', 'switch'])
-    expect(RECIPE_IDS).toHaveLength(20)
+    expect(RECIPE_IDS).toHaveLength(27)
     for (const id of RECIPE_IDS) expect(RECIPES[id].length, id).toBeGreaterThan(0)
   })
 
@@ -50,10 +51,13 @@ describe('effect recipes, measured from their rendered samples', () => {
     expect(distinct(prints.get('ui-open')!, prints.get('ui-close')!)).toBe(true)
   })
 
-  it('maps the 17 events to 17 different recipes', () => {
-    const targets = GAME_EVENTS.map((e) => EVENT_RECIPE[e])
-    expect(new Set(targets).size).toBe(17)
-    for (const later of LATER_RECIPES) expect(targets).not.toContain(later)
+  it('maps every event to a distinct recipe (the Echo switch reuses `switch`)', () => {
+    const targets = [...GAME_EVENTS, ...WORLD1_EVENTS].map((e) => EVENT_RECIPE[e])
+    expect(new Set(targets).size).toBe(25)
+    for (const later of LATER_RECIPES) {
+      if (later === 'switch') expect(targets).toContain('switch')
+      else expect(targets).not.toContain(later)
+    }
   })
 
   it('renders deterministically: the same recipe gives the same samples twice', () => {

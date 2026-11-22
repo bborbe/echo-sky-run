@@ -24,6 +24,12 @@ export const INK = {
   copperDark: '#7A3218',
   steel: '#3F4A5C',
   steelLight: '#6B7A90',
+  /** Intermediate tones: keep a sprite inside the SC4 24–61 grey band without leaving its family. */
+  copperLight: '#CC8A55',
+  steelMid: '#7A8AA0',
+  steelPale: '#AEB8C4',
+  steelDeep: '#33404F',
+  cloudShade: '#A8B4C4',
 
   // Steam-Turtle skin
   leaf: '#7DBA6A',
@@ -36,6 +42,7 @@ export const INK = {
   earth: '#5E4436',
   earthDark: '#46322A',
   earthLight: '#7A5A48',
+  earthPale: '#A88A70',
   pebble: '#94705A',
 
   // the Echo: cyan glass with a bright rim, held by a dark edge so it reads over every layer

@@ -261,3 +261,147 @@ export const SIGN: Mask = [
   '....odddddddo...'.slice(0, 16),
   '....ooooooooo...'.slice(0, 16),
 ]
+
+// ---- World 1's Echo switch, Echo door, pistons and windmills (spec § 4) --------------------------
+
+export const ECHO_SWITCH_KEYS: Keys = {
+  o: 'outline',
+  s: 'steelMid',
+  S: 'steelPale',
+  e: 'echo',
+  c: 'copper',
+}
+
+/** The Echo switch: a blue-geared plate that lights while pressed. 16×16, tile-sized. */
+export const ECHO_SWITCH: Mask = [
+  '..oo........oo..',
+  '..oso......oso..',
+  '..ossoooooosso..',
+  '..osssssssssso..',
+  '.osssSeeeesssso.',
+  '.osssSeeeesssso.',
+  'osssseeeeeesssso',
+  'osssseeeeeesssso',
+  '.osssSeeeesssso.',
+  '.osssSeeeesssso.',
+  '..osssssssssso..',
+  '..ossoooooosso..',
+  '..oso......oso..',
+  '..oo........oo..',
+  '................',
+  '................',
+]
+
+export const ECHO_DOOR_KEYS: Keys = ECHO_SWITCH_KEYS
+
+/** The Echo door: a steel portal banded in cyan light, three tiles tall. 16×48. */
+function echoDoorMask(): Mask {
+  const rows: string[] = []
+  rows.push('oooooooooooooooo')
+  rows.push('oSSSSSSSSSSSSSSo')
+  rows.push('oSssssssssssssSo')
+  for (let panel = 0; panel < 3; panel++) {
+    rows.push('oSseeeeeeeeeeSSo')
+    for (let i = 0; i < 12; i++) rows.push('oSssssssssssssSo')
+    rows.push('oSseeeeeeeeeeSSo')
+  }
+  rows.push('oSssssssssssssSo')
+  rows.push('oSSSSSSSSSSSSSSo')
+  rows.push('oooooooooooooooo')
+  return rows
+}
+
+export const ECHO_DOOR: Mask = echoDoorMask()
+
+export const PISTON_KEYS: Keys = {
+  o: 'outline',
+  b: 'brass',
+  h: 'brassLight',
+  s: 'brassDark',
+  S: 'steel',
+  c: 'copper',
+}
+
+/** One row of the piston's 36-wide body: an outlined brass block with steel bands. */
+function pistonBodyRow(y: number, h: number): string {
+  const W = 36
+  if (y === 0 || y === h - 1) return 'o'.repeat(W)
+  if (y === 1) return 'o' + 'h'.repeat(W - 2) + 'o'
+  if (y === h - 2) return 'o' + 's'.repeat(W - 2) + 'o'
+  const inner = y % 6 === 0 ? 'S'.repeat(W - 2) : 'b'.repeat(W - 2)
+  return 'o' + inner + 'o'
+}
+
+/** The piston: a 36×36 brass block, plus an 8-wide steel rod out the top when extended. */
+function pistonMask(bodyH: number, rodH: number): Mask {
+  const W = 36
+  const rows: string[] = []
+  if (rodH > 0) {
+    const rodW = 8
+    const pad = (W - rodW) / 2
+    for (let y = 0; y < rodH; y++) rows.push('.'.repeat(pad) + 'o' + 'S'.repeat(rodW - 2) + 'o' + '.'.repeat(pad))
+  }
+  for (let y = 0; y < bodyH; y++) rows.push(pistonBodyRow(y, bodyH))
+  return rows
+}
+
+export const PISTON_RETRACTED: Mask = pistonMask(36, 0)
+export const PISTON_EXTENDED: Mask = pistonMask(36, 12)
+
+export const WINDMILL_KEYS: Keys = {
+  o: 'outline',
+  s: 'steelDeep',
+  S: 'steel',
+  b: 'copperDark',
+  c: 'copperDark',
+}
+
+/**
+ * A 54×54 windmill: a brass hub with four steel blades. The blades sit on the axes for one frame and
+ * on the diagonals for the next, so the two frames read as a 45° turn of the same wheel.
+ */
+function windmillMask(diagonal: boolean): Mask {
+  const N = 54
+  const c = 26
+  const grid: string[][] = Array.from({ length: N }, () => Array<string>(N).fill('.'))
+  const put = (x: number, y: number, ch: string): void => {
+    if (x >= 0 && x < N && y >= 0 && y < N) grid[y][x] = ch
+  }
+  const dirs = diagonal
+    ? [
+        [1, 1],
+        [1, -1],
+        [-1, 1],
+        [-1, -1],
+      ]
+    : [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ]
+  // Seven pixels across each blade: the SC4 readability probe averages the sprite's whole 54×54 box,
+  // so a hairline wheel sits close to the background however dark its few pixels are. Each step
+  // stamps a square rather than a perpendicular stroke, so the blade has interior pixels — a
+  // one-pixel-thin diagonal is all boundary, and the outline pass would recolour every blade pixel.
+  const halfWidth = 3
+  for (const [dx, dy] of dirs) {
+    for (let r = 5; r <= c + 1; r++) {
+      const x = c + dx * r
+      const y = c + dy * r
+      for (let oy = -halfWidth; oy <= halfWidth; oy++) {
+        for (let ox = -halfWidth; ox <= halfWidth; ox++) put(x + ox, y + oy, 's')
+      }
+    }
+  }
+  for (let y = c - 5; y <= c + 5; y++) {
+    for (let x = c - 5; x <= c + 5; x++) {
+      const edge = x === c - 5 || x === c + 5 || y === c - 5 || y === c + 5
+      put(x, y, edge ? 'c' : 'b')
+    }
+  }
+  put(c, c, 'S')
+  return grid.map((row) => row.join(''))
+}
+
+export const WINDMILL_SPIN: readonly Mask[] = [windmillMask(false), windmillMask(true)]

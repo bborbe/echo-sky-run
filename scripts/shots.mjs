@@ -52,6 +52,9 @@ const POSES = [
   { name: 'pause', query: '?level=1-1&x=600&y=178', screen: 'pause' },
   { name: 'settings', query: '?level=1-1&x=600&y=178', screen: 'settings' },
   { name: 'results', query: '?level=1-1&x=600&y=178', screen: 'results' },
+  // The world-1 fixture scene: one of every new sprite, measured for the readability band. Append-only
+  // — a per-level preview session adds its own pose to this same list.
+  { name: 'world1-new', query: '?fixture=world1-new&x=300&y=178' },
 ].filter((p) => ONLY.length === 0 || ONLY.includes(p.name))
 
 mkdirSync(OUT_DIR, { recursive: true })

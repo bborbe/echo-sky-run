@@ -198,3 +198,218 @@ export const SHELL_REST: Mask = shell(0, 9)
 
 /** A kicked shell spinning: the stack and the glint sweep round. 4 frames. */
 export const SHELL_SPIN: readonly Mask[] = [shell(0, 9), shell(2, 11), shell(0, 5), shell(-2, 7)]
+
+// ---- World 1's new enemies and Nimbus (spec § 4 Enemies, Nimbus) --------------------------------
+// Each is drawn 18×18 around its 16×16 hitbox (89 % per axis, spec § 4 Hitbox and Sprite Sizes) and
+// faces left; the atlas mirrors it for the right. Feet stand on the hitbox floor (bottom row).
+
+export const SPIKE_BEETLE_KEYS: Keys = {
+  o: 'outline',
+  b: 'brass',
+  c: 'copperLight',
+  k: 'copperDark',
+  s: 'steel',
+  S: 'steelLight',
+  w: 'white',
+}
+
+/** Spike-Beetle: a copper beetle with a steel-spiked back. 18×18, faces left, walks on legs. */
+export const SPIKE_BEETLE_WALK: readonly Mask[] = [
+  [
+    '......o...o...o...',
+    '.....oso.osoo.....',
+    '....osssosssso....',
+    '...osssssssssso...',
+    '..obbbbbbbbbbbbo..',
+    '.obccccccccccccbo.',
+    'obccccccccccccccbo',
+    'occcccccccccccccco',
+    'occwccccccccwcccco',
+    'occcccccccccccccco',
+    'obcccckkkkkkccccbo',
+    '.obccccccccccccbo.',
+    '..obbbbbbbbbbbbo..',
+    '...o.o......o.o...',
+    '...o.o......o.o...',
+    '..o..o......o..o..',
+    '..o..o......o..o..',
+    '.ooo.oo....oo.ooo.',
+  ],
+  [
+    '......o...o...o...',
+    '.....oso.osoo.....',
+    '....osssosssso....',
+    '...osssssssssso...',
+    '..obbbbbbbbbbbbo..',
+    '.obccccccccccccbo.',
+    'obccccccccccccccbo',
+    'occcccccccccccccco',
+    'occwccccccccwcccco',
+    'occcccccccccccccco',
+    'obcccckkkkkkccccbo',
+    '.obccccccccccccbo.',
+    '..obbbbbbbbbbbbo..',
+    '..o.o........o.o..',
+    '..o.o........o.o..',
+    '.o..o........o..o.',
+    '.o..o........o..o.',
+    'ooo.oo......oo.ooo',
+  ],
+]
+
+export const GUST_WING_KEYS: Keys = {
+  o: 'outline',
+  b: 'brass',
+  s: 'steel',
+  S: 'steelLight',
+  w: 'white',
+}
+
+/** Gust-Wing: a brass-winged flyer, wings up then down. 18×18, faces left. */
+export const GUST_WING_FLY: readonly Mask[] = [
+  [
+    'oo..............oo',
+    'osso..........osso',
+    'osSso........osSso',
+    '.osSso......osSso.',
+    '.osSSso....osSSso.',
+    '..osSSso..osSSso..',
+    '..osSbbbbbbbbSso..',
+    '...obwwbbbbwwbo...',
+    '...obbbbbbbbbbo...',
+    '...obbbbbbbbbbo...',
+    '..oobbbbbbbbbboo..',
+    '..obbbbbbbbbbbbo..',
+    '..obbbbbbbbbbbbo..',
+    '...obbbbbbbbbbo...',
+    '...obbbbbbbbbbo...',
+    '....oobbbbbboo....',
+    '....oooooooooo....',
+    '.....oo....oo.....',
+  ],
+  [
+    '..................',
+    'oo..............oo',
+    'osso..........osso',
+    'osSso........osSso',
+    '.osSso......osSso.',
+    '.osSSso....osSSso.',
+    '..osSSso..osSSso..',
+    '...osSbbbbbbSsso..',
+    '...obwwbbbbwwbo...',
+    '...obbbbbbbbbbo...',
+    '..oobbbbbbbbbboo..',
+    '..obbbbbbbbbbbbo..',
+    '..obbbbbbbbbbbbo..',
+    '...obbbbbbbbbbo...',
+    '..oobbbbbbbbbboo..',
+    '...obbbbbbbbbbo...',
+    '....oooooooooo....',
+    '.....oo....oo.....',
+  ],
+]
+
+export const CHASER_BOT_KEYS: Keys = {
+  o: 'outline',
+  s: 'steelMid',
+  S: 'steelPale',
+  w: 'white',
+  c: 'copperLight',
+  k: 'copperLight',
+}
+
+/** Chaser-Bot: a boxy steel hunter with copper treads and two white optics. 18×18, faces left. */
+export const CHASER_BOT_WALK: readonly Mask[] = [
+  [
+    '...oooooooooooo...',
+    '..osssssssssssso..',
+    '.osSSSSSSSSSSSSso.',
+    '.oswwsssssswwsso..',
+    '.oswwsssssswwsso..',
+    'osssssssssssssssso',
+    '.ossskkkkkkkssssso',
+    '.osssssssssssssso.',
+    '..osssssssssssso..',
+    '..oscccssssccsso..',
+    '..oscccssssccsso..',
+    '...oooooooooooo...',
+    '..okk........kko..',
+    '..okk........kko..',
+    '..okk........kko..',
+    '..okk........kko..',
+    '..okk........kko..',
+    '.okkk........kkko.',
+  ],
+  [
+    '...oooooooooooo...',
+    '..osssssssssssso..',
+    '.osSSSSSSSSSSSSso.',
+    '.oswwsssssswwsso..',
+    '.oswwsssssswwsso..',
+    'osssssssssssssssso',
+    '.ossskkkkkkkssssso',
+    '.osssssssssssssso.',
+    '..osssssssssssso..',
+    '..oscccssssccsso..',
+    '..oscccssssccsso..',
+    '...oooooooooooo...',
+    '...okk......kko...',
+    '...okk......kko...',
+    '...okk......kko...',
+    '...okk......kko...',
+    '...okk......kko...',
+    '..okkk......kkko..',
+  ],
+]
+
+export const NIMBUS_KEYS: Keys = {
+  o: 'outline',
+  w: 'cloudShade',
+  W: 'white',
+  S: 'steelLight',
+  e: 'echo',
+}
+
+/** Nimbus: a small white cloud with steel goggle-bands and cyan eyes. 18×18, floats. */
+export const NIMBUS_FLY: readonly Mask[] = [
+  [
+    '.....oooooooo.....',
+    '...oowwwwwwwwoo...',
+    '..owwwwwwwwwwwwo..',
+    '.owwSSwwwwwwSSwwo.',
+    '.owwSewwwwwwSewwo.',
+    '.owwwwwwwwwwwwwwo.',
+    'owwwwwwwwwwwwwwwwo',
+    'owwwwwwwwwwwwwwwwo',
+    '.owwwwwwwwwwwwwwo.',
+    '.oowwwwwwwwwwwwoo.',
+    '..oowwwwwwwwwwoo..',
+    '...oowwwwwwwwoo...',
+    '..ooowwwwwwwwooo..',
+    '.owwwwwwwwwwwwwwo.',
+    '.owwWWWWWWWWWWwwo.',
+    '.owwwwwwwwwwwwwwo.',
+    '..owwwwwwwwwwwwo..',
+    '..oowwwoooowwwoo..',
+  ],
+  [
+    '.....oooooooo.....',
+    '...oowwwwwwwwoo...',
+    '..owwwwwwwwwwwwo..',
+    '.owwwwSSwwSSwwwwo.',
+    '.owwwwSewwSewwwwo.',
+    '.owwwwwwwwwwwwwwo.',
+    'owwwwwwwwwwwwwwwwo',
+    'owwwwwwwwwwwwwwwwo',
+    '.owwwwwwwwwwwwwwo.',
+    '.oowwwwwwwwwwwwoo.',
+    '..oowwwwwwwwwwoo..',
+    '...oowwwwwwwwoo...',
+    '..ooowwwwwwwwooo..',
+    '.owwwwwwwwwwwwwwo.',
+    '.owwWWWWWWWWWWwwo.',
+    '.owwwwwwwwwwwwwwo.',
+    '..owwwwwwwwwwwwo..',
+    '..oowwwoooowwwoo..',
+  ],
+]

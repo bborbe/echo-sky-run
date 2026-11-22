@@ -51,6 +51,21 @@ export interface WorldState {
   readonly facing: -1 | 1
   /** The juice the loop is running. */
   readonly juice: Juice
+  /**
+   * Test-only: extra catalogue sprites drawn at fixed spots. The `?fixture=world1-new` scene fills it
+   * with one of every new world-1 sprite, so the screenshot review and readability check can measure
+   * art the shipped level does not place yet.
+   */
+  readonly fixture?: readonly FixtureSprite[]
+}
+
+/** One sprite the fixture scene draws at a fixed world position, its box matching the baked frame. */
+export interface FixtureSprite {
+  readonly name: string
+  readonly x: number
+  readonly y: number
+  readonly w: number
+  readonly h: number
 }
 
 /** Draw-ready frames for every animation, both facings. */
@@ -93,6 +108,7 @@ export class WorldPainter {
     this.drawLevel(ctx, state.map)
     this.drawProps(ctx, viewW, camX, state)
     this.drawBlocks(ctx, state)
+    this.drawFixture(ctx, state)
     for (const mushroom of state.mushrooms) this.drawMushroom(ctx, mushroom)
     for (const enemy of state.enemies) this.drawEnemy(ctx, enemy, state.tick)
     if (!juice.dying()) for (const echo of state.echoes) this.drawEcho(ctx, echo, state)
@@ -192,11 +208,26 @@ export class WorldPainter {
     ctx.drawImage(this.frame('mushroom', 0, 1), Math.round(m.x), Math.round(m.y))
   }
 
+  /** The `?fixture=world1-new` scene: one of every new sprite, drawn at its fixed spot. */
+  private drawFixture(ctx: CanvasRenderingContext2D, state: WorldState): void {
+    if (state.fixture === undefined) return
+    const wave = Math.floor(state.tick / 10)
+    for (const s of state.fixture) {
+      ctx.drawImage(this.frame(s.name, wave, 1), Math.round(s.x), Math.round(s.y))
+    }
+  }
+
   private drawEnemy(ctx: CanvasRenderingContext2D, enemy: Enemy, tick: number): void {
     const facing: -1 | 1 = enemy.vx > 0 ? -1 : 1
     let img: HTMLCanvasElement
     if (enemy.kind === 'gear-goomba') {
       img = this.frame('goomba-walk', Math.floor(tick / 10), facing)
+    } else if (enemy.kind === 'spike-beetle') {
+      img = this.frame('spike-beetle-walk', Math.floor(tick / 10), facing)
+    } else if (enemy.kind === 'gust-wing') {
+      img = this.frame('gust-wing-fly', Math.floor(tick / 8), facing)
+    } else if (enemy.kind === 'chaser-bot') {
+      img = this.frame('chaser-bot-walk', Math.floor(tick / 10), facing)
     } else if (enemy.mode === 'walk') {
       img = this.frame('turtle-walk', Math.floor(tick / 10), facing)
     } else if (enemy.mode === 'sliding') {
