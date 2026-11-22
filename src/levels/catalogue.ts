@@ -36,6 +36,8 @@ interface LevelModule {
   readonly LEVEL_ROWS: readonly string[]
 }
 
+// `eager` because the catalogue is read synchronously by the map and the tile view; the suffix is
+// load-bearing (see the header), so a test file can never be swept into the bundle.
 const modules = import.meta.glob<LevelModule>('./*.level.ts', { eager: true })
 
 /** Every shipped level, in id order. */

@@ -7,7 +7,7 @@
  * drives: a wider window shows more of the level, so 960×540 is the worst case.
  */
 
-import { PLAYER_W } from '../physics/constants.ts'
+import { PLAYER_W, TILE } from '../physics/constants.ts'
 import type { Takeoff } from './autopilot.ts'
 
 export interface BlindJump {
@@ -37,6 +37,59 @@ export function blindJumps(takeoffs: readonly Takeoff[], viewWidth: number): Bli
       landingX: takeoff.landingX,
       viewLeft,
       viewRight,
+    })
+  }
+  return found
+}
+
+/** A fall of at least this many tiles from the apex is "long" — a drop the player has to read. */
+export const LONG_FALL_TILES = 5
+/** On a long fall, this many tiles below the landing must be visible before touchdown. */
+export const FALL_VISIBLE_TILES = 5
+
+export interface UnseenFall {
+  readonly frame: number
+  readonly takeoffY: number
+  readonly landingY: number
+  /** The lowest world y the view showed at take-off. */
+  readonly viewBottom: number
+  /** The world y the check required the view to reach. */
+  readonly requiredBottom: number
+}
+
+/**
+ * The second half of check E: a long fall must show at least five tiles below the landing before the
+ * player commits to it, so a drop is a read rather than a guess. A landing near the level floor has
+ * fewer than five tiles below it in the world; there the bar is the floor itself, which is the
+ * deepest thing there is to see.
+ *
+ * `levelBottom` is the level's own bottom edge (`rows × TILE`), so the requirement never asks for
+ * space the world does not have.
+ */
+export function unseenFalls(
+  takeoffs: readonly Takeoff[],
+  viewHeight: number,
+  levelBottom: number,
+): UnseenFall[] {
+  const found: UnseenFall[] = []
+  for (const takeoff of takeoffs) {
+    if (takeoff.landingY === null) continue
+    // The drop starts at the apex, not the take-off point: a jump that rises first falls further
+    // than its net displacement. But a normal jump also rises and falls, and it lands back on the
+    // ground it left — that is a hop, not a fall into lower ground. Requiring a net descent keeps
+    // the check on drops and off every ordinary jump on a tall level.
+    const apexDrop = takeoff.landingY - takeoff.apexY
+    const netDrop = takeoff.landingY - takeoff.y
+    if (apexDrop < LONG_FALL_TILES * TILE || netDrop < TILE) continue
+    const requiredBottom = Math.min(takeoff.landingY + FALL_VISIBLE_TILES * TILE, levelBottom)
+    const viewBottom = takeoff.viewTop + viewHeight
+    if (viewBottom >= requiredBottom) continue
+    found.push({
+      frame: takeoff.frame,
+      takeoffY: takeoff.y,
+      landingY: takeoff.landingY,
+      viewBottom,
+      requiredBottom,
     })
   }
   return found
