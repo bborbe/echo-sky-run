@@ -1,14 +1,15 @@
 /**
  * Medal thresholds, derived from the casual clear so no threshold is picked by hand. The results
  * screen reads this module and a test pins the four values; there are no magic numbers at the call
- * site. `MEDAL_FACTOR` is the calibration knob and ships provisional at 1.25 — the factor measured
- * from the operator's own runs is [[Calibrate the Echo Sky Run 1-1 Medal Times From Operator Runs]]'s
- * job, and swapping it here re-derives all four thresholds.
+ * site. `MEDAL_FACTOR` is the measured human factor from
+ * [[Calibrate the Echo Sky Run 1-1 Medal Times From Operator Runs]]: the operator's casual 1-1 clear
+ * (17.0 s = 1020 f) divided by the autopilot's casual clear (540 f). Changing it re-derives all four
+ * thresholds.
  *
- * Each threshold is `round(casualFrames × MEDAL_FACTOR × multiplier)`, in frames. The ordering is
+ * Each threshold is `round(autopilotFrames × MEDAL_FACTOR × multiplier)`, in frames. The ordering is
  * author < gold < silver < bronze (author is the fastest time, bronze the slowest).
  */
-export const MEDAL_FACTOR = 1.25
+export const MEDAL_FACTOR = 1020 / 540
 
 /** The author (best) time — the fastest threshold. */
 export const MEDAL_AUTHOR_MULTIPLIER = 0.6
