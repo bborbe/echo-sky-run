@@ -44,11 +44,12 @@ const KNOWN_TILES = new Set(['.', '#', '=', 'F', 'S', 'g', 't', 'b', 'w', 'r', '
 export const ECHO_MARGIN_FLOOR = 0.2
 
 function verdictOf(result: ReachResult): string {
+  const counts = `searched ${result.stats.visited} states / ${result.stats.expanded} expanded`
   if (result.verdict !== 'inconclusive') {
     const how = result.stats.engine === 'proof' ? ' (static proof)' : ''
-    return result.verdict + how + (result.frames !== null ? ` in ${result.frames} f` : '')
+    return result.verdict + how + (result.frames !== null ? ` in ${result.frames} f` : '') + ` — ${counts}`
   }
-  return `inconclusive (${result.cap} cap) — ${result.reason ?? ''}`
+  return `inconclusive (${result.cap} cap) — ${result.reason ?? ''} — ${counts}`
 }
 
 /** One Echo placement found in a replayed completion, and how much life it had left at the finish. */

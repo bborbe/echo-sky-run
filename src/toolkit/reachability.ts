@@ -84,8 +84,12 @@ export type ReachTarget =
 
 export type ReachVerdict = 'reachable' | 'unreachable' | 'inconclusive'
 
-/** Which cap stopped an inconclusive run. */
-export type ReachCap = 'states' | 'frames'
+/**
+ * Which cap stopped an inconclusive run. Only the state cap can: the step cap does not truncate the
+ * search, it bounds what the search CLAIMS — `unreachable` means "no completion within `maxFrames`",
+ * and a longer path is outside the model rather than inconclusive.
+ */
+export type ReachCap = 'states'
 
 export interface ReachStats {
   /** States whose successors were generated. */
@@ -657,6 +661,7 @@ function exhaust(
     node.sim = null
     expanded += 1
     if (reachedTarget(sim, target)) return { found: true, capped: false, cap: null, visited: visited.size, expanded }
+    // The step cap prunes this branch; it never makes the run inconclusive (see ReachCap).
     if (node.frames >= maxFrames) continue
     if (visited.size >= maxStates) {
       capped = true
@@ -775,7 +780,7 @@ export function solve(options: ReachOptions): ReachResult {
       inputs: null,
       cap: exact.cap,
       reason:
-        `hit the ${exact.cap} cap (${exact.cap === 'states' ? maxStates : maxFrames}); ` +
+        `hit the ${exact.cap} cap (${maxStates}); ` +
         'the space was not exhausted, so no verdict is claimed',
       stats: { expanded: exact.expanded, visited: exact.visited, ms: Date.now() - startedAt, engine: 'exact' },
     }
