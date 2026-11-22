@@ -13,7 +13,10 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { LEVEL_1_2_COLS, LEVEL_1_2_PITS, LEVEL_1_2_ROWS } from './level1-2.level.ts'
+import { LEVEL_1_2_COLS, LEVEL_1_2_DOOR_COL, LEVEL_1_2_LEDGE, LEVEL_1_2_PITS, LEVEL_1_2_ROWS, LEVEL_1_2_SWITCH_COL } from './level1-2.level.ts'
+import { createSim } from '../game/sim.ts'
+import { stepSwitches } from '../game/switches.ts'
+import { TILE } from '../physics/constants.ts'
 import { runAutopilot, TOOLKIT_VIEWPORT, type Takeoff } from '../toolkit/autopilot.ts'
 import { blindJumps } from '../toolkit/blind-jump.ts'
 import { echoBeats, profileMap, type LevelToolkitProfile } from '../toolkit/level.ts'
@@ -96,5 +99,49 @@ describe('level 1-2 passes the level toolkit', () => {
   it('is the width and pit set its own metadata claims', () => {
     expect(MAP.cols).toBe(LEVEL_1_2_COLS)
     expect(LEVEL_1_2_PITS).toHaveLength(2)
+  })
+
+  it('places one Echo switch and one door on the ledge, and the door starts closed', () => {
+    const sim = createSim(MAP)
+    expect(sim.switches.switches).toHaveLength(1)
+    expect(sim.switches.doors).toHaveLength(1)
+
+    const sw = sim.switches.switches[0]
+    const door = sim.switches.doors[0]
+    expect(sw.x).toBe(LEVEL_1_2_SWITCH_COL * TILE)
+    expect(door.x).toBe(LEVEL_1_2_DOOR_COL * TILE)
+    expect(door.open).toBe(false)
+    // Three tiles tall and feet-anchored: its bottom edge is the ledge's floor.
+    expect(door.h).toBe(48)
+    expect(door.y + door.h).toBe(LEVEL_1_2_LEDGE.row * TILE)
+  })
+
+  it('opens the door only while the switch is pressed, so an Echo is what holds it', () => {
+    const sim = createSim(MAP)
+    const sw = sim.switches.switches[0]
+    const door = sim.switches.doors[0]
+    const onSwitch = { x: sw.x, y: sw.y, w: 12, h: 14 }
+    const away = { x: sw.x + 200, y: sw.y, w: 12, h: 14 }
+
+    stepSwitches(sim.switches, away, [])
+    expect(door.open).toBe(false)
+
+    stepSwitches(sim.switches, onSwitch, [])
+    expect(door.open).toBe(true)
+
+    // Pip walks off; the Echo left on the switch keeps pressing, which is the level's whole lesson.
+    stepSwitches(sim.switches, away, [onSwitch])
+    expect(door.open).toBe(true)
+
+    stepSwitches(sim.switches, away, [])
+    expect(door.open).toBe(false)
+  })
+
+  it('keeps the switch lesson off the running line', () => {
+    // The ledge is above the floor the autopilot runs on, so a player who never climbs still
+    // finishes, and a player who climbs meets the mechanic with nothing to fall from.
+    expect(LEVEL_1_2_LEDGE.row).toBeLessThan(11)
+    expect(LEVEL_1_2_LEDGE.firstCol).toBeLessThan(LEVEL_1_2_SWITCH_COL)
+    expect(LEVEL_1_2_SWITCH_COL).toBeLessThan(LEVEL_1_2_DOOR_COL)
   })
 })
