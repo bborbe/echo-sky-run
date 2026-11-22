@@ -42,8 +42,8 @@ export function blindJumps(takeoffs: readonly Takeoff[], viewWidth: number): Bli
   return found
 }
 
-/** A fall of at least this many tiles is "long" — a drop the player has to read before committing. */
-export const LONG_FALL_TILES = 2
+/** A fall of at least this many tiles from the apex is "long" — a drop the player has to read. */
+export const LONG_FALL_TILES = 5
 /** On a long fall, this many tiles below the landing must be visible before touchdown. */
 export const FALL_VISIBLE_TILES = 5
 
@@ -75,8 +75,12 @@ export function unseenFalls(
   for (const takeoff of takeoffs) {
     if (takeoff.landingY === null) continue
     // The drop starts at the apex, not the take-off point: a jump that rises first falls further
-    // than its net displacement, and measuring from the take-off would under-report it.
-    if (takeoff.landingY - takeoff.apexY < LONG_FALL_TILES * TILE) continue
+    // than its net displacement. But a normal jump also rises and falls, and it lands back on the
+    // ground it left — that is a hop, not a fall into lower ground. Requiring a net descent keeps
+    // the check on drops and off every ordinary jump on a tall level.
+    const apexDrop = takeoff.landingY - takeoff.apexY
+    const netDrop = takeoff.landingY - takeoff.y
+    if (apexDrop < LONG_FALL_TILES * TILE || netDrop < TILE) continue
     const requiredBottom = Math.min(takeoff.landingY + FALL_VISIBLE_TILES * TILE, levelBottom)
     const viewBottom = takeoff.viewTop + viewHeight
     if (viewBottom >= requiredBottom) continue

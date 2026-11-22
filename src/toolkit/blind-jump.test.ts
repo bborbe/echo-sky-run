@@ -88,4 +88,11 @@ describe('the long-fall visibility check', () => {
     const shortFall = takeoff({ y: 190, apexY: 190, landingY: 200, viewTop: 0 })
     expect(unseenFalls([shortFall], VIEW_H, 400)).toEqual([])
   })
+
+  it('ignores a normal jump that rises and lands at the same height', () => {
+    // A 6-tile apex rise back onto the same floor is a hop, not a fall into lower ground. Without
+    // the net-descent condition this would be flagged on every tall level.
+    const hop = takeoff({ y: 190, apexY: 94, landingY: 190, viewTop: 0 })
+    expect(unseenFalls([hop], VIEW_H, 400)).toEqual([])
+  })
 })

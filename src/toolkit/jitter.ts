@@ -17,14 +17,16 @@
 import { groundUnder } from '../physics/collision.ts'
 import { PLAYER_W, TILE } from '../physics/constants.ts'
 import { createSim, stepSim } from '../game/sim.ts'
-import { Camera, logicalViewWidth } from '../render/camera.ts'
-import { autopilotDecision, TOOLKIT_VIEWPORT } from './autopilot.ts'
+import { autopilotDecision } from './autopilot.ts'
 import { floorTop, profileMap, requireEchoAnswer, type LevelToolkitProfile } from './level.ts'
 
 /** Half the 6 f coyote and jump-buffer windows: the guide's jitter tolerance. */
 export const JITTER_F = 3
-/** The delays the clear must survive: 0 through 3 frames late. */
-export const JUMP_DELAYS: readonly number[] = [0, 1, 2, 3]
+/** The delays the clear must survive: 0 through `JITTER_F` frames late. */
+export const JUMP_DELAYS: readonly number[] = Array.from(
+  { length: JITTER_F + 1 },
+  (_, delay) => delay,
+)
 /** A safe, hazard-free spot every ≤ 20 s of continuous platforming. */
 export const SAFE_SPOT_MAX_S = 20
 /** An enemy inside this range is winding up; a spot there is not a breather. */
@@ -93,10 +95,6 @@ function drive(profile: LevelToolkitProfile, delayF: number, collectSafe: boolea
   requireEchoAnswer(profile)
   const map = profileMap(profile)
   const sim = createSim(map)
-  const camera = new Camera()
-  camera.setViewWidth(logicalViewWidth(TOOLKIT_VIEWPORT.width, TOOLKIT_VIEWPORT.height))
-  const worldW = map.cols * TILE
-  const worldH = map.rows * TILE
 
   const safeFrames: number[] = []
   let wasTrigger = false
@@ -105,8 +103,6 @@ function drive(profile: LevelToolkitProfile, delayF: number, collectSafe: boolea
   let firstJumpFrame: number | null = null
 
   for (let frame = 0; frame < maxFrames; frame++) {
-    const p = sim.player
-    camera.update(p.x, p.y, p.h, worldW, worldH)
     const decision = autopilotDecision(sim, profile.echoAtX, echoUsed)
     echoUsed = decision.echoUsed
 
@@ -167,12 +163,17 @@ export interface JitterReport {
 /** The whole jitter check over the guide's 0–3 frame delays. */
 export function jitterClear(profile: LevelToolkitProfile): JitterReport {
   const runs = JUMP_DELAYS.map((delay) => runWithJumpDelay(profile, delay))
+  const base = runs[0].firstJumpFrame
   return {
     runs,
     passes: runs.every((run) => run.won && run.deaths === 0),
-    // The delays must actually move the first jump. Total frames can coincide when a level absorbs
-    // the shift later, so comparing frame counts would call a real perturbation vacuous.
-    perturbationReal: new Set(runs.map((run) => run.firstJumpFrame)).size > 1,
+    // The perturbation is real only when each delay moved the first jump by exactly its delay.
+    // Total frames can coincide when a level absorbs the shift later, so a frame-count comparison
+    // would call a real perturbation vacuous — and a set-size check would pass on a coincidental
+    // one-frame difference. The exact shift is the property the harness is supposed to provide.
+    perturbationReal:
+      base !== null &&
+      runs.every((run) => run.firstJumpFrame === base + run.delayF),
   }
 }
 

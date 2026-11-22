@@ -59,16 +59,19 @@ export function mulberry32(seed: number): () => number {
   }
 }
 
-/** One random input, from a uniform draw. */
+/**
+ * One random input. Every flag draws its own value, so the six choices are independent: a single
+ * shared draw makes `left` and `right` mutually exclusive and the fuzz never actually moves Pip left,
+ * which is exactly the input shape a soft-lock hides in.
+ */
 export function randomInput(rand: () => number): SimInput {
-  const r = rand()
   return {
-    left: r < 0.25,
-    right: r < 0.75,
-    jump: r < 0.6,
-    jumpPressed: r < 0.35,
-    sprint: r < 0.5,
-    echoPressed: r < 0.1,
+    left: rand() < 0.25,
+    right: rand() < 0.75,
+    jump: rand() < 0.6,
+    jumpPressed: rand() < 0.35,
+    sprint: rand() < 0.5,
+    echoPressed: rand() < 0.1,
   }
 }
 
@@ -106,6 +109,10 @@ export function fuzzLevel(rows: readonly string[], options: FuzzOptions = {}): F
           findings.push({ seed, frame, kind: 'inside-solid', detail: `x=${p.x} y=${p.y} h=${p.h}` })
           break
         }
+
+        // A finished run is frozen by design: `stepSim` stops advancing once the goal is reached, so
+        // continuing to step it would report the finish itself as a soft-lock.
+        if (sim.goalReached) break
 
         // A pit death respawns Pip to a new spot; that is movement, not a freeze. A body in a
         // one-cell cage can still jiggle against its walls, so the test is net displacement, not

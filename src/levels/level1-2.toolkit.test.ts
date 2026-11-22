@@ -211,7 +211,8 @@ describe('level 1-2 passes the level toolkit', () => {
   })
 
   it('passes the checkpoint-gap check (D): both respawn gaps ≤ 45 s and control within 18 f', () => {
-    const report = checkpointReport(MAP)
+    const report = checkpointReport(LEVEL)
+    expect(report.applicable).toBe(true)
     expect(report.passes, JSON.stringify(report)).toBe(true)
     for (const gap of report.gaps) expect(gap.seconds).toBeLessThanOrEqual(45)
     expect(report.respawnToControlFrames).toBeLessThanOrEqual(18)

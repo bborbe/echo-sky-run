@@ -43,8 +43,9 @@ import {
 import { createPlayer, stepPlayer } from '../physics/player.ts'
 import { CHECKPOINT, findTile, GOAL, GUST_WING, SPAWN, SECRET_SWITCH, tileAt } from '../physics/tilemap.ts'
 import { runAutopilot, autopilotDecision, TOOLKIT_VIEWPORT, type Takeoff } from '../toolkit/autopilot.ts'
-import { blindJumps } from '../toolkit/blind-jump.ts'
-import { Camera, logicalViewWidth } from '../render/camera.ts'
+import { blindJumps, unseenFalls } from '../toolkit/blind-jump.ts'
+import { checkpointReport } from '../toolkit/checkpoints.ts'
+import { Camera, logicalViewWidth, VIEW_H } from '../render/camera.ts'
 import { echoBeats, floorTop, profileMap, tierHeight, type LevelToolkitProfile } from '../toolkit/level.ts'
 import { freshSave, isUnlocked, loadSave, SAVE_KEY, storeSave } from '../save/save.ts'
 import { mapNodes, SECRET_LEVEL_ID, unlockSecretLevel } from './map.ts'
@@ -418,5 +419,20 @@ describe('level 1-3 passes the level toolkit', () => {
       }
     }
     expect(wings).toBeGreaterThan(0)
+  })
+
+  it('passes the checkpoint-gap check (D) on the climb, with the path actually walked', () => {
+    // The map-only floor walk flattened every terrace above the spawn row; the route-based gap counts
+    // the climb, so this level is the one that proves the check decides on a vertical path.
+    const report = checkpointReport(LEVEL)
+    expect(report.applicable).toBe(true)
+    expect(report.passes, JSON.stringify(report)).toBe(true)
+  })
+
+  it('passes the long-fall half of the blind-jump check (E) on a 76-row level', () => {
+    // 1-1 and 1-2 are exactly one view tall, where every landing is on screen by construction. This
+    // is the only shipped level taller than the view, so it is where the check can actually fire.
+    const run = runAutopilot(LEVEL)
+    expect(unseenFalls(run.takeoffs, VIEW_H, MAP.rows * TILE)).toEqual([])
   })
 })
