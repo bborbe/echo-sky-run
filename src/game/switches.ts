@@ -45,23 +45,23 @@ export function createDoor(x: number, y: number, w = DOOR_W, h = DOOR_H): Door {
 }
 
 /**
- * Set every door's `open` from whether any switch is pressed this frame. An Echo is a valid press
- * because it is in the Echo list until it expires; once `tickEchoes` drops it the press is gone.
+ * True when Pip or an Echo overlaps this switch. An Echo is a valid press because it is in the Echo
+ * list until it expires; once `tickEchoes` drops it the press is gone.
+ *
+ * One rule, shared by `stepSwitches` and the renderer's lit read, so the plate can never show
+ * pressed while the door it holds was stepped from a different answer.
  */
+export function switchPressed(sw: EchoSwitch, player: Box, echoes: readonly Box[]): boolean {
+  if (overlaps(player, sw)) return true
+  for (let i = 0; i < echoes.length; i++) if (overlaps(echoes[i], sw)) return true
+  return false
+}
+
+/** Set every door's `open` from whether any switch is pressed this frame. */
 export function stepSwitches(field: SwitchField, player: Box, echoes: readonly Box[]): void {
   let pressed = false
   for (let i = 0; i < field.switches.length && !pressed; i++) {
-    const sw = field.switches[i]
-    if (overlaps(player, sw)) {
-      pressed = true
-      break
-    }
-    for (let j = 0; j < echoes.length; j++) {
-      if (overlaps(echoes[j], sw)) {
-        pressed = true
-        break
-      }
-    }
+    pressed = switchPressed(field.switches[i], player, echoes)
   }
   for (let i = 0; i < field.doors.length; i++) field.doors[i].open = pressed
 }
