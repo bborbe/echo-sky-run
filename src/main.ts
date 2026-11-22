@@ -766,6 +766,8 @@ function frame(now: number): void {
     echoes: sim.field.echoes,
     enemies: sim.enemies.enemies,
     mushrooms: sim.powers.mushrooms,
+    switches: sim.switches,
+    nimbus: sim.nimbus,
     usedBlocks: sim.usedBlocks,
     paused: isPaused(),
     runSeconds: sim.frames / 60,

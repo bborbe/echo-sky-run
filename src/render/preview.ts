@@ -53,6 +53,8 @@ export function previewSource(level: LevelEntry): PreviewSource {
     echoes: sim.field.echoes,
     enemies: sim.enemies.enemies,
     mushrooms: sim.powers.mushrooms,
+    switches: sim.switches,
+    nimbus: sim.nimbus,
     usedBlocks: sim.usedBlocks,
     tick: 0,
     alpha: 1,
