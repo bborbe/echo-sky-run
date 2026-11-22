@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { LEVEL_1_2_COLS, LEVEL_1_2_DOOR_COL, LEVEL_1_2_LEDGE, LEVEL_1_2_PITS, LEVEL_1_2_ROWS, LEVEL_1_2_SWITCH_COL } from './level1-2.level.ts'
+import { LEVEL_1_2_CEILING, LEVEL_1_2_COLS, LEVEL_1_2_DOOR_COL, LEVEL_1_2_LEDGE, LEVEL_1_2_PITS, LEVEL_1_2_ROWS, LEVEL_1_2_SWITCH_COL } from './level1-2.level.ts'
 import { createSim, stepSim } from '../game/sim.ts'
 import { stepSwitches } from '../game/switches.ts'
 import { WINDUP_F, WINDUP_RANGE_PX } from '../game/enemies.ts'
@@ -145,6 +145,19 @@ describe('level 1-2 passes the level toolkit', () => {
     expect(LEVEL_1_2_LEDGE.row).toBeLessThan(11)
     expect(LEVEL_1_2_LEDGE.firstCol).toBeLessThan(LEVEL_1_2_SWITCH_COL)
     expect(LEVEL_1_2_SWITCH_COL).toBeLessThan(LEVEL_1_2_DOOR_COL)
+  })
+
+  it('seals the door across the corridor, so it cannot be jumped over or walked around', () => {
+    const sim = createSim(MAP)
+    const door = sim.switches.doors[0]
+
+    // The roof sits directly on the door's top edge. A jump peaks at about 67 px, which would clear
+    // a free-standing 48 px door — the roof caps the rise at the door's own top, so it cannot.
+    expect(door.y).toBe((LEVEL_1_2_CEILING.row + 1) * TILE)
+
+    // The corridor is the ledge's full span, so there is no side route around the door either.
+    expect(LEVEL_1_2_CEILING.firstCol).toBe(LEVEL_1_2_LEDGE.firstCol)
+    expect(LEVEL_1_2_CEILING.lastCol).toBe(LEVEL_1_2_LEDGE.lastCol)
   })
 
   it('claims the midpoint checkpoint, so a death past it does not send Pip back to the spawn', () => {
