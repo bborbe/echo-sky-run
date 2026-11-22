@@ -4,19 +4,29 @@
  *
  *   A. the autopilot clears the *populated* level, with no deaths
  *   B. no launch state crosses an Echo beat without the Echo
- *   E. no jump on the critical path lands outside the view it was made from
+ *   D. every respawn gap is ≤ 45 s, and a respawn returns control within 18 frames
+ *   E. no jump on the critical path lands outside the view it was made from, and a long fall shows
+ *      five tiles below the landing
+ *   H. the critical path clears with every jump up to 3 frames late, with a safe spot every ≤ 20 s
+ *   K. random input finds no soft-lock, no solid overlap and no crash
+ *   L. every mechanic is met safely before its first lethal use
  *
- * The browser playthrough is the fourth required check, and it cannot run in vitest — it lives in
+ * The browser playthrough is the required check that cannot run in vitest — it lives in
  * `scripts/e2e.mjs` and `make test` runs it beside this file.
  */
 
 import { describe, expect, it } from 'vitest'
+import { TILE } from '../physics/constants.ts'
 import { LEVEL_1_1_ECHO_AT_X, LEVEL_1_1_GAP, LEVEL_1_1_ROWS } from './level1-1.level.ts'
 import { runAutopilot, TOOLKIT_VIEWPORT } from '../toolkit/autopilot.ts'
-import { blindJumps } from '../toolkit/blind-jump.ts'
+import { blindJumps, unseenFalls } from '../toolkit/blind-jump.ts'
+import { checkpointReport } from '../toolkit/checkpoints.ts'
+import { encounterList, firstLethalBeforeSafe } from '../toolkit/encounters.ts'
+import { fuzzLevel } from '../toolkit/fuzz.ts'
+import { jitterClear, safeSpotReport } from '../toolkit/jitter.ts'
 import { echoBeats, profileMap, type LevelToolkitProfile } from '../toolkit/level.ts'
 import { sweepNoEcho } from '../toolkit/no-echo.ts'
-import { logicalViewWidth } from '../render/camera.ts'
+import { logicalViewWidth, VIEW_H } from '../render/camera.ts'
 
 const LEVEL: LevelToolkitProfile = {
   id: '1-1',
@@ -78,5 +88,38 @@ describe('level 1-1 passes the level toolkit', () => {
     // The blind-jump check is only as good as this number: a re-derived width would measure a
     // viewport the game does not draw.
     expect(VIEW_W).toBe(398)
+  })
+
+  it('passes the checkpoint-gap check (D): both respawn gaps ≤ 45 s and control within 18 f', () => {
+    const report = checkpointReport(MAP)
+    expect(report.passes, JSON.stringify(report)).toBe(true)
+    for (const gap of report.gaps) expect(gap.seconds).toBeLessThanOrEqual(45)
+    expect(report.respawnToControlFrames).toBeLessThanOrEqual(18)
+  })
+
+  it('passes the long-fall half of the blind-jump check (E): five tiles below every landing', () => {
+    const run = runAutopilot(LEVEL)
+    expect(unseenFalls(run.takeoffs, VIEW_H, MAP.rows * TILE)).toEqual([])
+  })
+
+  it('clears with every jump up to 3 frames late, and keeps a safe spot every ≤ 20 s (H)', () => {
+    const jitter = jitterClear(LEVEL)
+    expect(jitter.passes, JSON.stringify(jitter.runs)).toBe(true)
+    expect(jitter.perturbationReal).toBe(true)
+
+    const safe = safeSpotReport(LEVEL)
+    expect(safe.applicable).toBe(true)
+    expect(safe.passes, JSON.stringify(safe)).toBe(true)
+  })
+
+  it('survives random input with no soft-lock, solid overlap or crash (K)', () => {
+    const findings = fuzzLevel(LEVEL_1_1_ROWS)
+    expect(findings, JSON.stringify(findings)).toEqual([])
+  })
+
+  it('meets every mechanic safely before its first lethal use (L)', () => {
+    const encounters = encounterList(MAP)
+    expect(encounters.length).toBeGreaterThan(0)
+    expect(firstLethalBeforeSafe(encounters)).toEqual([])
   })
 })
