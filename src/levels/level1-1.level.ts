@@ -48,6 +48,21 @@ export const LEVEL_1_1_SMALL_GAP = { firstCol: 28, lastCol: 30 } as const
  */
 export const LEVEL_1_1_ECHO_AT_X = (LEVEL_1_1_GAP.firstCol + 6) * TILE
 
+/** The midpoint checkpoint's column — the second section boundary the results screen splits at. */
+export const LEVEL_1_1_CHECKPOINT_COL = 43
+
+/**
+ * Where the level's sections end, in x pixels: the small gap's lip, the checkpoint, and the Echo
+ * gap's lip. The goal ends the last section. The results screen splits a run here so a player reads
+ * which stretch cost the time, and the boundaries are the level's own beats rather than arbitrary
+ * fractions of its width.
+ */
+export const LEVEL_1_1_SECTION_BOUNDS: readonly number[] = [
+  LEVEL_1_1_SMALL_GAP.firstCol * TILE,
+  LEVEL_1_1_CHECKPOINT_COL * TILE,
+  LEVEL_1_1_GAP.firstCol * TILE,
+]
+
 /**
  * The spot the tile view's thumbnail is framed on: mid-gap at the ground line, so the crop shows the
  * pit, both lips and the sky above them. The Echo gap is the level's one lesson, so it is the one

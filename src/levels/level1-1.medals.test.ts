@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { medalTimes } from '../game/medals.ts'
+import { medalFor, medalTimes } from '../game/medals.ts'
 import { LEVEL_1_1_MEDAL_TIMES } from './level1-1.times.ts'
 
 describe('medal thresholds', () => {
@@ -31,5 +31,31 @@ describe('medal thresholds', () => {
     // sanity check the calibration task's SC4 asks for.
     expect(LEVEL_1_1_MEDAL_TIMES.author).toBeLessThan(678)
     expect(678).toBeLessThanOrEqual(LEVEL_1_1_MEDAL_TIMES.gold)
+  })
+})
+
+describe('the medal a clear earns', () => {
+  const times = { author: 612, gold: 816, silver: 1020, bronze: 1224 }
+
+  it('awards the fastest threshold the clear reaches, with the threshold inclusive', () => {
+    expect(medalFor(612, times)).toBe('author')
+    expect(medalFor(613, times)).toBe('gold')
+    expect(medalFor(816, times)).toBe('gold')
+    expect(medalFor(817, times)).toBe('silver')
+    expect(medalFor(1020, times)).toBe('silver')
+    expect(medalFor(1021, times)).toBe('bronze')
+    expect(medalFor(1224, times)).toBe('bronze')
+  })
+
+  it('awards nothing past bronze', () => {
+    expect(medalFor(1225, times)).toBeNull()
+    expect(medalFor(3000, times)).toBeNull()
+  })
+
+  it('maps the stored 1-1 thresholds onto the medals they name', () => {
+    expect(medalFor(LEVEL_1_1_MEDAL_TIMES.author, LEVEL_1_1_MEDAL_TIMES)).toBe('author')
+    expect(medalFor(LEVEL_1_1_MEDAL_TIMES.gold, LEVEL_1_1_MEDAL_TIMES)).toBe('gold')
+    expect(medalFor(LEVEL_1_1_MEDAL_TIMES.silver, LEVEL_1_1_MEDAL_TIMES)).toBe('silver')
+    expect(medalFor(LEVEL_1_1_MEDAL_TIMES.bronze, LEVEL_1_1_MEDAL_TIMES)).toBe('bronze')
   })
 })
