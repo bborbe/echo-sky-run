@@ -160,6 +160,16 @@ describe('level 1-2 passes the level toolkit', () => {
     expect(LEVEL_1_2_CEILING.lastCol).toBe(LEVEL_1_2_LEDGE.lastCol)
   })
 
+  it('walls the corridor far end, leaving only the near mouth as an entrance', () => {
+    const far = LEVEL_1_2_LEDGE.lastCol
+    const near = LEVEL_1_2_LEDGE.firstCol
+    for (const row of LEVEL_1_2_ROWS.slice(LEVEL_1_2_CEILING.row + 1, LEVEL_1_2_LEDGE.row)) {
+      // Solid at the far end, open at the near end: the door is the only way through.
+      expect(row[far]).toBe('#')
+      expect(row[near]).toBe('.')
+    }
+  })
+
   it('claims the midpoint checkpoint, so a death past it does not send Pip back to the spawn', () => {
     const sim = createSim(MAP)
     const spawn = findTile(MAP, SPAWN)
