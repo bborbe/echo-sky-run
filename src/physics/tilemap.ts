@@ -28,6 +28,12 @@ export const NIMBUS = 'n'
 /** An Echo switch (the blue gear) sits in this cell. */
 export const ECHO_SWITCH = 's'
 /**
+ * A secret switch sits in this cell. It is a one-shot trigger, not the Echo switch: touching it does
+ * not hold a door, it unlocks the secret level on the map. `X` is unused by every other tile, so a
+ * level author can place it without colliding with an entity character.
+ */
+export const SECRET_SWITCH = 'X'
+/**
  * An Echo door's bottom tile. The door is three tiles tall (the art is 16×48), so it extends two
  * tiles above the cell it is written in — the same feet-anchored convention `findEnemySpawns` uses.
  */
@@ -138,6 +144,15 @@ export function findNimbusSpawns(map: TileMap): { x: number; y: number }[] {
 /** Where the level's Echo switches sit. One tile square, so the cell's top-left is the switch. */
 export function findSwitchSpawns(map: TileMap): { x: number; y: number }[] {
   return findTiles(map, ECHO_SWITCH)
+}
+
+/**
+ * Where the level's secret switches sit. One tile square, so the cell's top-left is the switch, the
+ * same convention `findSwitchSpawns` uses. A level places at most one; the sim latches the first
+ * touch and the shell turns it into the secret level's unlock.
+ */
+export function findSecretSwitchSpawns(map: TileMap): { x: number; y: number }[] {
+  return findTiles(map, SECRET_SWITCH)
 }
 
 /**
