@@ -1,0 +1,100 @@
+/**
+ * The level toolkit, applied to level 1-2. Same checks as 1-1, with one difference the level itself
+ * forces: 1-2's Echo use is the Echo switch, which the engine cannot express yet, so the level has
+ * no Echo beat and the no-Echo sweep has nothing to sweep. That check comes back with the
+ * engine-wiring task, and this file says so rather than sweeping an empty list.
+ *
+ *   A. the autopilot clears the *populated* level, with no deaths
+ *   E. no jump on the critical path lands outside the view it was made from
+ *   L. the `est.` length lands in the rating guide's 60-90 s band
+ *
+ * The browser playthrough is the fourth required check, and it cannot run in vitest — it lives in
+ * `scripts/e2e.mjs` and `make test` runs it beside this file.
+ */
+
+import { describe, expect, it } from 'vitest'
+import { LEVEL_1_2_COLS, LEVEL_1_2_PITS, LEVEL_1_2_ROWS } from './level1-2.level.ts'
+import { runAutopilot, TOOLKIT_VIEWPORT, type Takeoff } from '../toolkit/autopilot.ts'
+import { blindJumps } from '../toolkit/blind-jump.ts'
+import { echoBeats, profileMap, type LevelToolkitProfile } from '../toolkit/level.ts'
+import { logicalViewWidth } from '../render/camera.ts'
+import { WALK_MAX } from '../physics/constants.ts'
+import { findTile, GOAL, SPAWN } from '../physics/tilemap.ts'
+
+const LEVEL: LevelToolkitProfile = {
+  id: '1-2',
+  rows: LEVEL_1_2_ROWS,
+  // 1-2's Echo use is the switch, not a mid-air Echo over a pit: the level has no Echo beat, so it
+  // declares no answer. `requireEchoAnswer` refuses a level that has a beat and no answer, which is
+  // what keeps this honest once the switch stretch is laid out.
+  echoAtX: null,
+}
+
+const MAP = profileMap(LEVEL)
+
+/** 960×540 is the smallest viewport an agent drives, so it is the worst case for a blind landing. */
+const VIEW_W = logicalViewWidth(TOOLKIT_VIEWPORT.width, TOOLKIT_VIEWPORT.height)
+
+describe('level 1-2 passes the level toolkit', () => {
+  it('is cleared by the autopilot on the populated level, with no deaths', () => {
+    const run = runAutopilot(LEVEL)
+
+    const summary = JSON.stringify({
+      won: run.won,
+      died: run.died,
+      frames: run.frames,
+      deaths: run.deaths,
+    })
+    expect(run.won, summary).toBe(true)
+    expect(run.died).toBe(false)
+    expect(run.deaths).toBe(0)
+  })
+
+  it('has no Echo beat yet: the switch stretch is engine work, not level work', () => {
+    // Not a permanent property of the level — a statement of the current boundary. When the
+    // engine-wiring task lands, the switch stretch brings an Echo beat and this assertion is
+    // replaced by the no-Echo sweep 1-1 runs.
+    expect(echoBeats(MAP)).toEqual([])
+  })
+
+  it('keeps every jump on the critical path inside the view it was made from', () => {
+    const run = runAutopilot(LEVEL)
+    expect(run.takeoffs.length).toBeGreaterThan(2)
+
+    expect(blindJumps(run.takeoffs, VIEW_W)).toEqual([])
+  })
+
+  it('has a blind-jump check that actually fires: a planted off-screen landing is flagged', () => {
+    // A check that cannot fire is worse than no check. This is the known-positive control.
+    const planted: Takeoff = {
+      frame: 0,
+      x: 100,
+      y: 176,
+      viewLeft: 0,
+      landingFrame: 30,
+      landingX: 500,
+    }
+    expect(blindJumps([planted], VIEW_W)).toHaveLength(1)
+  })
+
+  it('lands in the rating guide 60-90 s band on the guide own `est.` base', () => {
+    const spawn = findTile(MAP, SPAWN)
+    const goal = findTile(MAP, GOAL)
+    expect(spawn).not.toBeNull()
+    expect(goal).not.toBeNull()
+
+    // The guide's sanctioned fallback when no designer run exists yet: path pixels ÷ WALK_MAX.
+    const estSeconds = ((goal?.x ?? 0) - (spawn?.x ?? 0)) / (WALK_MAX * 60)
+    expect(estSeconds).toBeGreaterThanOrEqual(60)
+    expect(estSeconds).toBeLessThanOrEqual(90)
+  })
+
+  it('measures the view the renderer actually draws at 960x540', () => {
+    expect(VIEW_W).toBe(398)
+  })
+
+  it('is the width and pit set its own metadata claims', () => {
+    expect(MAP.cols).toBe(LEVEL_1_2_COLS)
+    expect(LEVEL_1_2_PITS).toHaveLength(2)
+  })
+})
