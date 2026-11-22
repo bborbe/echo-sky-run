@@ -9,6 +9,7 @@ import { ECHO_LIFE_F, placeEcho } from './echo/echo.ts'
 import { createSim, stepSim, type SimInput, type SimState } from './game/sim.ts'
 import { LEVEL_1_1_ECHO_AT_X } from './levels/level1-1.level.ts'
 import { LEVEL_CATALOGUE, findLevel, groupBySet, tileIndexFor, tileItems } from './levels/catalogue.ts'
+import { mapItems, mapNodes, WORLD1_PATH, completeLevel } from './levels/map.ts'
 import { PLAYER_W, TILE } from './physics/constants.ts'
 import { FixedStepper } from './physics/loop.ts'
 import { parseLevel, tileAt } from './physics/tilemap.ts'
@@ -18,7 +19,7 @@ import { PipAnimator } from './render/pose.ts'
 import { INK } from './render/art/palette.ts'
 import { Renderer, PALETTE, type MenuView, type TileRect } from './render/renderer.ts'
 import type { FixtureSprite } from './render/world.ts'
-import { isUnlocked, loadSave, recordBest, storeSave, type Save } from './save/save.ts'
+import { isUnlocked, loadSave, storeSave, type Save } from './save/save.ts'
 import { createControlsCard, ECHO_HINT } from './ui/controls-card.ts'
 import { escapeLeavesFullscreen, toggleFullscreen, watchFullscreen } from './ui/fullscreen.ts'
 import { mountGamepad } from './ui/gamepad-shell.ts'
@@ -83,6 +84,8 @@ let volumes: Volumes = audio.volumes()
  */
 const debugEntry = ['level', 'x', 'y', 'echo', 'freeze', 'autopilot', 'lead', 'fixture'].some((key) => params.has(key))
 let screen: GameScreen = debugEntry ? 'level' : 'tiles'
+/** `?map=1` shows the overworld map instead of the catalogue grid on the tile screen. */
+const mapMode = params.get('map') === '1'
 /** The selected row on the current menu screen. */
 let selected = 0
 
@@ -126,6 +129,36 @@ const levelGroups = groupBySet().map((group) => ({
 const tiles = levelGroups.flatMap((group) => group.items)
 /** Tiles per set, in drawing order — the grid the tile view's focus moves across. */
 const tileRowSizes = levelGroups.map((group) => group.items.length)
+
+/**
+ * The map's nodes, resolved against the current save on every read rather than once at load: clearing
+ * a level writes an unlock, and the map must show it on the next frame without a reload.
+ */
+function mapNodesNow() {
+  return mapNodes((id) => isUnlocked(save, id))
+}
+
+/** The map's rows as menu items, so the shell's selection and `canActivate` gate serve it unchanged. */
+function mapItemsNow() {
+  return mapItems(mapNodesNow())
+}
+
+/** The rows the tile screen is showing: the map's path when `?map=1`, the catalogue grid otherwise. */
+function tileScreenItems() {
+  return mapMode ? mapItemsNow() : tiles
+}
+
+/** The focus grid for the tile screen: one row of map nodes, or the catalogue's set rows. */
+function tileScreenRows() {
+  return mapMode ? [WORLD1_PATH.length] : tileRowSizes
+}
+
+/** The tile screen's selected row for a level: its map node, or its catalogue tile. */
+function tileScreenIndexFor(level: string | null): number {
+  if (!mapMode) return tileIndexFor(tiles, level)
+  const i = level === null ? -1 : WORLD1_PATH.indexOf(level)
+  return i >= 0 ? i : 0
+}
 /** The level the tile view starts, kept so leaving a run returns to the same tile. */
 let focusedLevel: string | null = null
 /** The level the level screen is running, and its parsed map. */
@@ -412,12 +445,13 @@ function show(next: GameScreen): void {
   if (next === screen) return
   screen = next
   // The tile view reopens on the level that was last started, so leaving a run returns to its tile.
-  selected = next === 'tiles' ? tileIndexFor(tiles, focusedLevel) : 0
+  selected = next === 'tiles' ? tileScreenIndexFor(focusedLevel) : 0
   audio.play(next === 'level' ? 'ui-close' : 'ui-open')
 }
 
-/** The rows of the screen that is up. The tile view's rows are the catalogue's. */
+/** The rows of the screen that is up. The tile view's rows are the catalogue's, or the map's. */
 function menuItems(): readonly MenuItem[] {
+  if (screen === 'tiles') return tileScreenItems()
   return menuFor(screen, tiles)
 }
 
@@ -464,7 +498,7 @@ function tileFocusDirection(code: string): FocusDirection | null {
 
 /** Move the tile view's focus one step, wrapping per `moveFocus`'s rule. */
 function moveFocusBy(dir: FocusDirection): void {
-  const next = moveFocus(tileRowSizes, selected, dir)
+  const next = moveFocus(tileScreenRows(), selected, dir)
   if (next === selected) return
   selected = next
   audio.play('ui-tick')
@@ -520,7 +554,8 @@ function menuView(): MenuView | null {
     effects: volumes.effects,
     runSeconds: sim.frames / 60,
     bestSeconds: save.bestSeconds,
-    groups: screen === 'tiles' ? levelGroups : undefined,
+    groups: screen === 'tiles' && !mapMode ? levelGroups : undefined,
+    map: screen === 'tiles' && mapMode ? { nodes: mapNodesNow(), counts: { relics: save.relics, bestTimes: save.bestTimes } } : undefined,
   }
 }
 
@@ -705,10 +740,11 @@ function frame(now: number): void {
     showSignHint()
   }
 
-  // Record the run once it is finished: the first finish, and every faster one after it.
+  // Record the run once it is finished: the level's best time, and the next node unlocked, through
+  // the map's own completion path — so the map reads them on the next frame and a reload keeps them.
   if (sim.goalReached && !recorded) {
     recorded = true
-    const next = recordBest(save, sim.frames / 60)
+    const next = completeLevel(save, currentLevel, sim.frames / 60)
     if (next !== save) {
       save = next
       storeSave(storage(), save)

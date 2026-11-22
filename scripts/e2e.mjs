@@ -1910,6 +1910,115 @@ try {
     `entries=${trace.length} wrong=${JSON.stringify(wrongRecipe.slice(0, 3))}`,
   )
 
+  // ---- the overworld map (?map=1) ------------------------------------------------------------
+  // The map is the level select over World 1's path, and its node lines are read off the save. The
+  // save is seeded before each load, so a renderer that ignores it draws the same line twice and the
+  // two fixtures below cannot both pass.
+  // The script's own `URL` constant shadows the global `URL` class, so the map URL is built by hand.
+  const MAP_URL = `${URL}${URL.includes('?') ? '&' : '?'}map=1`
+  const MAP_SAVE = {
+    version: 2,
+    bestSeconds: 42.3,
+    unlockedLevels: ['1-1'],
+    relics: { '1-1': 2 },
+    bestTimes: { '1-1': 42.3 },
+  }
+
+  // Count storage writes from here on, so a refused node can be shown to write nothing. Installed as
+  // an init script so the counter survives the reload that opens the map.
+  await page.addInitScript(() => {
+    window.__saveWrites = 0
+    const real = Storage.prototype.setItem
+    Storage.prototype.setItem = function (key, value) {
+      window.__saveWrites += 1
+      return real.call(this, key, value)
+    }
+  })
+
+  await page.evaluate((save) => localStorage.setItem('echo-sky-run.v1', JSON.stringify(save)), MAP_SAVE)
+  await page.goto(MAP_URL, { waitUntil: 'load' })
+  await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+
+  const mapView = await page.evaluate(() => ({
+    screen: window.__echoSkyRun.screen(),
+    items: window.__echoSkyRun.menu()?.items ?? [],
+  }))
+  check(
+    mapView.screen === 'tiles' && mapView.items.length > 0 && mapView.items.includes('1-1'),
+    '?map=1 opens the map with its nodes and the 1-1 label',
+    JSON.stringify(mapView),
+  )
+
+  await page.waitForFunction(() => window.__echoSkyRun.overlayLines().some((l) => l.startsWith('1-1 ')))
+  const mapLines = await page.evaluate(() => window.__echoSkyRun.overlayLines())
+  check(
+    mapLines.includes('1-1 ◆◆◇ · 42.3 s'),
+    'the 1-1 node draws its Relic Coins and its best time',
+    JSON.stringify(mapLines),
+  )
+  check(mapLines.includes('1-2 LOCKED'), 'a locked node draws LOCKED, not a time', JSON.stringify(mapLines))
+
+  // Selecting an unlocked node enters the level screen.
+  await page.keyboard.press('Space')
+  await page.waitForFunction(() => window.__echoSkyRun.screen() === 'level', null, { timeout: 3000 }).catch(() => {})
+  check(
+    (await page.evaluate(() => window.__echoSkyRun.screen())) === 'level',
+    'selecting the unlocked 1-1 node enters the level screen',
+  )
+
+  // Back on the map, a locked node refuses and writes nothing.
+  await page.goto(MAP_URL, { waitUntil: 'load' })
+  await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+  // Positive control: the write counter sees a real write, so the unchanged count below means
+  // something. Without it, "0 before, 0 after" is equally consistent with a counter that never fires.
+  const spyWorks = await page.evaluate(() => {
+    const before = window.__saveWrites
+    localStorage.setItem('echo-sky-run.e2e-probe', '1')
+    localStorage.removeItem('echo-sky-run.e2e-probe')
+    return window.__saveWrites > before
+  })
+  check(spyWorks, 'the storage-write probe counts a real write')
+  const beforePress = await page.evaluate(() => ({
+    raw: localStorage.getItem('echo-sky-run.v1'),
+    writes: window.__saveWrites,
+  }))
+  await page.keyboard.press('ArrowRight') // focus 1-2, which this save has not unlocked
+  await page.keyboard.press('Space')
+  const afterPress = await page.evaluate(() => ({
+    raw: localStorage.getItem('echo-sky-run.v1'),
+    writes: window.__saveWrites,
+    screen: window.__echoSkyRun.screen(),
+  }))
+  check(afterPress.screen === 'tiles', 'a locked node refuses to start the level', JSON.stringify(afterPress))
+  check(
+    afterPress.raw === beforePress.raw && afterPress.writes === beforePress.writes,
+    'the refused node writes nothing to the save',
+    JSON.stringify({ before: beforePress.writes, after: afterPress.writes }),
+  )
+
+  // An unlocked level with no module reads NOT BUILT YET, and confirming it is a no-op.
+  await page.evaluate(() =>
+    localStorage.setItem(
+      'echo-sky-run.v1',
+      JSON.stringify({ version: 2, bestSeconds: null, unlockedLevels: ['1-1', '1-2'], relics: {}, bestTimes: {} }),
+    ),
+  )
+  await page.goto(MAP_URL, { waitUntil: 'load' })
+  await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+  await page.waitForFunction(() => window.__echoSkyRun.overlayLines().some((l) => l.startsWith('1-2 ')))
+  const unbuiltLines = await page.evaluate(() => window.__echoSkyRun.overlayLines())
+  check(
+    unbuiltLines.includes('1-2 NOT BUILT YET'),
+    'an unlocked level with no module reads NOT BUILT YET',
+    JSON.stringify(unbuiltLines),
+  )
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('Space')
+  check(
+    (await page.evaluate(() => window.__echoSkyRun.screen())) === 'tiles',
+    'an unbuilt node is a no-op',
+  )
+
   check(errors.length === 0, 'no console errors', errors.slice(0, 3).join(' | '))
 } catch (err) {
   failed = true
