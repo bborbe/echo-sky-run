@@ -292,6 +292,20 @@ export const ECHO_SWITCH: Mask = [
   '................',
 ]
 
+/**
+ * The secret switch: the Echo switch's plate in brass rather than echo-blue, so a switch that
+ * unlocks the secret level reads as its own thing at a glance. Same 16×16 mask; only the ink differs.
+ */
+export const SECRET_SWITCH_KEYS: Keys = {
+  o: 'outline',
+  s: 'brassDark',
+  S: 'brassLight',
+  e: 'brass',
+  c: 'copper',
+}
+
+export const SECRET_SWITCH: Mask = ECHO_SWITCH
+
 export const ECHO_DOOR_KEYS: Keys = ECHO_SWITCH_KEYS
 
 /** The Echo door: a steel portal banded in cyan light, three tiles tall. 16×48. */

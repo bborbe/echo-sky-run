@@ -8,9 +8,11 @@ import {
   migrate,
   recordBest,
   recordLevelBest,
+  recordSectionBests,
   relicsFor,
   SAVE_KEY,
   SAVE_VERSION,
+  sectionBests,
   storeSave,
   unlockLevel,
 } from './save.ts'
@@ -203,6 +205,41 @@ describe('recording a best time', () => {
     expect(next.bestSeconds).toBe(42)
     // A slower run on the same level changes nothing.
     expect(recordLevelBest(next, '1-2', 40)).toBe(next)
+  })
+})
+
+describe('recording per-section bests', () => {
+  it('keeps the fastest duration per section in the existing best-times map', () => {
+    const save = { version: SAVE_VERSION, bestSeconds: 9, bestTimes: { '1-1': 9 } }
+    const first = recordSectionBests(save, '1-1', [3, 2, 1, 3])
+    expect(sectionBests(first, '1-1', 4)).toEqual([3, 2, 1, 3])
+    // The level total is untouched; only the section keys are added.
+    expect(bestTimeFor(first, '1-1')).toBe(9)
+
+    const faster = recordSectionBests(first, '1-1', [4, 1.5, 1, 2.5])
+    expect(sectionBests(faster, '1-1', 4)).toEqual([3, 1.5, 1, 2.5])
+  })
+
+  it('returns the same save when no section improved', () => {
+    const save = { version: SAVE_VERSION, bestSeconds: null, bestTimes: { '1-1#0': 2 } }
+    expect(recordSectionBests(save, '1-1', [3])).toBe(save)
+  })
+
+  it('reports null for a section with no stored best, and ignores extra sections', () => {
+    expect(sectionBests(EMPTY_SAVE, '1-1', 2)).toEqual([null, null])
+    const save = { version: SAVE_VERSION, bestSeconds: null, bestTimes: { '1-1#0': 2 } }
+    expect(sectionBests(save, '1-1', 3)).toEqual([2, null, null])
+  })
+
+  it('survives a storeSave → loadSave round-trip without disturbing the level best', () => {
+    const storage = memoryStorage()
+    const saved = recordSectionBests({ version: SAVE_VERSION, bestSeconds: 9, bestTimes: { '1-1': 9 } }, '1-1', [
+      3, 2, 1, 3,
+    ])
+    storeSave(storage, saved)
+    const loaded = loadSave(storage)
+    expect(sectionBests(loaded, '1-1', 4)).toEqual([3, 2, 1, 3])
+    expect(bestTimeFor(loaded, '1-1')).toBe(9)
   })
 })
 

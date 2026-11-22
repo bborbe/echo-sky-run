@@ -11,6 +11,8 @@
  * Pure and DOM-free: the storage is passed in, so the migration rules are unit tests.
  */
 
+import { sectionKey } from '../game/splits.ts'
+
 export const SAVE_KEY = 'echo-sky-run.v1'
 
 /**
@@ -246,6 +248,42 @@ export function recordLevelBest(save: Save, id: string, seconds: number): Save {
     ...(id === '1-1' ? { bestSeconds: seconds } : {}),
     bestTimes: { ...times, [id]: seconds },
   }
+}
+
+/**
+ * The save with a level's per-section best durations recorded where this run beat them. Section
+ * bests live in `bestTimes` under `${id}#${index}` (see `sectionKey`), so the results screen can show
+ * time lost per section without a schema change. Returns the same object when nothing improved, so a
+ * caller can skip the write.
+ */
+export function recordSectionBests(save: Save, id: string, durations: readonly number[]): Save {
+  if (id === '') return save
+  const times = { ...(save.bestTimes ?? {}) }
+  let changed = false
+  durations.forEach((seconds, index) => {
+    if (!Number.isFinite(seconds) || seconds < 0) return
+    const key = sectionKey(id, index)
+    const current = times[key]
+    if (current === undefined || seconds < current) {
+      times[key] = seconds
+      changed = true
+    }
+  })
+  return changed ? { ...save, bestTimes: times } : save
+}
+
+/**
+ * A level's stored per-section best durations, in section order, with null where a section has no
+ * stored best yet. `count` is the number of sections the level has today, so a save recorded against
+ * an older layout cannot report a delta for a section that no longer exists.
+ */
+export function sectionBests(save: Save, id: string, count: number): (number | null)[] {
+  const out: (number | null)[] = []
+  for (let index = 0; index < count; index++) {
+    const value = save.bestTimes?.[sectionKey(id, index)]
+    out.push(typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null)
+  }
+  return out
 }
 
 /** The Relic Coins collected on a level; a level with no entry has none. */

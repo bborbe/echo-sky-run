@@ -22,6 +22,7 @@ import {
   NIMBUS,
   ONEWAY,
   QUESTION,
+  SECRET_SWITCH,
   SOLID,
   SPAWN,
   parseLevel,
@@ -94,12 +95,13 @@ describe('the level tile alphabet', () => {
 
   it('names the level and the character when a level carries an unhandled tile', () => {
     // Known-positive control: the same check, on a level that does carry one, must fire and name it.
-    expect(uncoveredTiles([{ id: '9-9', rows: ['..S..X..F', '#########'] }])).toEqual(["9-9 uses 'X'"])
+    expect(uncoveredTiles([{ id: '9-9', rows: ['..S..Z..F', '#########'] }])).toEqual(["9-9 uses 'Z'"])
   })
 
   it('covers the Echo switch, the Echo door and Nimbus by name, not by accident', () => {
     // Each character the level format adds for World 1 is registered where it is drawn.
     expect(PROP_TILES.has(ECHO_SWITCH)).toBe(true)
+    expect(PROP_TILES.has(SECRET_SWITCH)).toBe(true)
     expect(PROP_TILES.has(DOOR)).toBe(true)
     expect(ENTITY_TILES.has(NIMBUS)).toBe(true)
   })

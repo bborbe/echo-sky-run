@@ -10,6 +10,14 @@ import { medalTimes, type MedalTimes } from '../game/medals.ts'
 export const LEVEL_1_1_AUTOPILOT_FRAMES = 540
 
 /**
+ * The operator's recorded casual designer run: 17.0 s at 60 Hz. It is the baseline the fast route is
+ * measured against (40–50 % below it) and the clear `MEDAL_FACTOR` was measured from — 1020 f ÷ the
+ * 540 f autopilot reference. The recording itself is owned by
+ * [[Calibrate the Echo Sky Run 1-1 Medal Times From Operator Runs]].
+ */
+export const LEVEL_1_1_CASUAL_FRAMES = 1020
+
+/**
  * The four stored 1-1 medal thresholds, in frames — author 612, gold 816, silver 1020, bronze 1224
  * (10.2 s, 13.6 s, 17.0 s, 20.4 s at 60 Hz). Silver is the operator's casual pace.
  */
