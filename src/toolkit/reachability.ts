@@ -36,8 +36,10 @@
  * the live Echoes as `(x, y, life)` in insertion order (list order is load-bearing — `platformUnder`
  * clamps against the first platform under the box).
  *
- * Nothing is quantised. Every constant in `physics/constants.ts` is a dyadic rational with a
- * denominator of at most 32, so every reachable position and velocity is exactly a multiple of 1/32;
+ * Nothing is quantised. Every constant that feeds position integration is a dyadic rational with a
+ * denominator of at most 32 (`DT = 1/60` and `EPS = 1e-9` are not, but neither enters a position:
+ * `DT` is used only by the fixed-step loop and `EPS` only as a collision tolerance), so every
+ * reachable position and velocity is exactly a multiple of 1/32;
  * the key encodes them as `Math.round(v * 32)` integers, which is lossless. A value off that lattice
  * throws rather than being rounded — a silent round would merge two states whose collision outcomes
  * differ, which is the class of bug that produces a false verdict.
