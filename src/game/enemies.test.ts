@@ -18,6 +18,7 @@ import {
   stepEnemies,
   stomps,
   touchShell,
+  WINDUP_F,
   type EnemyField,
 } from './enemies.ts'
 
@@ -34,6 +35,11 @@ function playerAt(x: number) {
 function playerAbove(x: number, top: number, dy = 0) {
   const feet = top + dy
   return { x, y: feet - PLAYER_H, w: PLAYER_W, h: PLAYER_H }
+}
+
+/** A player box sitting exactly on the enemy, so every step counts as a contact frame. */
+function inContact(e: { x: number; y: number }) {
+  return { x: e.x, y: e.y, w: PLAYER_W, h: PLAYER_H }
 }
 
 function goombaOnFloor(x: number, dir: -1 | 1 = -1) {
@@ -188,15 +194,19 @@ describe('shell', () => {
 })
 
 describe('damage', () => {
-  it('reports a side touch as a hit, not a stomp', () => {
+  it('reports a side touch as a hit only after the wind-up', () => {
     const g = goombaOnFloor(32)
     const field = fieldWith(g)
 
-    // Level with the enemy, not above it: feet are far below its top band.
-    const events = stepEnemies(field, playerAt(32), 0, FLOOR)
+    // Level with the enemy, not above it: feet are far below its top band. The first contact frame
+    // is inside the wind-up, so it does not hurt.
+    const first = stepEnemies(field, playerAt(32), 0, FLOOR)
+    expect(first.stomped).toHaveLength(0)
+    expect(first.hit).toBe(false)
 
-    expect(events.stomped).toHaveLength(0)
-    expect(events.hit).toBe(true)
+    // 17 contact frames in total is still inside the wind-up; the 18th hurts.
+    for (let i = 1; i < WINDUP_F - 1; i++) expect(stepEnemies(field, playerAt(32), 0, FLOOR).hit).toBe(false)
+    expect(stepEnemies(field, playerAt(32), 0, FLOOR).hit).toBe(true)
     expect(enemyBox(g).w).toBe(GEAR_GOOMBA_W)
   })
 
@@ -205,6 +215,33 @@ describe('damage', () => {
     const events = stepEnemies(field, playerAt(140), 0, FLOOR)
     expect(events.hit).toBe(false)
   })
+
+  it('resets the wind-up when contact breaks for a frame', () => {
+    const field = fieldWith(goombaOnFloor(32))
+
+    for (let i = 0; i < WINDUP_F - 1; i++) stepEnemies(field, inContact(field.enemies[0]), 0, FLOOR)
+    // One frame clear of it, then back in: the counter starts from zero again.
+    stepEnemies(field, playerAt(140), 0, FLOOR)
+    expect(stepEnemies(field, inContact(field.enemies[0]), 0, FLOOR).hit).toBe(false)
+  })
+})
+
+describe('contact wind-up', () => {
+  const KINDS = ['gear-goomba', 'spike-beetle', 'gust-wing', 'chaser-bot', 'steam-turtle'] as const
+
+  for (const kind of KINDS) {
+    it(`${kind} refuses side contact until its ${WINDUP_F}-frame wind-up elapses`, () => {
+      const e = createEnemy(kind, 32, FLOOR_Y - (kind === 'steam-turtle' ? STEAM_TURTLE_H : 16), 1)
+      const field = fieldWith(e)
+
+      // The player box sits on the enemy, so every step is a contact frame — the shape a player
+      // standing against it produces. 17 frames do nothing; the 18th hurts.
+      for (let i = 0; i < WINDUP_F - 1; i++) {
+        expect(stepEnemies(field, inContact(field.enemies[0]), 0, FLOOR).hit).toBe(false)
+      }
+      expect(stepEnemies(field, inContact(field.enemies[0]), 0, FLOOR).hit).toBe(true)
+    })
+  }
 })
 
 describe('Spike-Beetle', () => {

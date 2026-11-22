@@ -7,6 +7,9 @@ import { overlaps } from './enemies.ts'
 
 export const ECHO_SWITCH_W = 16
 export const ECHO_SWITCH_H = 16
+/** A door is three tiles tall — the art is 16×48 — so its collision box matches what is drawn. */
+export const DOOR_W = 16
+export const DOOR_H = 48
 
 export interface EchoSwitch {
   x: number
@@ -37,7 +40,7 @@ export function createSwitch(x: number, y: number): EchoSwitch {
   return { x, y, w: ECHO_SWITCH_W, h: ECHO_SWITCH_H }
 }
 
-export function createDoor(x: number, y: number, w = 16, h = 32): Door {
+export function createDoor(x: number, y: number, w = DOOR_W, h = DOOR_H): Door {
   return { x, y, w, h, open: false }
 }
 

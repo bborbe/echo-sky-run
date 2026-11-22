@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { SMALL_H, SUPER_H } from '../physics/constants.ts'
 import { parseLevel } from '../physics/tilemap.ts'
 import { INVULN_F } from './power.ts'
+import { WINDUP_F } from './enemies.ts'
 import { createSim, stepSim, type SimInput } from './sim.ts'
 
 const IDLE: SimInput = {
@@ -87,6 +88,10 @@ describe('tier transitions', () => {
     }
     expect(sim.power).toBe('super')
 
+    // Let him come to rest, so the enemy's contact is the only thing that changes.
+    for (let i = 0; i < 30; i++) stepSim(sim, IDLE)
+    expect(sim.goalReached).toBe(false)
+
     // Drop an enemy right on top of him and let it touch his side.
     sim.enemies.enemies.push({
       kind: 'gear-goomba',
@@ -99,11 +104,13 @@ describe('tier transitions', () => {
       mode: 'walk',
       hp: 1,
       age: 0,
+      contact: 0,
       baseY: sim.player.y + sim.player.h - 16,
       dead: false,
     })
 
-    stepSim(sim, IDLE)
+    // The side contact hurts only after the 18-frame wind-up.
+    for (let i = 0; i < WINDUP_F; i++) stepSim(sim, IDLE)
 
     expect(sim.power).toBe('small')
     expect(sim.player.h).toBe(SMALL_H)
@@ -129,11 +136,13 @@ describe('tier transitions', () => {
       mode: 'walk',
       hp: 1,
       age: 0,
+      contact: 0,
       baseY: sim.player.y + sim.player.h - 16,
       dead: false,
     })
 
-    stepSim(sim, IDLE)
+    // The side contact hurts only after the 18-frame wind-up.
+    for (let i = 0; i < WINDUP_F; i++) stepSim(sim, IDLE)
 
     expect(sim.deaths).toBe(1)
     expect(sim.player.x).toBe(startX)
@@ -155,6 +164,7 @@ describe('tier transitions', () => {
       mode: 'shell',
       hp: 1,
       age: 0,
+      contact: 0,
       baseY: sim.player.y + sim.player.h - 16,
       dead: false,
     })
@@ -179,6 +189,7 @@ describe('tier transitions', () => {
       mode: 'shell',
       hp: 1,
       age: 0,
+      contact: 0,
       baseY: sim.player.y + sim.player.h - 24,
       dead: false,
     })

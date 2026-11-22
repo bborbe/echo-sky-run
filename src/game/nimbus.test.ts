@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { PLAYER_H, PLAYER_W } from '../physics/constants.ts'
 import { parseLevel } from '../physics/tilemap.ts'
-import { createEnemy, createEnemyField } from './enemies.ts'
+import { createEnemy, createEnemyField, WINDUP_F } from './enemies.ts'
 import {
   canMount,
   createNimbus,
@@ -164,7 +164,8 @@ describe('Nimbus throw-off', () => {
     sim.enemies.enemies.push(createEnemy('gear-goomba', sim.player.x, sim.player.y))
     const deathsBefore = sim.deaths
 
-    stepSim(sim, STILL)
+    // The side contact hurts only after the 18-frame wind-up, and the throw-off follows the hit.
+    for (let i = 0; i < WINDUP_F; i++) stepSim(sim, STILL)
 
     expect(sim.deaths).toBe(deathsBefore)
     expect(sim.nimbus.mounted).toBe(false)
