@@ -8,10 +8,27 @@
 
 import { ECHO_BLINK_F, ECHO_LIFE_F, type Echo } from '../echo/echo.ts'
 import type { Enemy } from '../game/enemies.ts'
+import type { NimbusField } from '../game/nimbus.ts'
 import type { Mushroom, PowerTier } from '../game/power.ts'
-import { SMALL_W, TILE } from '../physics/constants.ts'
+import { DOOR_H, switchPressed, type Door, type EchoSwitch, type SwitchField } from '../game/switches.ts'
+import { PLAYER_W, SMALL_W, TILE } from '../physics/constants.ts'
 import type { PlayerState } from '../physics/player.ts'
-import { CHECKPOINT, GOAL, isOneWay, isSolid, QUESTION, SIGN, tileAt, type TileMap } from '../physics/tilemap.ts'
+import {
+  CHECKPOINT,
+  DOOR,
+  ECHO_SWITCH,
+  GEAR_GOOMBA,
+  GOAL,
+  NIMBUS,
+  QUESTION,
+  SIGN,
+  SPAWN,
+  STEAM_TURTLE,
+  isOneWay,
+  isSolid,
+  tileAt,
+  type TileMap,
+} from '../physics/tilemap.ts'
 import { CATALOGUE, animation } from './art/catalogue.ts'
 import { ECHO_KEYS, RING_SIZE, SPAWN_RING_RADII, ghostMask, litSegments, spawnRingMask } from './art/fx.ts'
 import type { Mask } from './art/mask.ts'
@@ -49,6 +66,10 @@ export interface WorldState {
   readonly pose: PipPose
   readonly poseFrame: number
   readonly facing: -1 | 1
+  /** Echo switches and the doors they hold open. Drawn from these boxes, never re-derived from tiles. */
+  readonly switches: SwitchField
+  /** Nimbus, the companion mount: where it waits, whether Pip rides it, and whether it has fled. */
+  readonly nimbus: NimbusField
   /** The juice the loop is running. */
   readonly juice: Juice
   /**
@@ -71,6 +92,124 @@ export interface FixtureSprite {
 /** Draw-ready frames for every animation, both facings. */
 type Atlas = ReadonlyMap<string, Baked>
 
+/** Resolve a baked catalogue frame — a prop painter's only route to the art. */
+export type FrameLookup = (name: string, index: number, facing: -1 | 1) => HTMLCanvasElement
+
+/** A prop tile's cell: its left edge, the floor it stands on, and a time-driven frame index. */
+export interface PropCell {
+  readonly x: number
+  /** The y of the cell's bottom edge — a feet-anchored prop's last row. */
+  readonly floor: number
+  /** A frame index derived from the tick, so a waving prop needs no clock of its own. */
+  readonly wave: number
+}
+
+/** Paint one prop tile. */
+export type PropPainter = (
+  ctx: CanvasRenderingContext2D,
+  cell: PropCell,
+  frame: FrameLookup,
+  state: WorldState,
+) => void
+
+/** The door the sim placed at this box, or undefined when the cell carries no door. */
+function doorAt(state: WorldState, x: number, y: number): Door | undefined {
+  for (const door of state.switches.doors) if (door.x === x && door.y === y) return door
+  return undefined
+}
+
+/** The switch the sim placed at this box. */
+function switchAt(state: WorldState, x: number, y: number): EchoSwitch | undefined {
+  for (const sw of state.switches.switches) if (sw.x === x && sw.y === y) return sw
+  return undefined
+}
+
+/**
+ * One shared box for the renderer's "is a switch pressed" read. `PlayerState` carries no width, so
+ * the box is built the way the sim builds it; it is filled per call and never retained.
+ */
+const PRESS_BOX = { x: 0, y: 0, w: PLAYER_W, h: 0 }
+
+function pressBox(player: PlayerState): typeof PRESS_BOX {
+  PRESS_BOX.x = player.x
+  PRESS_BOX.y = player.y
+  PRESS_BOX.h = player.h
+  return PRESS_BOX
+}
+
+const DRAW_SIGN: PropPainter = (ctx, cell, frame) => {
+  const img = frame('sign', 0, 1)
+  ctx.drawImage(img, cell.x, cell.floor - img.height)
+}
+
+const DRAW_CHECKPOINT: PropPainter = (ctx, cell, frame, state) => {
+  const img = frame(state.checkpointClaimed ? 'checkpoint-claimed' : 'checkpoint-open', cell.wave, 1)
+  ctx.drawImage(img, cell.x, cell.floor - img.height)
+}
+
+const DRAW_GOAL: PropPainter = (ctx, cell, frame) => {
+  const img = frame('goal-flag', cell.wave, 1)
+  ctx.drawImage(img, cell.x, cell.floor - img.height)
+}
+
+/** How bright an idle switch plate reads — the art ships one frame, so lit-versus-idle is the alpha. */
+const SWITCH_IDLE_ALPHA = 0.6
+
+/**
+ * The Echo switch: a blue-geared plate, lit while Pip or an Echo stands on it. Lit is the same
+ * `switchPressed` read the sim steps the doors from, so the plate cannot show pressed while the door
+ * it holds stays shut.
+ */
+const DRAW_ECHO_SWITCH: PropPainter = (ctx, cell, frame, state) => {
+  const sw = switchAt(state, cell.x, cell.floor - TILE)
+  const pressed = sw !== undefined && switchPressed(sw, pressBox(state.player), state.echoes)
+  const img = frame('echo-switch', 0, 1)
+  ctx.globalAlpha = pressed ? 1 : SWITCH_IDLE_ALPHA
+  ctx.drawImage(img, sw?.x ?? cell.x, sw?.y ?? cell.floor - TILE)
+  ctx.globalAlpha = 1
+}
+
+/** How solid an open door still reads — the art ships one frame, so open is a faded portal. */
+const DOOR_OPEN_ALPHA = 0.25
+
+/**
+ * The Echo door: drawn on exactly the box `closedDoors` hands the player's collision, so the wall a
+ * player walks into and the wall they see are the same rectangle. An open door keeps the sprite at a
+ * ghost's alpha — a portal that is visibly no longer a barrier.
+ */
+const DRAW_ECHO_DOOR: PropPainter = (ctx, cell, frame, state) => {
+  const door = doorAt(state, cell.x, cell.floor - DOOR_H)
+  const img = frame('echo-door', 0, 1)
+  ctx.globalAlpha = door?.open === true ? DOOR_OPEN_ALPHA : 1
+  ctx.drawImage(img, door?.x ?? cell.x, door?.y ?? cell.floor - DOOR_H)
+  ctx.globalAlpha = 1
+}
+
+/**
+ * Every tile character `drawProps` paints, and the painter that draws it. This map is the only place
+ * a prop tile is registered, so a shipped level using a character with no entry here fails
+ * `tile-coverage.test.ts` by name instead of shipping an invisible prop.
+ */
+export const PROP_TILES: ReadonlyMap<string, PropPainter> = new Map([
+  [SIGN, DRAW_SIGN],
+  [CHECKPOINT, DRAW_CHECKPOINT],
+  [GOAL, DRAW_GOAL],
+  [ECHO_SWITCH, DRAW_ECHO_SWITCH],
+  [DOOR, DRAW_ECHO_DOOR],
+])
+
+/**
+ * The tile characters that spawn a moving entity rather than standing a prop on the cell: Pip's
+ * spawn, the enemies and Nimbus. Each is drawn from the sim's own list, so a character listed here
+ * with no spawner — or a spawner with no entry here — is a level character nothing ever shows.
+ */
+export const ENTITY_TILES: ReadonlyMap<string, 'player' | 'enemy' | 'nimbus'> = new Map([
+  [SPAWN, 'player'],
+  [GEAR_GOOMBA, 'enemy'],
+  [STEAM_TURTLE, 'enemy'],
+  [NIMBUS, 'nimbus'],
+])
+
 export class WorldPainter {
   private readonly atlas: Atlas
   private readonly ghosts = new Map<string, Baked>()
@@ -82,6 +221,12 @@ export class WorldPainter {
    * rather than accumulating a canvas per restart, while a preview's cached map keeps its bake.
    */
   private readonly levels = new WeakMap<TileMap, HTMLCanvasElement>()
+  /**
+   * The prop painters' route to the art, bound once. A module-level table cannot hold `this`, so the
+   * lookup is passed in — and it is a field rather than a per-frame closure so a frame allocates
+   * nothing here.
+   */
+  private readonly frameLookup: FrameLookup = (name, index, facing) => this.frame(name, index, facing)
 
   constructor() {
     const atlas = new Map<string, Baked>()
@@ -111,6 +256,7 @@ export class WorldPainter {
     this.drawFixture(ctx, state)
     for (const mushroom of state.mushrooms) this.drawMushroom(ctx, mushroom)
     for (const enemy of state.enemies) this.drawEnemy(ctx, enemy, state.tick)
+    this.drawNimbus(ctx, state)
     if (!juice.dying()) for (const echo of state.echoes) this.drawEcho(ctx, echo, state)
     this.drawEffects(ctx, camY, juice)
     if (!juice.dying()) this.drawPlayer(ctx, px, py, state)
@@ -162,7 +308,7 @@ export class WorldPainter {
     ctx.drawImage(canvas, 0, 0)
   }
 
-  /** The sign, the checkpoint and the goal: tall props standing on their own tile. */
+  /** The sign, the checkpoint, the goal, the Echo switch and its door: sprites standing on their cell. */
   private drawProps(ctx: CanvasRenderingContext2D, viewW: number, camX: number, state: WorldState): void {
     const map = state.map
     const first = Math.max(0, Math.floor(camX / TILE) - 2)
@@ -170,19 +316,9 @@ export class WorldPainter {
     const wave = Math.floor(state.tick / 10)
     for (let row = 0; row < map.rows; row++) {
       for (let col = first; col <= last; col++) {
-        const ch = tileAt(map, col, row)
-        const x = col * TILE
-        const floor = (row + 1) * TILE
-        if (ch === SIGN) {
-          const img = this.frame('sign', 0, 1)
-          ctx.drawImage(img, x, floor - img.height)
-        } else if (ch === CHECKPOINT) {
-          const img = this.frame(state.checkpointClaimed ? 'checkpoint-claimed' : 'checkpoint-open', wave, 1)
-          ctx.drawImage(img, x, floor - img.height)
-        } else if (ch === GOAL) {
-          const img = this.frame('goal-flag', wave, 1)
-          ctx.drawImage(img, x, floor - img.height)
-        }
+        const paint = PROP_TILES.get(tileAt(map, col, row))
+        if (paint === undefined) continue
+        paint(ctx, { x: col * TILE, floor: (row + 1) * TILE, wave }, this.frameLookup, state)
       }
     }
   }
@@ -206,6 +342,23 @@ export class WorldPainter {
 
   private drawMushroom(ctx: CanvasRenderingContext2D, m: Mushroom): void {
     ctx.drawImage(this.frame('mushroom', 0, 1), Math.round(m.x), Math.round(m.y))
+  }
+
+  /**
+   * Nimbus, the companion mount. It waits where the level placed it until Pip rides it — then it is
+   * drawn under his feet, since it carries him — and it is absent entirely while a throw-off has it
+   * fleeing.
+   */
+  private drawNimbus(ctx: CanvasRenderingContext2D, state: WorldState): void {
+    const field = state.nimbus
+    const n = field.nimbus
+    if (n === null || n.flee > 0) return
+    const img = this.frame('nimbus-fly', Math.floor(state.tick / 8), 1)
+    const box = field.mounted
+      ? { x: state.player.x, y: state.player.y, w: PLAYER_W, h: state.player.h }
+      : { x: n.x, y: n.y, w: n.w, h: n.h }
+    const o = spriteOrigin(box, img.width, img.height)
+    ctx.drawImage(img, o.x, o.y)
   }
 
   /** The `?fixture=world1-new` scene: one of every new sprite, drawn at its fixed spot. */
