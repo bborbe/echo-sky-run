@@ -14,6 +14,7 @@ import {
   findDoorSpawns,
   findEnemySpawns,
   findNimbusSpawns,
+  findSecretSwitchSpawns,
   findSwitchSpawns,
   findTile,
   GOAL,
@@ -83,6 +84,13 @@ export interface SimState {
   nimbus: NimbusField
   /** Echo switches and the doors they hold open. */
   switches: SwitchField
+  /**
+   * The secret-switch cells, taken from the level's tiles at load. They are separate from the Echo
+   * switches: a secret switch holds no door, it latches once and unlocks the secret level.
+   */
+  readonly secretSwitches: readonly { readonly x: number; readonly y: number }[]
+  /** Set the first time Pip touches a secret switch; the shell turns it into the 1-S unlock. */
+  secretSwitchTouched: boolean
   /**
    * The closed doors as solid boxes, refilled once per step from `switches` and handed to the
    * player's collision. Reused every frame so the fixed step allocates nothing.
@@ -181,6 +189,10 @@ export function createSim(map: TileMap): SimState {
     switches.doors.push(createDoor(spawnPoint.x, spawnPoint.y))
   }
 
+  // The secret switches are their own list: they do not hold a door, they latch once and open a
+  // branch of the map.
+  const secretSwitches = findSecretSwitchSpawns(map)
+
   // A level carries at most one Nimbus: the first spawn wins, so an accidental second one does not
   // silently replace the mount the level meant.
   const nimbus = createNimbusField()
@@ -200,6 +212,8 @@ export function createSim(map: TileMap): SimState {
     powers: createPowerField(),
     nimbus,
     switches,
+    secretSwitches,
+    secretSwitchTouched: false,
     doorBoxes: [],
     props: createPropField(),
     power: 'small',
@@ -367,6 +381,18 @@ export function stepSim(sim: SimState, input: SimInput): void {
 
   // The sign teaches the Echo just before the gap that needs it, once per run.
   if (sim.sign !== null && overlapsTile(sim.player, sim.sign)) sim.signSeen = true
+
+  // A secret switch latches on the first touch and never clears. It is not the Echo switch: it does
+  // not hold a door, and the shell reads the latch once to unlock the secret level on the map. The
+  // loop allocates nothing and stops at the first touch, so the zero-allocation budget holds.
+  if (!sim.secretSwitchTouched) {
+    for (let i = 0; i < sim.secretSwitches.length; i++) {
+      if (overlapsTile(sim.player, sim.secretSwitches[i])) {
+        sim.secretSwitchTouched = true
+        break
+      }
+    }
+  }
 
   if (overlapsGoal(sim.player, sim.goal)) sim.goalReached = true
 }

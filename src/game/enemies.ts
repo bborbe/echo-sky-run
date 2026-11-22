@@ -115,7 +115,8 @@ const EVENTS: { stomped: Enemy[]; hit: boolean } = { stomped: STOMPED, hit: fals
 /** The default Echo list for callers that pass none, so the hot path allocates nothing. */
 const NO_ECHOES: readonly Box[] = []
 
-function sizeOf(kind: EnemyKind): { w: number; h: number } {
+/** The hitbox of a live enemy of this kind. Exported so the tilemap can anchor each spawn by its feet. */
+export function sizeOf(kind: EnemyKind): { w: number; h: number } {
   switch (kind) {
     case 'steam-turtle':
       return { w: STEAM_TURTLE_W, h: STEAM_TURTLE_H }

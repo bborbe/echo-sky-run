@@ -88,7 +88,7 @@ try {
   }))
   check(title.menu?.screen === 'tiles', 'the game lands on the tile view', JSON.stringify(title.menu))
   check(
-    JSON.stringify(title.menu?.items) === JSON.stringify(['1-1', '1-2']),
+    JSON.stringify(title.menu?.items) === JSON.stringify(['1-1', '1-2', '1-3']),
     'the tile view lists the shipped levels',
     JSON.stringify(title.menu?.items),
   )
@@ -552,6 +552,102 @@ try {
     atTitle.screen === 'tiles' && atTitle.menu?.items?.[0] === '1-1',
     'MENU returns to the tile view',
     JSON.stringify(atTitle),
+  )
+
+  // ---- the results screen: the medal and the per-section time lost -------------------------
+  // Two clears, one on each side of a threshold, driven through the same seam the level run above
+  // used. A fresh save isolates the deltas: the first clear writes the section bests and the second
+  // compares against them. The medal line must match the thresholds the game itself exposes, so the
+  // check cannot pass on a hardcoded table that has drifted from the module.
+  await page.evaluate(() => localStorage.removeItem('echo-sky-run.v1'))
+  await page.goto(`${URL}?level=1-1`, { waitUntil: 'load' })
+  await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+
+  const thresholds = await page.evaluate(() => window.__echoSkyRun.medalTimes())
+  const medalFor = (frames) => {
+    if (!thresholds) return null
+    if (frames <= thresholds.author) return 'AUTHOR'
+    if (frames <= thresholds.gold) return 'GOLD'
+    if (frames <= thresholds.silver) return 'SILVER'
+    if (frames <= thresholds.bronze) return 'BRONZE'
+    return null
+  }
+
+  // One clear through the seam. `idleFrames` stands still at the spawn first, which adds exactly that
+  // many frames to the timer — how the slow clear lands above a threshold without touching the level.
+  const clearLevel = (idleFrames, sprint) =>
+    page.evaluate(
+      ({ idleFrames, sprint }) => {
+        const game = window.__echoSkyRun
+        game.reset()
+        for (let i = 0; i < idleFrames; i++) game.step({})
+        let wantEchoOnce = false
+        let echoesPlaced = 0
+        let previousEchoes = game.state().echoes
+        for (let i = 0; i < 3000; i++) {
+          const s = game.state()
+          const enemyNear = game.enemyXs().some((ex) => ex > s.x && ex - s.x < 40)
+          const jumpPressed = s.grounded && (game.lipMissingAt(s.x) || enemyNear)
+          const wantEcho = !wantEchoOnce && !s.grounded && s.x >= game.echoAtX && s.airCharges > 0
+          if (wantEcho) wantEchoOnce = true
+          const next = game.step({ right: true, jump: true, jumpPressed, sprint, echoPressed: wantEcho })
+          if (next.echoes > previousEchoes) echoesPlaced += 1
+          previousEchoes = next.echoes
+          if (next.goalReached) return { won: true, frames: next.frames, echoesPlaced }
+          if (next.deaths > 0) return { won: false, died: true, frames: next.frames }
+        }
+        return { won: false, timedOut: true }
+      },
+      { idleFrames, sprint },
+    )
+
+  const readResults = () =>
+    page.evaluate(() => ({
+      screen: window.__echoSkyRun.screen(),
+      lines: window.__echoSkyRun.overlayLines(),
+      results: window.__echoSkyRun.results(),
+    }))
+
+  const slowRun = await clearLevel(400, false)
+  await page.waitForTimeout(250)
+  const slowResults = await readResults()
+  const slowSections = slowResults.lines.filter((line) => /^S\d /.test(line))
+  check(slowRun.won, 'the slow clear reaches the flag', JSON.stringify(slowRun))
+  check(
+    slowResults.screen === 'results' &&
+      slowResults.lines.includes(`MEDAL ${medalFor(slowRun.frames)}`) &&
+      slowResults.results?.medal === medalFor(slowRun.frames),
+    'the results screen names the medal the slow clear earned',
+    JSON.stringify({ frames: slowRun.frames, expected: medalFor(slowRun.frames), lines: slowResults.lines }),
+  )
+  check(
+    slowSections.length === 4 && slowSections.every((line) => line.endsWith(' --')),
+    'the first clear splits the run into four sections, with no best to compare yet',
+    JSON.stringify(slowSections),
+  )
+
+  // The sprint clear on the same fresh save: faster along the same line, so every section gains time.
+  const fastRun = await clearLevel(0, true)
+  await page.waitForTimeout(250)
+  const fastResults = await readResults()
+  const fastSections = fastResults.lines.filter((line) => /^S\d /.test(line))
+  check(fastRun.won, 'the fast clear reaches the flag', JSON.stringify(fastRun))
+  check(
+    fastResults.screen === 'results' &&
+      fastResults.lines.includes(`MEDAL ${medalFor(fastRun.frames)}`) &&
+      fastResults.results?.medal === medalFor(fastRun.frames),
+    'the results screen names the medal the fast clear earned',
+    JSON.stringify({ frames: fastRun.frames, expected: medalFor(fastRun.frames), lines: fastResults.lines }),
+  )
+  check(
+    fastSections.length === 4 && fastSections.every((line) => /\s-\d+\.\d$/.test(line)),
+    'every section line carries the time gained against the stored best',
+    JSON.stringify(fastSections),
+  )
+  check(
+    medalFor(slowRun.frames) !== medalFor(fastRun.frames),
+    'the two clears landed on different medals, so a threshold was actually crossed',
+    JSON.stringify({ slow: medalFor(slowRun.frames), fast: medalFor(fastRun.frames) }),
   )
 
   // Back to a running level for the checks below.
@@ -2004,23 +2100,24 @@ try {
   )
 
   // An unlocked level with no module reads NOT BUILT YET, and confirming it is a no-op.
-  // 1-3, not 1-2: 1-2 ships a level module, so it is built now.
+  // 1-4, not 1-3: 1-3 ships a level module, so it is built now.
   await page.evaluate(() =>
     localStorage.setItem(
       'echo-sky-run.v1',
-      JSON.stringify({ version: 2, bestSeconds: null, unlockedLevels: ['1-1', '1-2', '1-3'], relics: {}, bestTimes: {} }),
+      JSON.stringify({ version: 2, bestSeconds: null, unlockedLevels: ['1-1', '1-2', '1-3', '1-4'], relics: {}, bestTimes: {} }),
     ),
   )
   await page.goto(MAP_URL, { waitUntil: 'load' })
   await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
-  await page.waitForFunction(() => window.__echoSkyRun.overlayLines().some((l) => l.startsWith('1-3 ')))
+  await page.waitForFunction(() => window.__echoSkyRun.overlayLines().some((l) => l.startsWith('1-4 ')))
   const unbuiltLines = await page.evaluate(() => window.__echoSkyRun.overlayLines())
   check(
-    unbuiltLines.includes('1-3 NOT BUILT YET'),
+    unbuiltLines.includes('1-4 NOT BUILT YET'),
     'an unlocked level with no module reads NOT BUILT YET',
     JSON.stringify(unbuiltLines),
   )
-  // Focus starts on 1-1, so 1-3 is two nodes along the path.
+  // Focus starts on 1-1, so 1-4 is three nodes along the path.
+  await page.keyboard.press('ArrowRight')
   await page.keyboard.press('ArrowRight')
   await page.keyboard.press('ArrowRight')
   await page.keyboard.press('Space')
@@ -2064,6 +2161,32 @@ try {
     return { won: false, timedOut: true }
   })
   check(run12.won, 'level 1-2 is cleared', JSON.stringify(run12))
+
+  // ---- level 1-3, the climb, driven deterministically --------------------------------------
+  // 1-3's route rises, so the driver jumps at a wall ahead as well as at a missing lip — the same
+  // pair `src/toolkit/autopilot.ts` uses. Without the wall trigger it holds right into the first
+  // riser and never leaves the ground.
+  await page.goto(`${URL}?level=1-3`, { waitUntil: 'load' })
+  await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+  const run13 = await page.evaluate(() => {
+    const game = window.__echoSkyRun
+    game.reset()
+    let previousEchoes = game.state().echoes
+    let echoesPlaced = 0
+    for (let i = 0; i < 4000; i++) {
+      const s = game.state()
+      const enemyNear = game.enemyXs().some((ex) => ex > s.x && ex - s.x < 40)
+      const jumpPressed = s.grounded && (game.lipMissingAt(s.x) || game.wallAheadAt() || enemyNear)
+      const next = game.step({ right: true, jump: true, jumpPressed, sprint: true, echoPressed: false })
+      if (next.echoes > previousEchoes) echoesPlaced += 1
+      previousEchoes = next.echoes
+      if (next.goalReached) return { won: true, frames: i + 1, echoesPlaced, x: next.x }
+      if (next.deaths > 0) return { won: false, died: true, frames: i + 1, x: next.x }
+    }
+    return { won: false, timedOut: true }
+  })
+  check(run13.won, 'level 1-3 is cleared', JSON.stringify(run13))
+  check(run13.echoesPlaced === 0, 'level 1-3 clears without an Echo', JSON.stringify(run13))
 
   check(errors.length === 0, 'no console errors', errors.slice(0, 3).join(' | '))
 } catch (err) {

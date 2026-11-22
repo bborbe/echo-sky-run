@@ -61,6 +61,13 @@ export interface MenuView {
   /** The results screen's run time, and the best time or null before the first finish. */
   readonly runSeconds: number
   readonly bestSeconds: number | null
+  /**
+   * The medal the clear earned, or null when the level has a medal table and the run missed bronze.
+   * Undefined when the level has no medal table at all — then no medal line is drawn.
+   */
+  readonly medal?: string | null
+  /** The results screen's per-section splits, in play order. Empty when the level has no sections. */
+  readonly sections?: readonly SectionLine[]
   /** The tile view's sets, in drawing order. Absent on every other screen. */
   readonly groups?: readonly MenuGroupView[]
   /**
@@ -71,6 +78,16 @@ export interface MenuView {
     readonly nodes: readonly MapNode[]
     readonly counts: MapCounts
   }
+}
+
+/** One section of a run on the results screen: its time and its delta against the stored best. */
+export interface SectionLine {
+  /** `S1` … `S4`, the section's position in play order. */
+  readonly label: string
+  /** The section's duration in seconds. */
+  readonly seconds: number
+  /** Seconds lost (+) or gained (−) against the best, or null before a best exists. */
+  readonly delta: number | null
 }
 
 /** Each screen's heading and its one footer line. */
@@ -336,20 +353,23 @@ export class Renderer {
         sliders && isVolumeRow(item) ? this.volumeRowWidth() : this.menuRowWidth(item.label),
       )
     }
-    if (stats) {
-      contentW = Math.max(
-        contentW,
-        textWidth(`${OVERLAY_TEXT.time} ${formatTime(view.runSeconds)}`),
-        textWidth(this.bestLine(view.bestSeconds)),
-      )
-    }
+    // The results screen's stat block: the time, the best, the medal and one line per section.
+    const statLines = stats
+      ? [
+          `${OVERLAY_TEXT.time} ${formatTime(view.runSeconds)}`,
+          this.bestLine(view.bestSeconds),
+          ...(view.medal === undefined ? [] : [medalLine(view.medal)]),
+          ...(view.sections ?? []).map(sectionLine),
+        ]
+      : []
+    for (const line of statLines) contentW = Math.max(contentW, textWidth(line))
 
     const w = Math.min(this.viewW - 16, contentW + 24)
     const h =
       PANEL_PAD_TOP +
       10 +
       (subtitle === null ? 0 : 10) +
-      (stats ? 20 : 0) +
+      statLines.length * 10 +
       4 +
       view.items.length * ROW_H +
       8 +
@@ -368,10 +388,10 @@ export class Renderer {
       this.centred(subtitle, cx, cy, 'echo')
       cy += 10
     }
-    if (stats) {
-      this.centred(`${OVERLAY_TEXT.time} ${formatTime(view.runSeconds)}`, cx, cy, 'cream')
-      cy += 10
-      this.centred(this.bestLine(view.bestSeconds), cx, cy, 'cream')
+    // `centred` records each line as it draws it, so the browser check reads the medal and the
+    // section deltas off the screen.
+    for (const line of statLines) {
+      this.centred(line, cx, cy, 'cream')
       cy += 10
     }
     cy += 4
@@ -633,4 +653,27 @@ export function formatTime(seconds: number): string {
   const whole = Math.floor((tenths % 600) / 10)
   const tenth = tenths % 10
   return `${minutes}:${String(whole).padStart(2, '0')}.${tenth}`
+}
+
+/**
+ * A results-screen delta in tenths of a second, signed: `+1.2` lost, `-0.3` gained, `0.0` even.
+ * Rounded rather than truncated — a section that ends 0.04 s later is not worth a `+0.0`.
+ */
+export function formatDelta(seconds: number): string {
+  const tenths = Math.round(seconds * 10)
+  if (tenths === 0) return '0.0'
+  const sign = tenths < 0 ? '-' : '+'
+  const abs = Math.abs(tenths)
+  return `${sign}${Math.floor(abs / 10)}.${abs % 10}`
+}
+
+/** The results screen's medal line: `MEDAL GOLD`, or `MEDAL --` when the run missed bronze. */
+export function medalLine(medal: string | null): string {
+  return medal === null ? OVERLAY_TEXT.noMedal : `${OVERLAY_TEXT.medal} ${medal}`
+}
+
+/** One results-screen section line: `S1 0:04.2 -0.3`, or `S1 0:04.2 --` before a best exists. */
+export function sectionLine(section: SectionLine): string {
+  const delta = section.delta === null ? '--' : formatDelta(section.delta)
+  return `${section.label} ${formatTime(section.seconds)} ${delta}`
 }

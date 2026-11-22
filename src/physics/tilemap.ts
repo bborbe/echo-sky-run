@@ -1,3 +1,4 @@
+import { sizeOf, type EnemyKind } from '../game/enemies.ts'
 import { TILE } from './constants.ts'
 
 /** Level tiles are one character each, so a level is a list of equal-length strings. */
@@ -10,6 +11,12 @@ export const SPAWN = 'S'
 export const GEAR_GOOMBA = 'g'
 /** A Steam-Turtle spawns in this cell, standing on the cell's floor. */
 export const STEAM_TURTLE = 't'
+/** A Spike-Beetle spawns in this cell, standing on the cell's floor. */
+export const SPIKE_BEETLE = 'b'
+/** A Gust-Wing hovers from this cell's floor anchor, flying its own sine path. */
+export const GUST_WING = 'w'
+/** A Chaser-Bot spawns in this cell, standing on the cell's floor. */
+export const CHASER_BOT = 'r'
 /** A ? block: solid until hit from below, then it releases its contents. */
 export const QUESTION = '?'
 /** The midpoint checkpoint flag. */
@@ -20,6 +27,12 @@ export const SIGN = 'i'
 export const NIMBUS = 'n'
 /** An Echo switch (the blue gear) sits in this cell. */
 export const ECHO_SWITCH = 's'
+/**
+ * A secret switch sits in this cell. It is a one-shot trigger, not the Echo switch: touching it does
+ * not hold a door, it unlocks the secret level on the map. `X` is unused by every other tile, so a
+ * level author can place it without colliding with an entity character.
+ */
+export const SECRET_SWITCH = 'X'
 /**
  * An Echo door's bottom tile. The door is three tiles tall (the art is 16×48), so it extends two
  * tiles above the cell it is written in — the same feet-anchored convention `findEnemySpawns` uses.
@@ -77,23 +90,47 @@ export function findTiles(map: TileMap, ch: string): { x: number; y: number }[] 
   return found
 }
 
+/** The feet-anchored spawn cells of one enemy character, its height taken from `sizeOf(kind)`. */
+function findEnemyKindSpawns(map: TileMap, ch: string, kind: EnemyKind): { x: number; y: number }[] {
+  const h = sizeOf(kind).h
+  const spawns: { x: number; y: number }[] = []
+  for (const cell of findTiles(map, ch)) spawns.push({ x: cell.x, y: cell.y + TILE - h })
+  return spawns
+}
+
 /**
  * Where the level's enemies stand. An enemy is anchored by its feet: the bottom of its spawn cell is
  * the floor it stands on, so a two-tile-tall turtle straddles the cell above the one it is written in
- * without the author having to offset it.
+ * without the author having to offset it. Every `EnemyKind` has a tile character, and each height
+ * comes from `sizeOf` rather than a hand-kept ternary, so a new kind needs no edit here.
  */
-export function findEnemySpawns(map: TileMap): { kind: 'gear-goomba' | 'steam-turtle'; x: number; y: number }[] {
-  const spawns: { kind: 'gear-goomba' | 'steam-turtle'; x: number; y: number }[] = []
+export function findEnemySpawns(map: TileMap): { kind: EnemyKind; x: number; y: number }[] {
+  const spawns: { kind: EnemyKind; x: number; y: number }[] = []
   for (const [ch, kind] of [
     [GEAR_GOOMBA, 'gear-goomba'],
     [STEAM_TURTLE, 'steam-turtle'],
+    [SPIKE_BEETLE, 'spike-beetle'],
+    [GUST_WING, 'gust-wing'],
+    [CHASER_BOT, 'chaser-bot'],
   ] as const) {
-    const h = kind === 'gear-goomba' ? 16 : 24
-    for (const cell of findTiles(map, ch)) {
-      spawns.push({ kind, x: cell.x, y: cell.y + TILE - h })
-    }
+    for (const cell of findEnemyKindSpawns(map, ch, kind)) spawns.push({ kind, ...cell })
   }
   return spawns
+}
+
+/** Where the level's Spike-Beetles stand, feet-anchored to their cell's floor. */
+export function findSpikeBeetleSpawns(map: TileMap): { x: number; y: number }[] {
+  return findEnemyKindSpawns(map, SPIKE_BEETLE, 'spike-beetle')
+}
+
+/** Where the level's Gust-Wings hover from, feet-anchored to their cell's floor as their path centre. */
+export function findGustWingSpawns(map: TileMap): { x: number; y: number }[] {
+  return findEnemyKindSpawns(map, GUST_WING, 'gust-wing')
+}
+
+/** Where the level's Chaser-Bots stand, feet-anchored to their cell's floor. */
+export function findChaserBotSpawns(map: TileMap): { x: number; y: number }[] {
+  return findEnemyKindSpawns(map, CHASER_BOT, 'chaser-bot')
 }
 
 /**
@@ -107,6 +144,15 @@ export function findNimbusSpawns(map: TileMap): { x: number; y: number }[] {
 /** Where the level's Echo switches sit. One tile square, so the cell's top-left is the switch. */
 export function findSwitchSpawns(map: TileMap): { x: number; y: number }[] {
   return findTiles(map, ECHO_SWITCH)
+}
+
+/**
+ * Where the level's secret switches sit. One tile square, so the cell's top-left is the switch, the
+ * same convention `findSwitchSpawns` uses. A level places at most one; the sim latches the first
+ * touch and the shell turns it into the secret level's unlock.
+ */
+export function findSecretSwitchSpawns(map: TileMap): { x: number; y: number }[] {
+  return findTiles(map, SECRET_SWITCH)
 }
 
 /**

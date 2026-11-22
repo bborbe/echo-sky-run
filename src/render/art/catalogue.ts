@@ -38,6 +38,8 @@ import {
   PISTON_EXTENDED,
   PISTON_KEYS,
   PISTON_RETRACTED,
+  SECRET_SWITCH,
+  SECRET_SWITCH_KEYS,
   WINDMILL_KEYS,
   WINDMILL_SPIN,
 } from './props.ts'
@@ -168,6 +170,7 @@ const DRAWN: readonly Animation[] = [
 
   // World 1's Echo switch, door, pistons and windmills (spec § 4).
   { name: 'echo-switch', kind: 'prop', keys: ECHO_SWITCH_KEYS, frames: [ECHO_SWITCH], moves: false },
+  { name: 'secret-switch', kind: 'prop', keys: SECRET_SWITCH_KEYS, frames: [SECRET_SWITCH], moves: false },
   { name: 'echo-door', kind: 'prop', keys: ECHO_DOOR_KEYS, frames: [ECHO_DOOR], moves: false },
   { name: 'piston-retracted', kind: 'prop', keys: PISTON_KEYS, frames: [PISTON_RETRACTED], moves: false },
   { name: 'piston-extended', kind: 'prop', keys: PISTON_KEYS, frames: [PISTON_EXTENDED], moves: false },

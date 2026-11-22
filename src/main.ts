@@ -7,19 +7,22 @@ import { BUILD_LABEL } from './build-info.ts'
 import { mountDebugOverlay, readAutopilot, readEchoSpot, readFreeze, readLead, readLevel, readLoop, readSpawn, spawnQuery } from './debug/overlay.ts'
 import { ECHO_LIFE_F, placeEcho } from './echo/echo.ts'
 import { createSim, stepSim, type SimInput, type SimState } from './game/sim.ts'
-import { LEVEL_1_1_ECHO_AT_X } from './levels/level1-1.level.ts'
+import { medalFor } from './game/medals.ts'
+import { crossedBoundaries, sectionDeltas, sectionDurations } from './game/splits.ts'
+import { LEVEL_1_1_ECHO_AT_X, LEVEL_1_1_SECTION_BOUNDS } from './levels/level1-1.level.ts'
+import { medalTimesFor } from './levels/medal-times.ts'
 import { LEVEL_CATALOGUE, findLevel, groupBySet, tileIndexFor, tileItems } from './levels/catalogue.ts'
-import { mapItems, mapNodes, WORLD1_PATH, completeLevel } from './levels/map.ts'
+import { mapItems, mapNodes, MAP_NODE_IDS, completeLevel, unlockSecretLevel } from './levels/map.ts'
 import { PLAYER_W, TILE } from './physics/constants.ts'
 import { FixedStepper } from './physics/loop.ts'
-import { parseLevel, tileAt } from './physics/tilemap.ts'
+import { isSolid, parseLevel, tileAt } from './physics/tilemap.ts'
 import { Juice, type StepFacts, type StompFact } from './render/juice.ts'
 import { skyColourAt } from './render/parallax.ts'
 import { PipAnimator } from './render/pose.ts'
 import { INK } from './render/art/palette.ts'
-import { Renderer, PALETTE, type MenuView, type TileRect } from './render/renderer.ts'
+import { Renderer, PALETTE, type MenuView, type SectionLine, type TileRect } from './render/renderer.ts'
 import type { FixtureSprite } from './render/world.ts'
-import { isUnlocked, loadSave, storeSave, type Save } from './save/save.ts'
+import { isUnlocked, loadSave, recordSectionBests, sectionBests, storeSave, type Save } from './save/save.ts'
 import { createControlsCard, ECHO_HINT } from './ui/controls-card.ts'
 import { escapeLeavesFullscreen, toggleFullscreen, watchFullscreen } from './ui/fullscreen.ts'
 import { mountGamepad } from './ui/gamepad-shell.ts'
@@ -148,15 +151,15 @@ function tileScreenItems() {
   return mapMode ? mapItemsNow() : tiles
 }
 
-/** The focus grid for the tile screen: one row of map nodes, or the catalogue's set rows. */
+/** The focus grid for the tile screen: one row of map nodes (path plus secret branch), or the catalogue's set rows. */
 function tileScreenRows() {
-  return mapMode ? [WORLD1_PATH.length] : tileRowSizes
+  return mapMode ? [MAP_NODE_IDS.length] : tileRowSizes
 }
 
 /** The tile screen's selected row for a level: its map node, or its catalogue tile. */
 function tileScreenIndexFor(level: string | null): number {
   if (!mapMode) return tileIndexFor(tiles, level)
-  const i = level === null ? -1 : WORLD1_PATH.indexOf(level)
+  const i = level === null ? -1 : MAP_NODE_IDS.indexOf(level)
   return i >= 0 ? i : 0
 }
 /** The level the tile view starts, kept so leaving a run returns to the same tile. */
@@ -290,9 +293,17 @@ function advance(input: SimInput): void {
 
   prevX = before.x
   prevY = before.y
+  // Captured before the step: `before` is the live player object, which stepSim mutates in place.
+  const fromX = sim.player.x
   sounds.before(sim, input)
   stepSim(sim, input)
   for (const sound of sounds.after(sim, input)) audio.play(sound)
+
+  // Record the section splits this step crossed. Both the frame loop and the browser check's seam
+  // come through here, so a seam-driven run splits the same way a played one does.
+  for (const index of crossedBoundaries(sectionBounds, fromX, sim.player.x)) {
+    if (sectionSplits[index] === null) sectionSplits[index] = sim.frames / 60
+  }
 
   const p = sim.player
   const inputDir: -1 | 0 | 1 = input.left && !input.right ? -1 : input.right && !input.left ? 1 : 0
@@ -336,10 +347,28 @@ function advance(input: SimInput): void {
   juice.observe(facts)
 }
 
+/** The section boundaries a level splits its run at, in x pixels. Empty for a level with none. */
+function sectionBoundsFor(levelId: string): readonly number[] {
+  return levelId === '1-1' ? LEVEL_1_1_SECTION_BOUNDS : []
+}
+
+/** A finished run's results, captured at the flag so the results screen can draw it. */
+interface RunSummary {
+  readonly frames: number
+  /** The medal label, null when the run missed bronze, undefined when the level has no medal table. */
+  readonly medal: string | null | undefined
+  readonly sections: readonly SectionLine[]
+}
+
 const stepper = new FixedStepper()
 let sim: SimState = newSim()
 let prevX = sim.player.x
 let prevY = sim.player.y
+/** The boundaries this level's run is split at, and the cumulative time it reached each one. */
+let sectionBounds: readonly number[] = sectionBoundsFor(currentLevel)
+let sectionSplits: (number | null)[] = sectionBounds.map(() => null)
+/** The finished run's results, or null until a run reaches the flag. Reset with the run. */
+let runSummary: RunSummary | null = null
 /**
  * `?freeze=1`: hold the simulation on the frame the page loaded. It is not a player pause — a
  * screenshot needs a still frame with no menu drawn over the game.
@@ -397,6 +426,9 @@ function resetGame(): void {
   tick = 0
   recorded = false
   signShown = false
+  sectionBounds = sectionBoundsFor(currentLevel)
+  sectionSplits = sectionBounds.map(() => null)
+  runSummary = null
   // A restarted run starts with the Echo unplaced, or the autopilot would never place it again.
   autopilot?.reset()
   // A new run starts the music from the top; a death inside a run never does.
@@ -554,6 +586,8 @@ function menuView(): MenuView | null {
     effects: volumes.effects,
     runSeconds: sim.frames / 60,
     bestSeconds: save.bestSeconds,
+    medal: screen === 'results' && runSummary !== null ? runSummary.medal : undefined,
+    sections: screen === 'results' && runSummary !== null ? runSummary.sections : [],
     groups: screen === 'tiles' && !mapMode ? levelGroups : undefined,
     map: screen === 'tiles' && mapMode ? { nodes: mapNodesNow(), counts: { relics: save.relics, bestTimes: save.bestTimes } } : undefined,
   }
@@ -744,7 +778,36 @@ function frame(now: number): void {
   // the map's own completion path — so the map reads them on the next frame and a reload keeps them.
   if (sim.goalReached && !recorded) {
     recorded = true
-    const next = completeLevel(save, currentLevel, sim.frames / 60)
+    const finish = sim.frames / 60
+    const durations = sectionDurations(sectionSplits, finish)
+    // The deltas describe this run against the best it was trying to beat, so the bests are read
+    // before the run's own improved splits are written.
+    const previous = sectionBests(save, currentLevel, durations.length)
+    const deltas = sectionDeltas(durations, previous)
+    const times = medalTimesFor(currentLevel)
+    const medal = times === null ? undefined : (medalFor(sim.frames, times)?.toUpperCase() ?? null)
+    runSummary = {
+      frames: sim.frames,
+      medal,
+      sections: durations.map((seconds, index) => ({
+        label: `S${index + 1}`,
+        seconds,
+        delta: deltas[index] ?? null,
+      })),
+    }
+    // One write carries both: the improved section bests and the level best/unlock.
+    const next = completeLevel(recordSectionBests(save, currentLevel, durations), currentLevel, finish)
+    if (next !== save) {
+      save = next
+      storeSave(storage(), save)
+    }
+  }
+
+  // A secret switch unlocks the secret level the first time Pip touches one. The write goes through
+  // the same guard `completeLevel` uses: `unlockSecretLevel` returns the same save once it holds
+  // 1-S, so a second touch — or the same touch on later frames — is a no-op and writes nothing.
+  if (sim.secretSwitchTouched) {
+    const next = unlockSecretLevel(save)
     if (next !== save) {
       save = next
       storeSave(storage(), save)
@@ -856,6 +919,8 @@ interface EchoSkyRunTestApi {
   /** True while the sign's hint overlay is on screen. */
   hintShown(): boolean
   lipMissingAt(x: number): boolean
+  /** True when a solid tile sits at Pip's body height just ahead — the climb's jump trigger. */
+  wallAheadAt(): boolean
   enemyXs(): number[]
   spawnX(): number
   /** The pad the shell sees, and how many keys it is holding. */
@@ -893,6 +958,14 @@ interface EchoSkyRunTestApi {
   overlayInks(): string[]
   /** The lines the overlay panel drew on the last frame. */
   overlayLines(): string[]
+  /** The current level's medal thresholds, or null when it has no calibrated table. */
+  medalTimes(): { author: number; gold: number; silver: number; bronze: number } | null
+  /** The finished run's results as the results screen shows them, or null before a run reaches the flag. */
+  results(): {
+    frames: number
+    medal: string | null
+    sections: { label: string; seconds: number; delta: number | null }[]
+  } | null
   /** The camera's integer scroll, for the flicker probe. */
   cameraX(): number
   /** The camera's integer vertical scroll, for the flicker probe. */
@@ -1006,9 +1079,20 @@ const api: EchoSkyRunTestApi = {
     const col = Math.floor((x + 12) / TILE)
     return tileAt(map, col, feetRow) !== '#'
   },
+  /**
+   * True when a solid tile sits at Pip's body height one tile ahead — the floor rising, the sibling
+   * of `lipMissingAt`'s floor falling away. Both are the autopilot's jump triggers, and a climbing
+   * level needs this one to be clearable in the browser as well as in vitest.
+   */
+  wallAheadAt: () => {
+    const row = Math.floor((sim.player.y + sim.player.h - 1) / TILE)
+    const first = Math.floor((sim.player.x + PLAYER_W) / TILE)
+    const last = Math.floor((sim.player.x + PLAYER_W + TILE) / TILE)
+    for (let col = first; col <= last; col++) if (isSolid(tileAt(map, col, row))) return true
+    return false
+  },
   /** Live enemy positions, so the check can jump over them instead of walking into them. */
-  enemyXs: () => sim.enemies.enemies.filter((e) => e.mode !== 'carried').map((e) => e.x),
-  /** Where Pip starts, so a reset assertion compares against the level rather than a literal. */
+  enemyXs: () => sim.enemies.enemies.filter((e) => e.mode !== 'carried').map((e) => e.x),  /** Where Pip starts, so a reset assertion compares against the level rather than a literal. */
   spawnX: () => sim.respawn.x,
   pad: () => ({ id: gamepad.id(), held: gamepad.heldCount() }),
   debug: () => ({
@@ -1047,6 +1131,15 @@ const api: EchoSkyRunTestApi = {
   overlayBox: () => renderer.overlayBox,
   overlayInks: () => [INK.panel, INK.brass, INK.brassLight, INK.cream, INK.echo],
   overlayLines: () => [...renderer.overlayLines],
+  medalTimes: () => medalTimesFor(currentLevel),
+  results: () =>
+    runSummary === null
+      ? null
+      : {
+          frames: runSummary.frames,
+          medal: runSummary.medal ?? null,
+          sections: runSummary.sections.map((section) => ({ ...section })),
+        },
   cameraX: () => renderer.cameraX,
   cameraY: () => renderer.cameraY,
   drawnCameraX: () => renderer.drawnCameraX,
