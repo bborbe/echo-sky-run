@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.9.0
 - feat: the level rating toolkit gains its missing checks D, H, K and L, and completes E's long-fall half. `src/toolkit/checkpoints.ts` measures the walked gap between respawn points on the guide's `WALK_MAX` time base and counts respawn-to-control frames through a real pit death; `src/toolkit/jitter.ts` clears the critical path with every jump up to 3 frames late and reports the longest stretch with no safe spot; `src/toolkit/fuzz.ts` runs seeded random input against the no-solid-overlap, no-freeze and no-crash invariants; `src/toolkit/encounters.ts` lists each mechanic's encounters in level order and flags a lethal one before its first safe one; `src/toolkit/blind-jump.ts` gains `unseenFalls`, requiring five tiles below a long fall's landing. `Takeoff` records `viewTop` and `landingY` so the fall is measured against the view the player actually had. Each check carries a known-positive control, and 1-1 and 1-2 run all of them in their toolkit tests. Check G already existed (`src/render/art/art.test.ts` hitboxes, `WINDUP_F` telegraph) and is not duplicated; F and M belong to the reachability solver, J to G3.
 ## v0.8.0
 
