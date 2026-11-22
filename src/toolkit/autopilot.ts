@@ -21,9 +21,15 @@ export interface Takeoff {
   readonly y: number
   /** Left edge of the view when the jump started. */
   readonly viewLeft: number
+  /** Top edge of the view when the jump started. */
+  readonly viewTop: number
+  /** The highest point the jump reached — the start of the fall that follows. */
+  readonly apexY: number
   /** The frame the jump landed, or null when it never did. */
   readonly landingFrame: number | null
   readonly landingX: number | null
+  /** The y the jump came down at, or null when it never did. */
+  readonly landingY: number | null
 }
 
 export interface AutopilotRun {
@@ -147,6 +153,8 @@ export function runAutopilot(profile: LevelToolkitProfile, options: AutopilotOpt
 
   const takeoffs: Takeoff[] = []
   let open: Takeoff | null = null
+  /** The highest point the open jump has reached; folded into the Takeoff when it lands. */
+  let openApexY = 0
   let echoesPlaced = 0
   let previousEchoes = 0
   let echoUsed = false
@@ -170,6 +178,7 @@ export function runAutopilot(profile: LevelToolkitProfile, options: AutopilotOpt
     const takeoffX = p.x
     const takeoffY = p.y
     const viewLeft = camera.x
+    const viewTop = camera.y
 
     const input: SimInput = {
       left: false,
@@ -184,13 +193,34 @@ export function runAutopilot(profile: LevelToolkitProfile, options: AutopilotOpt
     if (sim.field.echoes.length > previousEchoes) echoesPlaced += 1
     previousEchoes = sim.field.echoes.length
 
+    // Track the apex: a jump that rises before it falls has a longer drop than its net displacement,
+    // and the long-fall check must measure the drop, not the take-off point.
+    if (open !== null && sim.player.y < openApexY) openApexY = sim.player.y
+
     // Close a landing before opening the next jump: a landing frame can also be a take-off frame.
     if (open !== null && sim.player.grounded) {
-      takeoffs.push({ ...open, landingFrame: frame, landingX: sim.player.x })
+      takeoffs.push({
+        ...open,
+        apexY: openApexY,
+        landingFrame: frame,
+        landingX: sim.player.x,
+        landingY: sim.player.y,
+      })
       open = null
     }
     if (jumpPressed && wasGrounded) {
-      open = { frame, x: takeoffX, y: takeoffY, viewLeft, landingFrame: null, landingX: null }
+      openApexY = takeoffY
+      open = {
+        frame,
+        x: takeoffX,
+        y: takeoffY,
+        viewLeft,
+        viewTop,
+        apexY: takeoffY,
+        landingFrame: null,
+        landingX: null,
+        landingY: null,
+      }
     }
 
     if (sim.goalReached) return finish(true, false, frame + 1)
