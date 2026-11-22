@@ -133,9 +133,16 @@ describe('the v1 → v2 migration', () => {
   })
 
   it('keeps a tracked v1 unlock list rather than replacing it', () => {
-    const migrated = migrate({ version: 1, bestSeconds: 42, unlockedLevels: ['1-1', '1-2'] })
+    // The tracked shape, read through the real key and `loadSave` — not `migrate` on a literal, so the
+    // store-to-save path is the one under test.
+    const storage = memoryStorage({
+      [SAVE_KEY]: '{"version":1,"bestSeconds":42,"unlockedLevels":["1-1","1-2"]}',
+    })
+    const migrated = loadSave(storage)
     expect(migrated.unlockedLevels).toEqual(['1-1', '1-2'])
     expect(migrated.bestTimes).toEqual({ '1-1': 42 })
+    expect(relicsFor(migrated, '1-1')).toBe(0)
+    expect(relicsFor(migrated, '1-2')).toBe(0)
   })
 
   it('keeps an explicit empty unlock list, which means nothing is unlocked', () => {

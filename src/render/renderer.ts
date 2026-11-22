@@ -7,6 +7,7 @@ import { TILE } from '../physics/constants.ts'
 import { focusedLevelId, PreviewCache } from './preview.ts'
 import { WorldPainter, type WorldState } from './world.ts'
 import { isVolumeRow, rowOfIndex, scrollToRow, type GameScreen, type MenuItem } from '../ui/screens.ts'
+import { layoutMap, MAP_DISC_H, type MapCounts, type MapNode, type MapNodeBox } from '../levels/map.ts'
 
 /**
  * The logical view height is fixed at 14 tiles. The scale is `window height / VIEW_H` and may be
@@ -62,6 +63,14 @@ export interface MenuView {
   readonly bestSeconds: number | null
   /** The tile view's sets, in drawing order. Absent on every other screen. */
   readonly groups?: readonly MenuGroupView[]
+  /**
+   * The overworld map, when the tile screen is showing the map (`?map=1`) rather than the catalogue
+   * grid. The nodes come from the save, so an unlock or a new best time shows on the next frame.
+   */
+  readonly map?: {
+    readonly nodes: readonly MapNode[]
+    readonly counts: MapCounts
+  }
 }
 
 /** Each screen's heading and its one footer line. */
@@ -260,7 +269,8 @@ export class Renderer {
    */
   private drawMenu(view: MenuView): void {
     if (view.screen === 'tiles') {
-      this.drawTiles(view)
+      if (view.map) this.drawMap(view)
+      else this.drawTiles(view)
       return
     }
     const heading = MENU_HEADING[view.screen]
@@ -413,6 +423,75 @@ export class Renderer {
     const ink = locked ? 'steelLight' : selected ? 'brassLight' : 'cream'
     this.text(label, lx, ly, ink)
     this.overlayLines.push(label)
+  }
+
+  /**
+   * The overworld map: World 1's nodes along the winding trail the operator picked (mockup B), joined
+   * by a dashed path. A node's own line carries its Relic Coins and best time when it is playable and
+   * the reason it is not when it is not, so a map that never read the save cannot look right.
+   */
+  private drawMap(view: MenuView): void {
+    const map = view.map
+    if (map === undefined) return
+    const heading = OVERLAY_TEXT.world
+    const hint = MENU_HINT.tiles
+    const w = Math.min(this.viewW - 16, 240)
+    const h = Math.min(VIEW_H - 16, 200)
+    const x = Math.round((this.viewW - w) / 2)
+    const y = Math.round((VIEW_H - h) / 2)
+    this.panel(x, y, w, h)
+    this.overlayBox = { x, y, w, h }
+    const cx = x + w / 2
+
+    this.centred(heading, cx, y + PANEL_PAD_TOP, 'brassLight')
+
+    const rowsTop = y + PANEL_PAD_TOP + 12
+    const hintY = y + h - PANEL_PAD_BOTTOM - 7
+    const box = { x: x + 8, y: rowsTop, w: w - 16, h: Math.max(0, hintY - 8 - rowsTop) }
+    const layout = layoutMap(map.nodes, map.counts, box)
+
+    // The trail first, so every disc and every line of text sits over it.
+    const ctx = this.ctx
+    ctx.save()
+    ctx.strokeStyle = INK.brass
+    ctx.lineWidth = 1
+    ctx.setLineDash([3, 2])
+    for (const c of layout.connectors) {
+      ctx.beginPath()
+      ctx.moveTo(Math.round(c.x1), Math.round(c.y1))
+      ctx.lineTo(Math.round(c.x2), Math.round(c.y2))
+      ctx.stroke()
+    }
+    ctx.setLineDash([])
+    ctx.restore()
+
+    for (let i = 0; i < layout.nodes.length; i++) this.mapNode(layout.nodes[i], i === view.index)
+
+    this.centred(hint, cx, hintY, 'echo')
+  }
+
+  /**
+   * One map node: a disc carrying the level id, then its line underneath. An open node wears the
+   * brass inks; a locked or unbuilt one wears steel, so it reads as unstartable at a glance.
+   */
+  private mapNode(node: MapNodeBox, selected: boolean): void {
+    const playable = node.state === 'open'
+    const discW = 30
+    const dx = Math.round(node.x + (node.w - discW) / 2)
+    const dy = node.y
+    const rim = playable ? (selected ? INK.brassLight : INK.brass) : selected ? INK.steelLight : INK.steel
+    const ctx = this.ctx
+    ctx.fillStyle = rim
+    ctx.fillRect(dx, dy, discW, MAP_DISC_H)
+    ctx.fillStyle = INK.panel
+    ctx.fillRect(dx + 1, dy + 1, discW - 2, MAP_DISC_H - 2)
+    const lx = Math.round(dx + (discW - textWidth(node.label)) / 2)
+    const ly = Math.round(dy + (MAP_DISC_H - GLYPH_H) / 2)
+    this.text(node.label, lx, ly, playable ? (selected ? 'brassLight' : 'cream') : 'steelLight')
+    const mx = Math.round(node.x + (node.w - textWidth(node.meta)) / 2)
+    this.text(node.meta, mx, dy + MAP_DISC_H + 2, playable ? 'cream' : 'steelLight')
+    // One recorded line per node, so the browser check reads the map exactly as it is on screen.
+    this.overlayLines.push(`${node.label} ${node.meta}`)
   }
 
   private bestLine(bestSeconds: number | null): string {
