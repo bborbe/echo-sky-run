@@ -893,6 +893,12 @@ interface EchoSkyRunTestApi {
   overlayLines(): string[]
   /** The camera's integer scroll, for the flicker probe. */
   cameraX(): number
+  /** The camera's integer vertical scroll, for the flicker probe. */
+  cameraY(): number
+  /** The camera the current canvas was drawn at — race-free reference for the flicker probe. */
+  drawnCameraX(): number
+  /** The vertical camera the current canvas was drawn at. */
+  drawnCameraY(): number
   /** The sky gradient's colour at a screen row — what a gap must show. */
   skyAt(y: number): [number, number, number]
   /** World boxes of what the readability check measures: Pip, the ground under him, enemies, ? blocks, Echoes and their rings. */
@@ -1040,6 +1046,9 @@ const api: EchoSkyRunTestApi = {
   overlayInks: () => [INK.panel, INK.brass, INK.brassLight, INK.cream, INK.echo],
   overlayLines: () => [...renderer.overlayLines],
   cameraX: () => renderer.cameraX,
+  cameraY: () => renderer.cameraY,
+  drawnCameraX: () => renderer.drawnCameraX,
+  drawnCameraY: () => renderer.drawnCameraY,
   elements: () => {
     const out: { name: string; x: number; y: number; w: number; h: number }[] = []
     const p = sim.player
