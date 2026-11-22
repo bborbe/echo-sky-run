@@ -15,14 +15,18 @@ import { PLAYER_W, SMALL_W, TILE } from '../physics/constants.ts'
 import type { PlayerState } from '../physics/player.ts'
 import {
   CHECKPOINT,
+  CHASER_BOT,
   DOOR,
   ECHO_SWITCH,
   GEAR_GOOMBA,
   GOAL,
+  GUST_WING,
   NIMBUS,
   QUESTION,
+  SECRET_SWITCH,
   SIGN,
   SPAWN,
+  SPIKE_BEETLE,
   STEAM_TURTLE,
   isOneWay,
   isSolid,
@@ -186,6 +190,16 @@ const DRAW_ECHO_DOOR: PropPainter = (ctx, cell, frame, state) => {
 }
 
 /**
+ * The secret switch: the brass plate that unlocks the secret level. It latches on contact rather
+ * than holding a door open, so it has no pressed/idle read of its own — it stands on its cell and
+ * the save remembers the touch.
+ */
+const DRAW_SECRET_SWITCH: PropPainter = (ctx, cell, frame) => {
+  const img = frame('secret-switch', 0, 1)
+  ctx.drawImage(img, cell.x, cell.floor - TILE)
+}
+
+/**
  * Every tile character `drawProps` paints, and the painter that draws it. This map is the only place
  * a prop tile is registered, so a shipped level using a character with no entry here fails
  * `tile-coverage.test.ts` by name instead of shipping an invisible prop.
@@ -195,6 +209,7 @@ export const PROP_TILES: ReadonlyMap<string, PropPainter> = new Map([
   [CHECKPOINT, DRAW_CHECKPOINT],
   [GOAL, DRAW_GOAL],
   [ECHO_SWITCH, DRAW_ECHO_SWITCH],
+  [SECRET_SWITCH, DRAW_SECRET_SWITCH],
   [DOOR, DRAW_ECHO_DOOR],
 ])
 
@@ -207,6 +222,9 @@ export const ENTITY_TILES: ReadonlyMap<string, 'player' | 'enemy' | 'nimbus'> = 
   [SPAWN, 'player'],
   [GEAR_GOOMBA, 'enemy'],
   [STEAM_TURTLE, 'enemy'],
+  [SPIKE_BEETLE, 'enemy'],
+  [GUST_WING, 'enemy'],
+  [CHASER_BOT, 'enemy'],
   [NIMBUS, 'nimbus'],
 ])
 
