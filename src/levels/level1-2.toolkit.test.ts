@@ -1,8 +1,8 @@
 /**
  * The level toolkit, applied to level 1-2. Same checks as 1-1, with one difference the level itself
- * forces: 1-2's Echo use is the Echo switch, which the engine cannot express yet, so the level has
- * no Echo beat and the no-Echo sweep has nothing to sweep. That check comes back with the
- * engine-wiring task, and this file says so rather than sweeping an empty list.
+ * forces: 1-2's Echo use is the switch holding a door, not a mid-air Echo over a gap, so the level
+ * has no pit-based Echo beat and `sweepNoEcho` — which sweeps pits — has nothing to sweep. The Echo
+ * requirement lives in the door instead, and the door and seal tests below carry it.
  *
  *   A. the autopilot clears the *populated* level, with no deaths
  *   E. no jump on the critical path lands outside the view it was made from
@@ -55,10 +55,9 @@ describe('level 1-2 passes the level toolkit', () => {
     expect(run.deaths).toBe(0)
   })
 
-  it('has no Echo beat yet: the switch stretch is engine work, not level work', () => {
-    // Not a permanent property of the level — a statement of the current boundary. When the
-    // engine-wiring task lands, the switch stretch brings an Echo beat and this assertion is
-    // replaced by the no-Echo sweep 1-1 runs.
+  it('has no pit-based Echo beat: the Echo requirement is the door, not a gap', () => {
+    // `sweepNoEcho` sweeps pits, and this level has none wide enough to be a beat. The Echo is
+    // required by the door instead — the seal and door tests below carry that claim.
     expect(echoBeats(MAP)).toEqual([])
   })
 
