@@ -15,6 +15,7 @@ function takeoff(over: Partial<Takeoff> = {}): Takeoff {
     y: 178,
     viewLeft: 0,
     viewTop: 0,
+    apexY: 178,
     landingFrame: 30,
     landingX: 200,
     landingY: 200,
@@ -55,13 +56,13 @@ describe('the blind-jump check', () => {
 
 describe('the long-fall visibility check', () => {
   it('passes a long fall whose landing and five tiles below are in view', () => {
-    const fall = takeoff({ y: 0, landingY: 100, viewTop: 0 })
+    const fall = takeoff({ y: 0, apexY: 0, landingY: 100, viewTop: 0 })
     expect(unseenFalls([fall], VIEW_H, 400)).toEqual([])
   })
 
   it('flags a long fall whose landing margin is below the view', () => {
     // The known positive: the landing at 200 needs the view to reach 280, and it stops at 224.
-    const fall = takeoff({ y: 0, landingY: 200, viewTop: 0 })
+    const fall = takeoff({ y: 0, apexY: 0, landingY: 200, viewTop: 0 })
     const found = unseenFalls([fall], VIEW_H, 400)
 
     expect(found).toHaveLength(1)
@@ -72,12 +73,19 @@ describe('the long-fall visibility check', () => {
   it('clamps the requirement to the level floor, so a low landing is not asked for space below it', () => {
     // The level ends at 224: there are fewer than five tiles below the landing, and the floor itself
     // is the deepest thing to see.
-    const fall = takeoff({ y: 0, landingY: 200, viewTop: 0 })
+    const fall = takeoff({ y: 0, apexY: 0, landingY: 200, viewTop: 0 })
     expect(unseenFalls([fall], VIEW_H, 224)).toEqual([])
   })
 
+  it('measures the drop from the apex, not the take-off', () => {
+    // The jump rises 100 px first, then lands 20 px below take-off: a 120 px fall, which must be
+    // judged even though the net displacement is only 20 px.
+    const fall = takeoff({ y: 190, apexY: 90, landingY: 210, viewTop: 0 })
+    expect(unseenFalls([fall], VIEW_H, 400)).toHaveLength(1)
+  })
+
   it('ignores a short drop: only a long fall is judged', () => {
-    const shortFall = takeoff({ y: 190, landingY: 200, viewTop: 0 })
+    const shortFall = takeoff({ y: 190, apexY: 190, landingY: 200, viewTop: 0 })
     expect(unseenFalls([shortFall], VIEW_H, 400)).toEqual([])
   })
 })

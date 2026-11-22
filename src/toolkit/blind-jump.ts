@@ -74,7 +74,9 @@ export function unseenFalls(
   const found: UnseenFall[] = []
   for (const takeoff of takeoffs) {
     if (takeoff.landingY === null) continue
-    if (takeoff.landingY - takeoff.y < LONG_FALL_TILES * TILE) continue
+    // The drop starts at the apex, not the take-off point: a jump that rises first falls further
+    // than its net displacement, and measuring from the take-off would under-report it.
+    if (takeoff.landingY - takeoff.apexY < LONG_FALL_TILES * TILE) continue
     const requiredBottom = Math.min(takeoff.landingY + FALL_VISIBLE_TILES * TILE, levelBottom)
     const viewBottom = takeoff.viewTop + viewHeight
     if (viewBottom >= requiredBottom) continue

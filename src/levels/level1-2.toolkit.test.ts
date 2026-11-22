@@ -84,6 +84,7 @@ describe('level 1-2 passes the level toolkit', () => {
       y: 176,
       viewLeft: 0,
       viewTop: 0,
+      apexY: 176,
       landingFrame: 30,
       landingX: 500,
       landingY: 200,
