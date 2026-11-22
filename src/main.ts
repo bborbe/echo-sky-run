@@ -15,7 +15,7 @@ import { LEVEL_CATALOGUE, findLevel, groupBySet, tileIndexFor, tileItems } from 
 import { mapItems, mapNodes, MAP_NODE_IDS, completeLevel, unlockSecretLevel } from './levels/map.ts'
 import { PLAYER_W, TILE } from './physics/constants.ts'
 import { FixedStepper } from './physics/loop.ts'
-import { parseLevel, tileAt } from './physics/tilemap.ts'
+import { isSolid, parseLevel, tileAt } from './physics/tilemap.ts'
 import { Juice, type StepFacts, type StompFact } from './render/juice.ts'
 import { skyColourAt } from './render/parallax.ts'
 import { PipAnimator } from './render/pose.ts'
@@ -917,6 +917,8 @@ interface EchoSkyRunTestApi {
   /** True while the sign's hint overlay is on screen. */
   hintShown(): boolean
   lipMissingAt(x: number): boolean
+  /** True when a solid tile sits at Pip's body height just ahead — the climb's jump trigger. */
+  wallAheadAt(): boolean
   enemyXs(): number[]
   spawnX(): number
   /** The pad the shell sees, and how many keys it is holding. */
@@ -1075,9 +1077,20 @@ const api: EchoSkyRunTestApi = {
     const col = Math.floor((x + 12) / TILE)
     return tileAt(map, col, feetRow) !== '#'
   },
+  /**
+   * True when a solid tile sits at Pip's body height one tile ahead — the floor rising, the sibling
+   * of `lipMissingAt`'s floor falling away. Both are the autopilot's jump triggers, and a climbing
+   * level needs this one to be clearable in the browser as well as in vitest.
+   */
+  wallAheadAt: () => {
+    const row = Math.floor((sim.player.y + sim.player.h - 1) / TILE)
+    const first = Math.floor((sim.player.x + PLAYER_W) / TILE)
+    const last = Math.floor((sim.player.x + PLAYER_W + TILE) / TILE)
+    for (let col = first; col <= last; col++) if (isSolid(tileAt(map, col, row))) return true
+    return false
+  },
   /** Live enemy positions, so the check can jump over them instead of walking into them. */
-  enemyXs: () => sim.enemies.enemies.filter((e) => e.mode !== 'carried').map((e) => e.x),
-  /** Where Pip starts, so a reset assertion compares against the level rather than a literal. */
+  enemyXs: () => sim.enemies.enemies.filter((e) => e.mode !== 'carried').map((e) => e.x),  /** Where Pip starts, so a reset assertion compares against the level rather than a literal. */
   spawnX: () => sim.respawn.x,
   pad: () => ({ id: gamepad.id(), held: gamepad.heldCount() }),
   debug: () => ({

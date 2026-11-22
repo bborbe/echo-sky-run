@@ -88,7 +88,7 @@ try {
   }))
   check(title.menu?.screen === 'tiles', 'the game lands on the tile view', JSON.stringify(title.menu))
   check(
-    JSON.stringify(title.menu?.items) === JSON.stringify(['1-1', '1-2']),
+    JSON.stringify(title.menu?.items) === JSON.stringify(['1-1', '1-2', '1-3']),
     'the tile view lists the shipped levels',
     JSON.stringify(title.menu?.items),
   )
@@ -2100,23 +2100,24 @@ try {
   )
 
   // An unlocked level with no module reads NOT BUILT YET, and confirming it is a no-op.
-  // 1-3, not 1-2: 1-2 ships a level module, so it is built now.
+  // 1-4, not 1-3: 1-3 ships a level module, so it is built now.
   await page.evaluate(() =>
     localStorage.setItem(
       'echo-sky-run.v1',
-      JSON.stringify({ version: 2, bestSeconds: null, unlockedLevels: ['1-1', '1-2', '1-3'], relics: {}, bestTimes: {} }),
+      JSON.stringify({ version: 2, bestSeconds: null, unlockedLevels: ['1-1', '1-2', '1-3', '1-4'], relics: {}, bestTimes: {} }),
     ),
   )
   await page.goto(MAP_URL, { waitUntil: 'load' })
   await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
-  await page.waitForFunction(() => window.__echoSkyRun.overlayLines().some((l) => l.startsWith('1-3 ')))
+  await page.waitForFunction(() => window.__echoSkyRun.overlayLines().some((l) => l.startsWith('1-4 ')))
   const unbuiltLines = await page.evaluate(() => window.__echoSkyRun.overlayLines())
   check(
-    unbuiltLines.includes('1-3 NOT BUILT YET'),
+    unbuiltLines.includes('1-4 NOT BUILT YET'),
     'an unlocked level with no module reads NOT BUILT YET',
     JSON.stringify(unbuiltLines),
   )
-  // Focus starts on 1-1, so 1-3 is two nodes along the path.
+  // Focus starts on 1-1, so 1-4 is three nodes along the path.
+  await page.keyboard.press('ArrowRight')
   await page.keyboard.press('ArrowRight')
   await page.keyboard.press('ArrowRight')
   await page.keyboard.press('Space')
@@ -2160,6 +2161,32 @@ try {
     return { won: false, timedOut: true }
   })
   check(run12.won, 'level 1-2 is cleared', JSON.stringify(run12))
+
+  // ---- level 1-3, the climb, driven deterministically --------------------------------------
+  // 1-3's route rises, so the driver jumps at a wall ahead as well as at a missing lip — the same
+  // pair `src/toolkit/autopilot.ts` uses. Without the wall trigger it holds right into the first
+  // riser and never leaves the ground.
+  await page.goto(`${URL}?level=1-3`, { waitUntil: 'load' })
+  await page.waitForFunction(() => Boolean(window.__echoSkyRun), null, { timeout: 15000 })
+  const run13 = await page.evaluate(() => {
+    const game = window.__echoSkyRun
+    game.reset()
+    let previousEchoes = game.state().echoes
+    let echoesPlaced = 0
+    for (let i = 0; i < 4000; i++) {
+      const s = game.state()
+      const enemyNear = game.enemyXs().some((ex) => ex > s.x && ex - s.x < 40)
+      const jumpPressed = s.grounded && (game.lipMissingAt(s.x) || game.wallAheadAt() || enemyNear)
+      const next = game.step({ right: true, jump: true, jumpPressed, sprint: true, echoPressed: false })
+      if (next.echoes > previousEchoes) echoesPlaced += 1
+      previousEchoes = next.echoes
+      if (next.goalReached) return { won: true, frames: i + 1, echoesPlaced, x: next.x }
+      if (next.deaths > 0) return { won: false, died: true, frames: i + 1, x: next.x }
+    }
+    return { won: false, timedOut: true }
+  })
+  check(run13.won, 'level 1-3 is cleared', JSON.stringify(run13))
+  check(run13.echoesPlaced === 0, 'level 1-3 clears without an Echo', JSON.stringify(run13))
 
   check(errors.length === 0, 'no console errors', errors.slice(0, 3).join(' | '))
 } catch (err) {
