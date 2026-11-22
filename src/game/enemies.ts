@@ -47,11 +47,17 @@ export const STOMP_TOLERANCE = 8
 /** The upward velocity a stomp gives Pip. */
 export const STOMP_BOUNCE = 4.5
 /**
- * Frames of side contact before an enemy's touch hurts: 18 f ≈ 300 ms, the platformer guide's
- * telegraph minimum. Every contact-damaging kind waits it out; a landing on a spiked top is the one
- * exempt path, because the visible spikes are themselves the telegraph.
+ * Frames between an enemy first noticing Pip and its touch hurting: 18 f ≈ 300 ms, the platformer
+ * guide's telegraph minimum. Every contact-damaging kind waits it out; a landing on a spiked top is
+ * the one exempt path, because the visible spikes are themselves the telegraph.
  */
 export const WINDUP_F = 18
+/**
+ * How far beyond its own box an enemy starts winding up. The telegraph runs on *approach*, not on
+ * contact: a sprinting Pip closes at ~3.5 px/f, so 64 px covers the full 18 frames before he can
+ * reach the body — which is what keeps a running player from slipping through an enemy untouched.
+ */
+export const WINDUP_RANGE_PX = 64
 
 export type EnemyKind =
   | 'gear-goomba'
@@ -78,8 +84,8 @@ export interface Enemy {
   hp: number
   /** Frames alive — the Gust-Wing's sine path is a function of it. */
   age: number
-  /** Consecutive frames of side contact; resets to 0 the frame Pip is clear of it. */
-  contact: number
+  /** Frames the player has been inside the wind-up range; resets to 0 once he is clear of it. */
+  windup: number
   /** The Gust-Wing's path centre; every other enemy ignores it. */
   baseY: number
   /** Set the frame the enemy leaves play; the field drops it before returning. */
@@ -153,7 +159,7 @@ export function createEnemy(kind: EnemyKind, x: number, y: number, dir: -1 | 1 =
     mode: 'walk',
     hp: kind === 'chaser-bot' ? CHASER_HP : 1,
     age: 0,
-    contact: 0,
+    windup: 0,
     baseY: y,
     dead: false,
   }
@@ -167,6 +173,20 @@ export function enemyBox(e: Enemy): Box {
 /** True when the two boxes overlap on both axes. Touching exactly does not count. */
 export function overlaps(a: Box, b: Box): boolean {
   return a.x + a.w > b.x + EPS && a.x < b.x + b.w - EPS && a.y + a.h > b.y + EPS && a.y < b.y + b.h - EPS
+}
+
+/**
+ * True when the player is inside the enemy's wind-up range — its own box grown by `WINDUP_RANGE_PX`.
+ * Computed from the edges rather than a grown box object, so the fixed step allocates nothing.
+ */
+function withinWindup(player: Box, e: Enemy): boolean {
+  const r = WINDUP_RANGE_PX
+  return (
+    player.x + player.w > e.x - r &&
+    player.x < e.x + e.w + r &&
+    player.y + player.h > e.y - r &&
+    player.y < e.y + e.h + r
+  )
 }
 
 /**
@@ -333,12 +353,14 @@ export function stepEnemies(
       continue
     }
 
-    if (overlaps(player, enemyBox(e))) {
-      e.contact += 1
-      if (e.contact >= WINDUP_F) hit = true
+    // The wind-up runs on approach: it fills while Pip is inside the enemy's range, and only a
+    // contact after it has filled hurts. A running player is therefore warned before he arrives.
+    if (withinWindup(player, e)) {
+      if (e.windup < WINDUP_F) e.windup += 1
     } else {
-      e.contact = 0
+      e.windup = 0
     }
+    if (e.windup >= WINDUP_F && overlaps(player, enemyBox(e))) hit = true
   }
 
   // Compact in place rather than filtering: `filter` builds a new array every frame, and the

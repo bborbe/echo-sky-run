@@ -31,7 +31,7 @@ function goombaAt(x: number, y: number): Enemy {
     mode: 'walk',
     hp: 1,
     age: 0,
-    contact: 0,
+    windup: 0,
     baseY: y,
     dead: false,
   }
