@@ -14,9 +14,11 @@
 
 import { describe, expect, it } from 'vitest'
 import { LEVEL_1_2_COLS, LEVEL_1_2_DOOR_COL, LEVEL_1_2_LEDGE, LEVEL_1_2_PITS, LEVEL_1_2_ROWS, LEVEL_1_2_SWITCH_COL } from './level1-2.level.ts'
-import { createSim } from '../game/sim.ts'
+import { createSim, stepSim } from '../game/sim.ts'
 import { stepSwitches } from '../game/switches.ts'
+import { WINDUP_F, WINDUP_RANGE_PX } from '../game/enemies.ts'
 import { TILE } from '../physics/constants.ts'
+import { CHECKPOINT } from '../physics/tilemap.ts'
 import { runAutopilot, TOOLKIT_VIEWPORT, type Takeoff } from '../toolkit/autopilot.ts'
 import { blindJumps } from '../toolkit/blind-jump.ts'
 import { echoBeats, profileMap, type LevelToolkitProfile } from '../toolkit/level.ts'
@@ -143,5 +145,35 @@ describe('level 1-2 passes the level toolkit', () => {
     expect(LEVEL_1_2_LEDGE.row).toBeLessThan(11)
     expect(LEVEL_1_2_LEDGE.firstCol).toBeLessThan(LEVEL_1_2_SWITCH_COL)
     expect(LEVEL_1_2_SWITCH_COL).toBeLessThan(LEVEL_1_2_DOOR_COL)
+  })
+
+  it('claims the midpoint checkpoint, so a death past it does not send Pip back to the spawn', () => {
+    const sim = createSim(MAP)
+    const spawn = findTile(MAP, SPAWN)
+    const cp = findTile(MAP, CHECKPOINT)
+    expect(spawn).not.toBeNull()
+    expect(cp).not.toBeNull()
+
+    // The claim is an overlap with the checkpoint tile, so standing Pip on it claims it.
+    sim.player.x = cp?.x ?? 0
+    sim.player.y = cp?.y ?? 0
+    stepSim(sim, {
+      left: false,
+      right: false,
+      jump: false,
+      jumpPressed: false,
+      sprint: false,
+      echoPressed: false,
+    })
+
+    expect(sim.respawn.x).toBe(cp?.x)
+    expect(sim.respawn.x).not.toBe(spawn?.x)
+  })
+
+  it('gives every attack at least 18 frames of wind-up', () => {
+    // The engine's wind-up is an approach trigger: the hit lands WINDUP_F frames after the enemy
+    // notices Pip. The criterion's 18-frame floor is read off this constant, not guessed.
+    expect(WINDUP_F).toBeGreaterThanOrEqual(18)
+    expect(WINDUP_RANGE_PX).toBeGreaterThan(0)
   })
 })
