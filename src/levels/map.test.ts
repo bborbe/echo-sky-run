@@ -55,11 +55,11 @@ describe('the overworld map', () => {
   })
 
   it('shows a newly unlocked level as playable, and an unbuilt one as a placeholder', () => {
-    // 1-2 ships a level module, so unlocking it makes it playable; 1-3 has no module yet. 1-S is
+    // 1-3 ships a level module, so unlocking it makes it playable; 1-S has no module yet. 1-S is
     // held here too, but has no module, so it reads as a placeholder rather than a lock.
     const nodes = mapNodes((id) => isUnlocked(saveWith(['1-1', '1-2', '1-3', '1-S']), id))
     expect(nodes.find((n) => n.id === '1-2')?.state).toBe('open')
-    expect(nodes.find((n) => n.id === '1-3')?.state).toBe('unbuilt')
+    expect(nodes.find((n) => n.id === '1-3')?.state).toBe('open')
     expect(nodes.find((n) => n.id === '1-4')?.state).toBe('locked')
     expect(nodes.find((n) => n.id === '1-S')?.state).toBe('unbuilt')
   })
@@ -69,8 +69,9 @@ describe('the overworld map', () => {
     const nodes = mapNodes((id) => isUnlocked(saveWith(MAP_NODE_IDS), id))
     expect(nodes.find((n) => n.id === '1-1')?.state).toBe('open')
     expect(nodes.find((n) => n.id === '1-2')?.state).toBe('open')
+    expect(nodes.find((n) => n.id === '1-3')?.state).toBe('open')
     expect(
-      nodes.filter((n) => n.id !== '1-1' && n.id !== '1-2').every((n) => n.state === 'unbuilt'),
+      nodes.filter((n) => n.id !== '1-1' && n.id !== '1-2' && n.id !== '1-3').every((n) => n.state === 'unbuilt'),
     ).toBe(true)
   })
 
@@ -80,24 +81,24 @@ describe('the overworld map', () => {
     const byId = (id: string) => items.find((item) => item.level === id)
     expect(canActivate(byId('1-1'))).toBe(true)
     expect(canActivate(byId('1-2'))).toBe(true) // built and unlocked
-    expect(canActivate(byId('1-3'))).toBe(false) // unbuilt
+    expect(canActivate(byId('1-3'))).toBe(true) // built and unlocked
     expect(canActivate(byId('1-4'))).toBe(false) // locked
     expect(canActivate(byId('1-S'))).toBe(false) // held but unbuilt
   })
 
   it('labels a locked node and an unbuilt node differently', () => {
-    const nodes = mapNodes((id) => isUnlocked(saveWith(['1-1', '1-2', '1-3']), id))
+    const nodes = mapNodes((id) => isUnlocked(saveWith(['1-1', '1-2', '1-3', '1-S']), id))
     const byId = (id: string) => nodes.find((n) => n.id === id)!
     expect(mapLabel(byId('1-1'))).toBe('')
     expect(mapLabel(byId('1-2'))).toBe('')
-    expect(mapLabel(byId('1-3'))).toBe('NOT BUILT YET')
+    expect(mapLabel(byId('1-3'))).toBe('')
     expect(mapLabel(byId('1-4'))).toBe('LOCKED')
-    expect(mapLabel(byId('1-S'))).toBe('LOCKED')
+    expect(mapLabel(byId('1-S'))).toBe('NOT BUILT YET')
   })
 
   it('knows which path levels are actually built', () => {
-    // 1-1 and 1-2 ship a level module; 1-3 and 1-4 do not yet.
-    expect(builtPathLevels()).toEqual(['1-1', '1-2'])
+    // 1-1, 1-2 and 1-3 ship a level module; 1-4 does not yet.
+    expect(builtPathLevels()).toEqual(['1-1', '1-2', '1-3'])
     expect(MAP_LEVEL_COUNT).toBeGreaterThanOrEqual(1)
   })
 
@@ -175,9 +176,10 @@ describe('the map against two seeded saves', () => {
   })
 
   it('draws a locked node and an unbuilt node with their own reasons, not a time', () => {
-    const save = { ...STATE_A, unlockedLevels: ['1-1', '1-2', '1-3'] }
+    const save = { ...STATE_A, unlockedLevels: ['1-1', '1-2', '1-3', '1-S'] }
     const layout = layoutFor(save)
-    expect(layout.nodes.find((n) => n.id === '1-3')?.meta).toBe('NOT BUILT YET')
+    expect(layout.nodes.find((n) => n.id === '1-3')?.meta).toBe('◇◇◇ · --')
+    expect(layout.nodes.find((n) => n.id === '1-S')?.meta).toBe('NOT BUILT YET')
     expect(layout.nodes.find((n) => n.id === '1-4')?.meta).toBe('LOCKED')
   })
 
