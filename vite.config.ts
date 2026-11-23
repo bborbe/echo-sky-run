@@ -37,7 +37,10 @@ const version: string = JSON.parse(readFileSync(new URL('./package.json', import
 
 // Test tiers, same shape as driftline: slow is an explicit list, fast is every other test file.
 // `npm test` runs fast only (every PR, `make test`); `npm run test:all` runs both.
-const SLOW_TESTS: string[] = []
+// The reachability solver is slow by nature: its exact search runs to its cap on any level it cannot
+// exhaust, so it must never sit in `make test` (the PR gate). It lives here, in the slow tier, which
+// `make solve`, `make test-all`, the nightly job and the release job run.
+const SLOW_TESTS: string[] = ['src/toolkit/reachability.slow.test.ts']
 
 // Served from https://bborbe.github.io/echo-sky-run/ (GitHub Pages project site); PR previews build
 // under /echo-sky-run/pr-<n>/ by setting VITE_BASE (pages.yml).
@@ -53,7 +56,9 @@ export default defineConfig({
   test: {
     projects: [
       { extends: true, test: { name: 'fast', include: ['src/**/*.test.ts'], exclude: SLOW_TESTS } },
-      { extends: true, test: { name: 'slow', include: SLOW_TESTS } },
+      // The slow tier is the reachability solver: a single exact search runs for minutes by design, so
+      // the tier carries its own generous timeout rather than every test restating one.
+      { extends: true, test: { name: 'slow', include: SLOW_TESTS, testTimeout: 900_000 } },
     ],
   },
 })
